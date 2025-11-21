@@ -16,6 +16,10 @@ final class SolitaireTestHelper {
         return new ArrayList<>(Arrays.asList(cards));
     }
 
+    static List<Card> emptyPile() {
+        return new ArrayList<>();
+    }
+
     static void setTableau(Solitaire solitaire, List<List<Card>> tableauPiles, List<Integer> faceUpCounts) {
         setListField(solitaire, "tableau", tableauPiles);
         setListField(solitaire, "tableauFaceUp", faceUpCounts);

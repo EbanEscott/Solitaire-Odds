@@ -68,7 +68,7 @@ class IllegalMovesTest {
     }
 
     private static List<Card> empty() {
-        return Collections.emptyList();
+        return SolitaireTestHelper.emptyPile();
     }
 
     private static List<Card> pile(Card... cards) {
