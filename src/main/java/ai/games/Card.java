@@ -1,3 +1,5 @@
+package ai.games;
+
 import java.util.Objects;
 
 public class Card {
