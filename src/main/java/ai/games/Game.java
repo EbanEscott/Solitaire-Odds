@@ -1,22 +1,29 @@
 package ai.games;
 
-import java.util.Scanner;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import ai.games.player.Player;
+import ai.games.game.Deck;
+import ai.games.game.Solitaire;
+import ai.games.game.Card;
 
 @SpringBootApplication
-public class HelloWorld implements CommandLineRunner {
+public class Game implements CommandLineRunner {
+    private final Player player;
+
+    public Game(Player player) {
+        this.player = player;
+    }
 
     public static void main(String[] args) {
-        SpringApplication.run(HelloWorld.class, args);
+        SpringApplication.run(Game.class, args);
     }
 
     @Override
     public void run(String... args) {
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
-        Scanner scanner = new Scanner(System.in);
 
         while (true) {
             System.out.println(solitaire);
@@ -25,12 +32,12 @@ public class HelloWorld implements CommandLineRunner {
                 break;
             }
 
-            System.out.print("Enter command (turn | move FROM TO | quit): ");
-            if (!scanner.hasNextLine()) {
+            String input = player.nextCommand(solitaire);
+            if (input == null) {
                 System.out.println("Input closed. Exiting.");
                 break;
             }
-            String input = scanner.nextLine().trim();
+            input = input.trim();
             if (input.equalsIgnoreCase("quit")) {
                 break;
             } else if (input.equalsIgnoreCase("turn")) {

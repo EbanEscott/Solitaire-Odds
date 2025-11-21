@@ -1,44 +1,46 @@
 # Solitaire CLI (Spring Boot)
 
-Spring Boot command-line Solitaire (Klondike-style) demo under the `ai.games` package. The game deals a board, lets you turn three cards from the stock (`turn`) or move cards with pile codes (e.g., `move W T3`, `move T7 F1`, `quit`).
+A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` package. The game supports pluggable players (human CLI by default; AI profile-ready).
 
-## Prerequisites
+## Prereqs
 - JDK 17+
-- Use the bundled Gradle wrapper (pinned to Gradle 8.7) to avoid Gradle 9.x incompatibility with Spring Boot 3.2.
+- Use the bundled Gradle wrapper (pinned to Gradle 8.7). Gradle 9.x is incompatible with Spring Boot 3.2.
+  - If Gradle 9.x was cached: `rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin`
 
-If you inadvertently downloaded Gradle 9.x (wrapper caches under `~/.gradle/wrapper/dists`), delete that cached folder and rerun with the wrapper so it fetches 8.7:
-```
-rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin
-./gradlew --version
-```
+## Layout
+- `src/main/java/ai/games/` — game logic and Spring Boot entry:
+  - `Game` — main app (constructor-injected `Player`).
+  - `Solitaire`, `Deck`, `Card`, `Rank`, `Suit` — core model.
+  - `Player` + implementations: `HumanPlayer` (default, CLI), `AIPlayer` (stub, `@Profile("ai")`).
+- `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
+  - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`.
+- Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
-## Project layout
-- `src/main/java/ai/games/` — game logic and Spring Boot CLI entry point.
-- `src/test/java/ai/games/` — JUnit 5 tests (legal/illegal move coverage, seeded states via reflection helper).
-- `build.gradle` / `settings.gradle` — Gradle build config.
-- `gradlew`, `gradlew.bat`, `gradle/wrapper/` — Gradle wrapper pinned to 8.7.
-
-## Run the app (from `cards/`)
+## Running (from `cards/`)
+Human CLI (default):
 ```
 ./gradlew bootRun
 ```
-`bootRun` is wired to keep stdin open for interactive commands.
 
-## Build
+AI stub (loads `AIPlayer` bean):
+```
+./gradlew bootRun --args='' --console=plain -Dspring.profiles.active=ai
+```
+(AI currently returns a stub command; extend `AIPlayer` for real moves.)
+
+## Build & Test
+Build:
 ```
 ./gradlew build
 ```
 
-## Tests
+Tests:
 ```
 ./gradlew test
 ```
-Tests include:
-- `LegalMovesTest` (happy-path moves like Ace to empty foundation, 2♥ onto A♥ foundation, alternating tableau stacks, talon-to-foundation).
-- `IllegalMovesTest` (wrong suit, non-Ace to empty foundation, face-down moves, bad color sequence, empty tableau).
-- `SolitaireTestHelper` demonstrates seeding tableau/foundation/talon/stockpile for deterministic scenarios.
+(Tests seed deterministic board states to verify legal/illegal moves, tableau flipping, foundation progression, and deck integrity.)
 
-## Clean
+Clean:
 ```
 ./gradlew clean
 ```
@@ -50,11 +52,20 @@ javac -cp "$(pwd)/src/main/java" $(find src/main/java -name "*.java")
 ```
 Run:
 ```
-java -cp src/main/java ai.games.HelloWorld
+java -cp src/main/java ai.games.Game
 ```
 
-## Pile codes recap
-- Tableau: `T1`–`T7` (move face-up top card)
+## Gameplay commands (CLI)
+- `turn` — flip up to three cards from stock to talon.
+- `move FROM TO` — e.g., `move W T3`, `move T7 F1`, `move T6 T1`.
+- `quit` — exit.
+
+Pile codes:
+- Tableau: `T1`–`T7`
 - Foundation: `F1`–`F4`
 - Talon/Waste: `W`
-- Stockpile: `S` (turn via `turn`, not `move`)
+- Stockpile: `S` (turned via `turn`, not `move`)
+
+## Notes
+- ANSI suit symbols are used (hearts/diamonds in red).
+- Tableau display shows face-up top rows with face-down counts next to headers.+
