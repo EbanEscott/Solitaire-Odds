@@ -5,16 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * Extra coverage around tableau behavior, stock/talon flow, input validation, and deck reset/shuffle.
+ * Boundary and edge-case behavior around tableau rules, stock/talon flow, invalid inputs, and deck integrity.
  */
-class AdditionalSolitaireBehaviorTest {
+class BoundaryTest {
 
     @Test
     void emptyTableauAcceptsOnlyKing() {
