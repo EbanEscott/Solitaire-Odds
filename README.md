@@ -12,23 +12,33 @@ rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin
 ./gradlew --version
 ```
 
-## Common Gradle commands (run from `cards/`)
-Run the app:
+## Project layout
+- `src/main/java/ai/games/` — game logic and Spring Boot CLI entry point.
+- `src/test/java/ai/games/` — JUnit 5 tests (legal/illegal move coverage, seeded states via reflection helper).
+- `build.gradle` / `settings.gradle` — Gradle build config.
+- `gradlew`, `gradlew.bat`, `gradle/wrapper/` — Gradle wrapper pinned to 8.7.
+
+## Run the app (from `cards/`)
 ```
 ./gradlew bootRun
 ```
+`bootRun` is wired to keep stdin open for interactive commands.
 
-Build:
+## Build
 ```
 ./gradlew build
 ```
 
-Tests:
+## Tests
 ```
 ./gradlew test
 ```
+Tests include:
+- `LegalMovesTest` (happy-path moves like Ace to empty foundation, 2♥ onto A♥ foundation, alternating tableau stacks, talon-to-foundation).
+- `IllegalMovesTest` (wrong suit, non-Ace to empty foundation, face-down moves, bad color sequence, empty tableau).
+- `SolitaireTestHelper` demonstrates seeding tableau/foundation/talon/stockpile for deterministic scenarios.
 
-Clean:
+## Clean
 ```
 ./gradlew clean
 ```
