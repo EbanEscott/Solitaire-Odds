@@ -11,6 +11,7 @@ public class Solitaire {
 
     // Tableau: seven piles where most play occurs.
     private final List<List<Card>> tableau = new ArrayList<>();
+    private final List<Integer> tableauFaceUp = new ArrayList<>(); // face-up card counts per tableau pile
     // Foundation: four suit piles built up from Ace to King.
     private final List<List<Card>> foundation = new ArrayList<>();
     // Stockpile: undealt cards remaining after the tableau is dealt.
@@ -55,19 +56,41 @@ public class Solitaire {
      * Returns true on success, false if the move is illegal or piles are invalid/empty.
      */
     public boolean moveCard(String from, String to) {
-        List<Card> fromPile = resolvePile(from);
-        List<Card> toPile = resolvePile(to);
+        String fromNormalized = normalizeCode(from);
+        String toNormalized = normalizeCode(to);
+        if (fromNormalized == null || toNormalized == null) {
+            return false;
+        }
+
+        char fromType = fromNormalized.charAt(0);
+        char toType = toNormalized.charAt(0);
+        int fromIndex = parseIndex(fromNormalized);
+        int toIndex = parseIndex(toNormalized);
+
+        List<Card> fromPile = resolvePile(fromNormalized);
+        List<Card> toPile = resolvePile(toNormalized);
         if (fromPile == null || toPile == null || fromPile.isEmpty()) {
             return false;
         }
 
-        Card moving = fromPile.get(fromPile.size() - 1);
-        if (!isLegalMove(moving, to, toPile)) {
+        Card moving = peekMovableCard(fromType, fromIndex, fromPile);
+        if (moving == null) {
+            return false;
+        }
+
+        if (!isLegalMove(moving, toNormalized, toPile)) {
             return false;
         }
 
         fromPile.remove(fromPile.size() - 1);
+        if (fromType == 'T') {
+            decrementFaceUp(fromIndex, fromPile);
+        }
+
         toPile.add(moving);
+        if (toType == 'T' && toIndex >= 0 && toIndex < tableauFaceUp.size()) {
+            tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + 1);
+        }
         return true;
     }
 
@@ -84,6 +107,7 @@ public class Solitaire {
                 pile.add(deck.draw());
             }
             tableau.add(pile);
+            tableauFaceUp.add(pile.isEmpty() ? 0 : 1); // only the top card is face up initially
         }
     }
 
@@ -126,18 +150,32 @@ public class Solitaire {
     private void appendTableauSection(StringBuilder sb) {
         sb.append("TABLEAU\n");
         List<String> labels = new ArrayList<>();
+        for (int i = 0; i < tableau.size(); i++) {
+            List<Card> pile = tableau.get(i);
+            int faceUp = tableauFaceUp.get(i);
+            int faceDown = Math.max(0, pile.size() - faceUp);
+            labels.add("T" + (i + 1) + " [" + faceDown + "]");
+        }
+
         List<String> values = new ArrayList<>();
         for (int i = 0; i < tableau.size(); i++) {
-            labels.add("T" + (i + 1));
             List<Card> pile = tableau.get(i);
             if (pile.isEmpty()) {
                 values.add("(empty)");
             } else {
-                int hidden = pile.size() - 1;
-                String top = pile.get(pile.size() - 1).toString();
-                values.add((hidden > 0 ? "[" + hidden + "] " : "") + top);
+                int faceUp = tableauFaceUp.get(i);
+                int start = Math.max(0, pile.size() - faceUp);
+                StringBuilder row = new StringBuilder();
+                for (int j = start; j < pile.size(); j++) {
+                    row.append(pile.get(j));
+                    if (j < pile.size() - 1) {
+                        row.append(' ');
+                    }
+                }
+                values.add(row.toString());
             }
         }
+
         appendBoxRow(sb, labels, values, "  ");
         sb.append('\n');
     }
@@ -152,16 +190,17 @@ public class Solitaire {
     }
 
     private void appendBoxRow(StringBuilder sb, List<String> labels, List<String> contents, String indent) {
-        String top = buildBorder(labels.size(), indent);
-        String labelLine = buildRow(labels, indent);
-        String contentLine = buildRow(contents, indent);
+        int width = Math.max(CELL_WIDTH, Math.max(maxVisibleLength(labels), maxVisibleLength(contents)));
+        String top = buildBorder(labels.size(), indent, width);
+        String labelLine = buildRow(labels, indent, width);
+        String contentLine = buildRow(contents, indent, width);
         sb.append(top).append('\n').append(labelLine).append('\n').append(contentLine).append('\n').append(top);
     }
 
-    private String buildBorder(int count, String indent) {
+    private String buildBorder(int count, String indent, int cellWidth) {
         StringBuilder line = new StringBuilder(indent);
         for (int i = 0; i < count; i++) {
-            line.append("+").append("-".repeat(CELL_WIDTH + 2)).append("+");
+            line.append("+").append("-".repeat(cellWidth + 2)).append("+");
             if (i < count - 1) {
                 line.append("  ");
             }
@@ -169,11 +208,11 @@ public class Solitaire {
         return line.toString();
     }
 
-    private String buildRow(List<String> cells, String indent) {
+    private String buildRow(List<String> cells, String indent, int cellWidth) {
         StringBuilder line = new StringBuilder(indent);
         for (int i = 0; i < cells.size(); i++) {
             String content = cells.get(i);
-            line.append("| ").append(padCell(content, CELL_WIDTH)).append(" |");
+            line.append("| ").append(padCell(content, cellWidth)).append(" |");
             if (i < cells.size() - 1) {
                 line.append("  ");
             }
@@ -206,6 +245,24 @@ public class Solitaire {
         return stripped.length();
     }
 
+    private int maxVisibleLength(List<String> items) {
+        int max = 0;
+        for (String item : items) {
+            max = Math.max(max, visibleLength(item));
+        }
+        return max;
+    }
+
+    private int maxVisibleLengthColumns(List<List<String>> columns) {
+        int max = 0;
+        for (List<String> col : columns) {
+            for (String item : col) {
+                max = Math.max(max, visibleLength(item));
+            }
+        }
+        return max;
+    }
+
     private void appendStockAndTalon(StringBuilder sb) {
         sb.append("STOCKPILE & TALON\n");
         List<String> labels = new ArrayList<>();
@@ -229,7 +286,7 @@ public class Solitaire {
         if (code == null || code.isEmpty()) {
             return null;
         }
-        String normalized = code.trim().toUpperCase();
+        String normalized = code;
         char type = normalized.charAt(0);
         int index = 0;
         if (normalized.length() > 1) {
@@ -252,6 +309,55 @@ public class Solitaire {
             default:
                 return null;
         }
+    }
+
+    private String normalizeCode(String code) {
+        if (code == null || code.trim().isEmpty()) {
+            return null;
+        }
+        return code.trim().toUpperCase();
+    }
+
+    private int parseIndex(String normalized) {
+        if (normalized == null || normalized.length() <= 1) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(normalized.substring(1)) - 1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private Card peekMovableCard(char fromType, int fromIndex, List<Card> fromPile) {
+        if (fromPile.isEmpty()) {
+            return null;
+        }
+        switch (fromType) {
+            case 'T':
+                if (fromIndex < 0 || fromIndex >= tableauFaceUp.size()) {
+                    return null;
+                }
+                if (tableauFaceUp.get(fromIndex) <= 0) {
+                    return null;
+                }
+                return fromPile.get(fromPile.size() - 1);
+            case 'W':
+            case 'F':
+            case 'S':
+                return fromPile.get(fromPile.size() - 1);
+            default:
+                return null;
+        }
+    }
+
+    private void decrementFaceUp(int fromIndex, List<Card> fromPile) {
+        int current = tableauFaceUp.get(fromIndex);
+        current = Math.max(0, current - 1);
+        if (current == 0 && !fromPile.isEmpty()) {
+            current = 1; // flip next card
+        }
+        tableauFaceUp.set(fromIndex, current);
     }
 
     /**
