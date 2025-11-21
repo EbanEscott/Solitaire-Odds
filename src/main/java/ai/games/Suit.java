@@ -1,3 +1,5 @@
+package ai.games;
+
 public enum Suit {
     CLUBS("♣", false),
     DIAMONDS("♦", true),

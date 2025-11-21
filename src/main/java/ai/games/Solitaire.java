@@ -1,3 +1,5 @@
+package ai.games;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -128,8 +130,11 @@ public class Solitaire {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        int tableauCellWidth = computeTableauCellWidth();
+        String tableauBorder = buildBorder(tableau.size(), "  ", tableauCellWidth);
+        sb.append("-".repeat(tableauBorder.length())).append('\n');
         appendFoundationSection(sb);
-        appendTableauSection(sb);
+        appendTableauSection(sb, tableauCellWidth);
         appendStockAndTalon(sb);
         return sb.toString();
     }
@@ -143,41 +148,34 @@ public class Solitaire {
             List<Card> pile = foundation.get(i);
             values.add(pile.isEmpty() ? "--" : pile.get(pile.size() - 1).toString());
         }
-        appendBoxRow(sb, labels, values, "    ");
+        int width = Math.max(CELL_WIDTH, Math.max(maxVisibleLength(labels), maxVisibleLength(values)));
+        appendBoxRow(sb, labels, values, "    ", width);
         sb.append('\n');
     }
 
-    private void appendTableauSection(StringBuilder sb) {
+    private void appendTableauSection(StringBuilder sb, int cellWidth) {
         sb.append("TABLEAU\n");
-        List<String> labels = new ArrayList<>();
-        for (int i = 0; i < tableau.size(); i++) {
-            List<Card> pile = tableau.get(i);
-            int faceUp = tableauFaceUp.get(i);
-            int faceDown = Math.max(0, pile.size() - faceUp);
-            labels.add("T" + (i + 1) + " [" + faceDown + "]");
-        }
+        TableauDisplay display = buildTableauDisplay();
+        int width = Math.max(cellWidth, Math.max(maxVisibleLength(display.labels),
+                maxVisibleLengthColumns(display.columns)));
 
-        List<String> values = new ArrayList<>();
-        for (int i = 0; i < tableau.size(); i++) {
-            List<Card> pile = tableau.get(i);
-            if (pile.isEmpty()) {
-                values.add("(empty)");
-            } else {
-                int faceUp = tableauFaceUp.get(i);
-                int start = Math.max(0, pile.size() - faceUp);
-                StringBuilder row = new StringBuilder();
-                for (int j = start; j < pile.size(); j++) {
-                    row.append(pile.get(j));
-                    if (j < pile.size() - 1) {
-                        row.append(' ');
-                    }
-                }
-                values.add(row.toString());
+        String indent = "  ";
+        String border = buildBorder(display.labels.size(), indent, width);
+        sb.append(border).append('\n');
+        sb.append(buildRow(display.labels, indent, width)).append('\n');
+
+        int maxRows = 0;
+        for (List<String> col : display.columns) {
+            maxRows = Math.max(maxRows, col.size());
+        }
+        for (int row = 0; row < maxRows; row++) {
+            List<String> rowCells = new ArrayList<>();
+            for (List<String> col : display.columns) {
+                rowCells.add(row < col.size() ? col.get(row) : "");
             }
+            sb.append(buildRow(rowCells, indent, width)).append('\n');
         }
-
-        appendBoxRow(sb, labels, values, "  ");
-        sb.append('\n');
+        sb.append(border).append('\n');
     }
 
     private void appendCardsInline(StringBuilder sb, List<Card> pile) {
@@ -189,8 +187,7 @@ public class Solitaire {
         }
     }
 
-    private void appendBoxRow(StringBuilder sb, List<String> labels, List<String> contents, String indent) {
-        int width = Math.max(CELL_WIDTH, Math.max(maxVisibleLength(labels), maxVisibleLength(contents)));
+    private void appendBoxRow(StringBuilder sb, List<String> labels, List<String> contents, String indent, int width) {
         String top = buildBorder(labels.size(), indent, width);
         String labelLine = buildRow(labels, indent, width);
         String contentLine = buildRow(contents, indent, width);
@@ -263,6 +260,12 @@ public class Solitaire {
         return max;
     }
 
+    private int computeTableauCellWidth() {
+        TableauDisplay display = buildTableauDisplay();
+        int maxContent = Math.max(maxVisibleLength(display.labels), maxVisibleLengthColumns(display.columns));
+        return Math.max(CELL_WIDTH, maxContent);
+    }
+
     private void appendStockAndTalon(StringBuilder sb) {
         sb.append("STOCKPILE & TALON\n");
         List<String> labels = new ArrayList<>();
@@ -279,7 +282,31 @@ public class Solitaire {
             values.add(top + " (" + talon.size() + ")");
         }
 
-        appendBoxRow(sb, labels, values, "      ");
+        int width = Math.max(CELL_WIDTH, Math.max(maxVisibleLength(labels), maxVisibleLength(values)));
+        appendBoxRow(sb, labels, values, "      ", width);
+    }
+
+    private TableauDisplay buildTableauDisplay() {
+        List<String> labels = new ArrayList<>();
+        List<List<String>> columns = new ArrayList<>();
+        for (int i = 0; i < tableau.size(); i++) {
+            List<Card> pile = tableau.get(i);
+            int faceUp = tableauFaceUp.get(i);
+            int faceDown = Math.max(0, pile.size() - faceUp);
+            labels.add("T" + (i + 1) + " [" + faceDown + "]");
+
+            List<String> col = new ArrayList<>();
+            if (pile.isEmpty()) {
+                col.add("(empty)");
+            } else {
+                int start = Math.max(0, pile.size() - faceUp);
+                for (int j = start; j < pile.size(); j++) {
+                    col.add(pile.get(j).toString());
+                }
+            }
+            columns.add(col);
+        }
+        return new TableauDisplay(labels, columns);
     }
 
     private List<Card> resolvePile(String code) {
@@ -403,5 +430,15 @@ public class Solitaire {
         boolean sameSuit = moving.getSuit() == target.getSuit();
         boolean oneHigher = moving.getRank().getValue() == target.getRank().getValue() + 1;
         return sameSuit && oneHigher;
+    }
+
+    private static class TableauDisplay {
+        final List<String> labels;
+        final List<List<String>> columns;
+
+        TableauDisplay(List<String> labels, List<List<String>> columns) {
+            this.labels = labels;
+            this.columns = columns;
+        }
     }
 }

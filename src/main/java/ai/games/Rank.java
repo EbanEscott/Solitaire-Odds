@@ -1,3 +1,5 @@
+package ai.games;
+
 public enum Rank {
     TWO(2, "2"),
     THREE(3, "3"),
