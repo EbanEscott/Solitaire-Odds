@@ -7,6 +7,8 @@ import java.util.Objects;
  * Minimal model of a Solitaire/Klondike layout: tableau, foundation, stockpile, and talon.
  */
 public class Solitaire {
+    private static final int CELL_WIDTH = 8;
+
     // Tableau: seven piles where most play occurs.
     private final List<List<Card>> tableau = new ArrayList<>();
     // Foundation: four suit piles built up from Ace to King.
@@ -102,30 +104,125 @@ public class Solitaire {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        appendPiles(sb, "Tableau", tableau);
-        appendPiles(sb, "Foundation", foundation);
-        sb.append("Stockpile: ").append(stockpile.size()).append(" cards").append('\n');
-        sb.append("Talon: ");
-        appendPileCards(sb, talon);
+        appendFoundationSection(sb);
+        appendTableauSection(sb);
+        appendStockAndTalon(sb);
         return sb.toString();
     }
 
-    private void appendPiles(StringBuilder sb, String title, List<List<Card>> piles) {
-        sb.append(title).append(":\n");
-        for (int i = 0; i < piles.size(); i++) {
-            sb.append("  ").append(i + 1).append(": ");
-            appendPileCards(sb, piles.get(i));
+    private void appendFoundationSection(StringBuilder sb) {
+        sb.append("FOUNDATION\n");
+        List<String> labels = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < foundation.size(); i++) {
+            labels.add("F" + (i + 1));
+            List<Card> pile = foundation.get(i);
+            values.add(pile.isEmpty() ? "--" : pile.get(pile.size() - 1).toString());
         }
+        appendBoxRow(sb, labels, values, "    ");
+        sb.append('\n');
     }
 
-    private void appendPileCards(StringBuilder sb, List<Card> pile) {
+    private void appendTableauSection(StringBuilder sb) {
+        sb.append("TABLEAU\n");
+        List<String> labels = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < tableau.size(); i++) {
+            labels.add("T" + (i + 1));
+            List<Card> pile = tableau.get(i);
+            if (pile.isEmpty()) {
+                values.add("(empty)");
+            } else {
+                int hidden = pile.size() - 1;
+                String top = pile.get(pile.size() - 1).toString();
+                values.add((hidden > 0 ? "[" + hidden + "] " : "") + top);
+            }
+        }
+        appendBoxRow(sb, labels, values, "  ");
+        sb.append('\n');
+    }
+
+    private void appendCardsInline(StringBuilder sb, List<Card> pile) {
         for (int i = 0; i < pile.size(); i++) {
             sb.append(pile.get(i));
             if (i < pile.size() - 1) {
                 sb.append(' ');
             }
         }
-        sb.append('\n');
+    }
+
+    private void appendBoxRow(StringBuilder sb, List<String> labels, List<String> contents, String indent) {
+        String top = buildBorder(labels.size(), indent);
+        String labelLine = buildRow(labels, indent);
+        String contentLine = buildRow(contents, indent);
+        sb.append(top).append('\n').append(labelLine).append('\n').append(contentLine).append('\n').append(top);
+    }
+
+    private String buildBorder(int count, String indent) {
+        StringBuilder line = new StringBuilder(indent);
+        for (int i = 0; i < count; i++) {
+            line.append("+").append("-".repeat(CELL_WIDTH + 2)).append("+");
+            if (i < count - 1) {
+                line.append("  ");
+            }
+        }
+        return line.toString();
+    }
+
+    private String buildRow(List<String> cells, String indent) {
+        StringBuilder line = new StringBuilder(indent);
+        for (int i = 0; i < cells.size(); i++) {
+            String content = cells.get(i);
+            line.append("| ").append(padCell(content, CELL_WIDTH)).append(" |");
+            if (i < cells.size() - 1) {
+                line.append("  ");
+            }
+        }
+        return line.toString();
+    }
+
+    private String padCell(String value, int width) {
+        int visible = visibleLength(value);
+        if (visible >= width) {
+            return value;
+        }
+        int totalPad = width - visible;
+        int left = totalPad / 2;
+        int right = totalPad - left;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < left; i++) {
+            sb.append(' ');
+        }
+        sb.append(value);
+        for (int i = 0; i < right; i++) {
+            sb.append(' ');
+        }
+        return sb.toString();
+    }
+
+    private int visibleLength(String value) {
+        // Strip ANSI color codes when calculating padding.
+        String stripped = value.replaceAll("\\u001B\\[[;\\d]*m", "");
+        return stripped.length();
+    }
+
+    private void appendStockAndTalon(StringBuilder sb) {
+        sb.append("STOCKPILE & TALON\n");
+        List<String> labels = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+
+        labels.add("STOCK");
+        labels.add("TALON");
+
+        values.add(stockpile.isEmpty() ? "empty" : stockpile.size() + " down");
+        if (talon.isEmpty()) {
+            values.add("--");
+        } else {
+            Card top = talon.get(talon.size() - 1);
+            values.add(top + " (" + talon.size() + ")");
+        }
+
+        appendBoxRow(sb, labels, values, "      ");
     }
 
     private List<Card> resolvePile(String code) {
