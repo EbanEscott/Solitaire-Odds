@@ -1,4 +1,4 @@
-package ai.games;
+package ai.games.game;
 
 public enum Rank {
     ACE(1, "A"),

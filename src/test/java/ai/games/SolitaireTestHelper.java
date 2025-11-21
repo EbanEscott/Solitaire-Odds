@@ -1,5 +1,8 @@
 package ai.games;
 
+import ai.games.game.Card;
+import ai.games.game.Solitaire;
+
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;

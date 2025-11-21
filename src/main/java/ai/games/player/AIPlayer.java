@@ -1,5 +1,6 @@
-package ai.games;
+package ai.games.player;
 
+import ai.games.game.Solitaire;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 

@@ -2,6 +2,11 @@ package ai.games;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import ai.games.game.Card;
+import ai.games.game.Deck;
+import ai.games.game.Rank;
+import ai.games.game.Suit;
+import ai.games.game.Solitaire;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
