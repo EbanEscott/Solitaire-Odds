@@ -37,6 +37,22 @@ final class SolitaireTestHelper {
         setListField(solitaire, "stockpile", stockpile);
     }
 
+    static int getTableauFaceUpCount(Solitaire solitaire, int index) {
+        return getIntField(solitaire, "tableauFaceUp", index);
+    }
+
+    static List<Card> getTableauPile(Solitaire solitaire, int index) {
+        return getNestedListField(solitaire, "tableau", index);
+    }
+
+    static List<Card> getTalon(Solitaire solitaire) {
+        return getListField(solitaire, "talon");
+    }
+
+    static List<Card> getStockpile(Solitaire solitaire) {
+        return getListField(solitaire, "stockpile");
+    }
+
     @SuppressWarnings("unchecked")
     private static void setListField(Solitaire solitaire, String fieldName, List<?> newValue) {
         try {
@@ -47,6 +63,43 @@ final class SolitaireTestHelper {
             target.addAll(newValue);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Failed to set field '" + fieldName + "'", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Card> getNestedListField(Solitaire solitaire, String fieldName, int index) {
+        try {
+            Field field = Solitaire.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            List<?> outer = (List<?>) field.get(solitaire);
+            @SuppressWarnings("unchecked")
+            List<Card> inner = (List<Card>) outer.get(index);
+            return inner;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to read field '" + fieldName + "'", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Card> getListField(Solitaire solitaire, String fieldName) {
+        try {
+            Field field = Solitaire.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return (List<Card>) field.get(solitaire);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to read field '" + fieldName + "'", e);
+        }
+    }
+
+    private static int getIntField(Solitaire solitaire, String fieldName, int index) {
+        try {
+            Field field = Solitaire.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<Integer> target = (List<Integer>) field.get(solitaire);
+            return target.get(index);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to read int field '" + fieldName + "'", e);
         }
     }
 }
