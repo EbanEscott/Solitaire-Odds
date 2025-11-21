@@ -1,4 +1,4 @@
-package ai.games;
+package ai.games.game;
 
 import java.util.Objects;
 

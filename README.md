@@ -8,10 +8,9 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
   - If Gradle 9.x was cached: `rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin`
 
 ## Layout
-- `src/main/java/ai/games/` — game logic and Spring Boot entry:
-  - `Game` — main app (constructor-injected `Player`).
-  - `Solitaire`, `Deck`, `Card`, `Rank`, `Suit` — core model.
-  - `Player` + implementations: `HumanPlayer` (default, CLI), `AIPlayer` (stub, `@Profile("ai")`).
+- `src/main/java/ai/games/Game` — Spring Boot entry, constructor-injected `Player`.
+- `src/main/java/ai/games/game/` — core model: `Solitaire`, `Deck`, `Card`, `Rank`, `Suit`.
+- `src/main/java/ai/games/player/` — `Player` plus implementations: `HumanPlayer` (default CLI), `AIPlayer` (stub, `@Profile("ai")`).
 - `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
   - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`.
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.

@@ -1,5 +1,7 @@
 package ai.games.player;
 
+import ai.games.game.Solitaire;
+
 /**
  * Represents a player capable of providing the next command for the game loop.
  */

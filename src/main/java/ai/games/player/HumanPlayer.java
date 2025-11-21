@@ -1,5 +1,6 @@
-package ai.games;
+package ai.games.player;
 
+import ai.games.game.Solitaire;
 import java.util.Scanner;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
