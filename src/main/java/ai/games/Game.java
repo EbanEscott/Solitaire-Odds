@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.WebApplicationType;
 
 @SpringBootApplication
 public class Game implements CommandLineRunner {
@@ -21,7 +22,9 @@ public class Game implements CommandLineRunner {
     }
 
     public static void main(String[] args) {
-        SpringApplication.run(Game.class, args);
+        SpringApplication app = new SpringApplication(Game.class);
+        app.setWebApplicationType(WebApplicationType.NONE);
+        app.run(args);
     }
 
     @Override

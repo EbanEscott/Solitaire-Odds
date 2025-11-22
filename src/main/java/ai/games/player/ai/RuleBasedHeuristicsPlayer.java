@@ -6,7 +6,6 @@ import ai.games.game.Rank;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
 import java.util.List;
-import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +19,6 @@ import org.springframework.stereotype.Component;
  * 6) If stock is exhausted and no talon move has occurred in this pass, quit (avoid endless turns).
  */
 @Component
-@Primary
 @Profile("ai-rule")
 public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
     private boolean hasTurnedOnce = false;

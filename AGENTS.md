@@ -13,6 +13,7 @@ When asked complete these tasks:
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
 | Rule-based Heuristics        | 500          | 60        | 12%   | 0.3s          | 150s       | 95        | 3               |
 | Greedy Search                | 500          | 90        | 18%   | 0.5s          | 250s       | 105       | 4               |
+| Ollama                       | 500          | TBD       | TBD   | TBD           | TBD        | TBD       | TBD             |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
