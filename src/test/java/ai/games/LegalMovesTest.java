@@ -27,7 +27,7 @@ class LegalMovesTest {
                 Arrays.asList(1, 0, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertTrue(solitaire.moveCard("T1", "F1"));
+        assertTrue(solitaire.moveCard("T1", null, "F1"));
     }
 
     @Test
@@ -38,7 +38,7 @@ class LegalMovesTest {
                 pile(new Card(Rank.TWO, Suit.HEARTS)), empty()), Arrays.asList(0, 0, 0, 0, 0, 1, 0));
         seedFoundation(solitaire, Arrays.asList(pile(new Card(Rank.ACE, Suit.HEARTS)), empty(), empty(), empty()));
 
-        assertTrue(solitaire.moveCard("T6", "F1"));
+        assertTrue(solitaire.moveCard("T6", null, "F1"));
     }
 
     @Test
@@ -50,7 +50,7 @@ class LegalMovesTest {
                 Arrays.asList(1, 1, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertTrue(solitaire.moveCard("T1", "T2"));
+        assertTrue(solitaire.moveCard("T1", null, "T2"));
     }
 
     @Test
@@ -70,7 +70,7 @@ class LegalMovesTest {
                 Arrays.asList(0, 0, 2, 0, 0, 0, 1));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertTrue(solitaire.moveCard("T3", "T7"));
+        assertTrue(solitaire.moveCard("T3", null, "T7"));
     }
 
     @Test
@@ -91,7 +91,7 @@ class LegalMovesTest {
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
         // Using the current moveCard (top-card move), this is illegal; the heuristic should also treat it as not moveable.
-        assertFalse(solitaire.moveCard("T3", "T7"));
+        assertFalse(solitaire.moveCard("T3", null, "T7"));
     }
 
     @Test
@@ -111,7 +111,7 @@ class LegalMovesTest {
                 Arrays.asList(0, 1, 0, 0, 0, 3, 0));
         seedFoundation(solitaire, Arrays.asList(pile(new Card(Rank.ACE, Suit.DIAMONDS)), empty(), empty(), empty()));
 
-        assertTrue(solitaire.moveCard("T6", "T2"));
+        assertTrue(solitaire.moveCard("T6", null, "T2"));
         // Destination should now have moved stack on top.
         assertEquals(4, solitaire.getTableau().get(1).size());
     }
@@ -126,7 +126,7 @@ class LegalMovesTest {
         SolitaireTestHelper.setTalon(solitaire, pile(new Card(Rank.TWO, Suit.DIAMONDS)));
         SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
 
-        assertTrue(solitaire.moveCard("W", "F2"));
+        assertTrue(solitaire.moveCard("W", null, "F2"));
     }
 
     private static List<Card> empty() {

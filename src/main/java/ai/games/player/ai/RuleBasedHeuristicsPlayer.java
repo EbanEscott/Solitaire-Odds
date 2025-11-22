@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
     private boolean hasTurnedOnce = false;
     private boolean talonMovedThisPass = false;
+    private boolean sawEmptyStock = false;
 
     @Override
     public String nextCommand(Solitaire solitaire) {
@@ -52,17 +53,20 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
             return talonMove;
         }
 
-        // Step 5: turn if stock remains.
+        // Step 5/6: stock handling with pass detection.
         if (!solitaire.getStockpile().isEmpty()) {
+            sawEmptyStock = false;
+            return "turn";
+        } else {
+            if (sawEmptyStock && !talonMovedThisPass) {
+                // Stock was already empty once in this pass and no talon moves happened -> quit.
+                return "quit";
+            }
+            // First time hitting empty stock in this pass: remember and keep trying (turn will do nothing).
+            sawEmptyStock = true;
+            talonMovedThisPass = false;
             return "turn";
         }
-
-        // Step 6: stock exhausted and no talon move this pass -> quit.
-        if (!talonMovedThisPass) {
-            return "quit";
-        }
-        talonMovedThisPass = false;
-        return "quit";
     }
 
     private String foundationPriority(Solitaire solitaire) {
@@ -107,7 +111,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
             // Try foundation first
             for (int f = 0; f < foundations.size(); f++) {
                 if (canMoveToFoundation(moving, foundations.get(f))) {
-                    return "move T" + (from + 1) + " F" + (f + 1);
+                    return "move T" + (from + 1) + " " + moving.shortName() + " F" + (f + 1);
                 }
             }
             // Then try tableau targets
@@ -116,7 +120,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
                     continue;
                 }
                 if (canMoveToTableau(moving, tableau.get(to))) {
-                    return "move T" + (from + 1) + " T" + (to + 1);
+                    return "move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1);
                 }
             }
         }
@@ -132,14 +136,14 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
         List<List<Card>> foundations = solitaire.getFoundation();
         for (int f = 0; f < foundations.size(); f++) {
             if (canMoveToFoundation(moving, foundations.get(f))) {
-                return "move W F" + (f + 1);
+                    return "move W " + moving.shortName() + " F" + (f + 1);
             }
         }
         // Try tableau T7 -> T1
         List<List<Card>> tableau = solitaire.getTableau();
         for (int t = tableau.size() - 1; t >= 0; t--) {
             if (canMoveToTableau(moving, tableau.get(t))) {
-                return "move W T" + (t + 1);
+                return "move W " + moving.shortName() + " T" + (t + 1);
             }
         }
         return null;

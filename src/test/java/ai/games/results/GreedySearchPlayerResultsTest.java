@@ -71,8 +71,12 @@ public class GreedySearchPlayerResultsTest {
             return true;
         }
         String[] parts = trimmed.split("\\s+");
-        if (parts.length == 3 && "move".equalsIgnoreCase(parts[0])) {
-            return solitaire.moveCard(parts[1], parts[2]);
+        if ("move".equalsIgnoreCase(parts[0])) {
+            if (parts.length == 4) {
+                return solitaire.moveCard(parts[1], parts[2], parts[3]);
+            } else if (parts.length == 3) {
+                return solitaire.moveCard(parts[1], null, parts[2]);
+            }
         }
         return false;
     }

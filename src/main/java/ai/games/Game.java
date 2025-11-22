@@ -77,8 +77,18 @@ public class Game implements CommandLineRunner {
                 solitaire.turnThree();
             } else if (input.toLowerCase().startsWith("move")) {
                 String[] parts = input.split("\\s+");
-                if (parts.length == 3) {
-                    boolean moved = solitaire.moveCard(parts[1], parts[2]);
+                if (parts.length == 4) {
+                    boolean moved = solitaire.moveCard(parts[1], parts[2], parts[3]);
+                    if (!moved) {
+                        System.out.println("Illegal move. Try again.");
+                        if (log.isDebugEnabled()) {
+                            log.debug("Illegal move command: {}", input);
+                        }
+                    } else if (log.isDebugEnabled()) {
+                        log.debug("Applied move command: {}", input);
+                    }
+                } else if (parts.length == 3) {
+                    boolean moved = solitaire.moveCard(parts[1], null, parts[2]);
                     if (!moved) {
                         System.out.println("Illegal move. Try again.");
                         if (log.isDebugEnabled()) {
@@ -88,7 +98,7 @@ public class Game implements CommandLineRunner {
                         log.debug("Applied move command: {}", input);
                     }
                 } else {
-                    System.out.println("Usage: move FROM TO (e.g., move W T1 or move T7 F1)");
+                    System.out.println("Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)");
                     if (log.isDebugEnabled()) {
                         log.debug("Invalid move format from {}: {}", player.getClass().getSimpleName(), input);
                     }
