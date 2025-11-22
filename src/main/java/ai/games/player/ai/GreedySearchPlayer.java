@@ -6,7 +6,6 @@ import ai.games.player.AIPlayer;
 import ai.games.player.Player;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -14,7 +13,6 @@ import org.springframework.stereotype.Component;
  * Greedy search: evaluates immediate moves and picks the highest-scoring one (short-term gain only).
  */
 @Component
-@Primary
 @Profile("ai-greedy")
 public class GreedySearchPlayer extends AIPlayer implements Player {
 

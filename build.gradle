@@ -1,7 +1,7 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.2.6'
-    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.springframework.boot' version '3.5.7'
+    id 'io.spring.dependency-management' version '1.1.6'
 }
 
 group = 'ai.games'
@@ -17,8 +17,15 @@ repositories {
     mavenCentral()
 }
 
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.ai:spring-ai-bom:1.1.0"
+    }
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
@@ -27,25 +34,16 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
-tasks.named('bootRun') {
-    standardInput = System.in // allow interactive CLI input
-    jvmArgs += ['-Djava.locale.providers=JRE,SPI']
-    systemProperty "java.locale.providers", "JRE,SPI"
-}
-
 tasks.withType(Test).configureEach {
     testLogging {
         events "passed", "skipped", "failed"
         showExceptions = true
         showCauses = true
         showStackTraces = true
-        showStandardStreams = true // surface System.out/System.err from tests
+        showStandardStreams = true
     }
-    // Forward system properties (e.g., -Dgames=500) into test JVM.
     systemProperties System.getProperties()
-    // Avoid CLDR classpath issues on test JVM.
     jvmArgs += ['-Djava.locale.providers=JRE,SPI']
-    systemProperty "java.locale.providers", "JRE,SPI"
     afterSuite { desc, result ->
         if (!desc.parent) {
             println "Test summary: ${result.resultType} - total: ${result.testCount}, passed: ${result.successfulTestCount}, failed: ${result.failedTestCount}, skipped: ${result.skippedTestCount}"
@@ -53,7 +51,8 @@ tasks.withType(Test).configureEach {
     }
 }
 
-// Forward system properties (e.g., -Dspring.profiles.active=ai-rule) to bootRun
 tasks.named('bootRun') {
+    standardInput = System.in
     systemProperties System.getProperties()
+    jvmArgs += ['-Djava.locale.providers=JRE,SPI']
 }

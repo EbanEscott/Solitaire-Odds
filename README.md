@@ -47,6 +47,8 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
 ## Running (from `cards/`)
+Exactly one player profile must be active. The default profile is `ai-human` (set in `src/main/resources/application.properties`).
+
 Human CLI (default):
 ```
 ./gradlew bootRun
@@ -56,6 +58,7 @@ AI profiles:
 ```
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule    # rule-based heuristics
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy  # greedy search
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama  # Ollama via Spring AI (requires local Ollama)
 ```
 
 ## Build & Test
@@ -80,6 +83,7 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ```
 ./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
 ```
 
 Clean:

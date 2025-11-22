@@ -2,7 +2,6 @@ package ai.games.player;
 
 import ai.games.game.Solitaire;
 import java.util.Scanner;
-import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -10,8 +9,7 @@ import org.springframework.stereotype.Component;
  * Human player that reads commands from stdin (CLI).
  */
 @Component
-@Primary
-@Profile("!ai-rule & !ai-greedy")
+@Profile("ai-human")
 public class HumanPlayer implements Player {
     private final Scanner scanner = new Scanner(System.in);
 
