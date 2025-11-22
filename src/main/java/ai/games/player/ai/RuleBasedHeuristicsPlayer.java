@@ -119,6 +119,9 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
                 if (to == from) {
                     continue;
                 }
+                if (moving.getRank() == ai.games.game.Rank.KING && tableau.get(from).size() == 1 && tableauFaceUpCounts.get(from) == 1 && tableau.get(to).isEmpty()) {
+                    continue; // avoid looping king from solo pile to empty pile
+                }
                 if (canMoveToTableau(moving, tableau.get(to))) {
                     return "move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1);
                 }
