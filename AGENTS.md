@@ -9,13 +9,14 @@ When asked complete these tasks:
 3. **Format a Table** using the results and the example table below.
 4. **Paste the Table** into the `cards/README.md` and insert the date/time the tests were run.
 
-| Algorithm                     | Games Played | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
-|------------------------------|--------------|-------|----------------|-------------|-----------|-----------|
-| Rule-based Heuristics        | 500          | 12%   | 0.3s           | 150s        | 95        | 3                |
-| Greedy Search                | 500          | 18%   | 0.5s           | 250s        | 105       | 4                |
+| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
+|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
+| Rule-based Heuristics        | 500          | 60        | 12%   | 0.3s          | 150s       | 95        | 3               |
+| Greedy Search                | 500          | 90        | 18%   | 0.5s          | 250s       | 105       | 4               |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
+* **Games Won** Count of games successfully completed.
 * **Win %** Percentage of games successfully completed (foundations fully built).
 * **Avg Time/Game** Mean time taken to finish or fail a game.
 * **Total Time** Sum of all time spent playing the batch of games.

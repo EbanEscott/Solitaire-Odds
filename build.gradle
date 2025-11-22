@@ -9,7 +9,7 @@ version = '0.0.1-SNAPSHOT'
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -29,7 +29,8 @@ tasks.named('test') {
 
 tasks.named('bootRun') {
     standardInput = System.in // allow interactive CLI input
-    jvmArgs += ['-Djava.locale.providers=JRE,COMPAT']
+    jvmArgs += ['-Djava.locale.providers=JRE,SPI']
+    systemProperty "java.locale.providers", "JRE,SPI"
 }
 
 tasks.withType(Test).configureEach {
@@ -40,6 +41,11 @@ tasks.withType(Test).configureEach {
         showStackTraces = true
         showStandardStreams = true // surface System.out/System.err from tests
     }
+    // Forward system properties (e.g., -Dgames=500) into test JVM.
+    systemProperties System.getProperties()
+    // Avoid CLDR classpath issues on test JVM.
+    jvmArgs += ['-Djava.locale.providers=JRE,SPI']
+    systemProperty "java.locale.providers", "JRE,SPI"
     afterSuite { desc, result ->
         if (!desc.parent) {
             println "Test summary: ${result.resultType} - total: ${result.testCount}, passed: ${result.successfulTestCount}, failed: ${result.failedTestCount}, skipped: ${result.skippedTestCount}"
