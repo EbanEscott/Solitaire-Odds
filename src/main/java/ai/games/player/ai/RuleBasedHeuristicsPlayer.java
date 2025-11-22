@@ -5,6 +5,7 @@ import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
 import java.util.List;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  * Rule-based, deterministic heuristics: tries simple priorities without search.
  */
 @Component
+@Primary
 @Profile("ai-rule")
 public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
 
