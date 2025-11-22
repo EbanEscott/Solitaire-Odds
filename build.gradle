@@ -38,6 +38,7 @@ tasks.withType(Test).configureEach {
         showExceptions = true
         showCauses = true
         showStackTraces = true
+        showStandardStreams = true // surface System.out/System.err from tests
     }
     afterSuite { desc, result ->
         if (!desc.parent) {

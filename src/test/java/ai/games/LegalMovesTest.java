@@ -1,6 +1,8 @@
 package ai.games;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.games.game.Card;
 import ai.games.game.Deck;
@@ -90,6 +92,28 @@ class LegalMovesTest {
 
         // Using the current moveCard (top-card move), this is illegal; the heuristic should also treat it as not moveable.
         assertFalse(solitaire.moveCard("T3", "T7"));
+    }
+
+    @Test
+    void canMoveVisibleStackWhenBottomCardFitsDestination() {
+        // Source T6 has 8♥, 7♣, 6♥ face up (bottom is 8♥). Destination T2 has 9♣ face up; moving the visible stack is legal.
+        Solitaire solitaire = new Solitaire(new Deck());
+        seedTableau(solitaire,
+                Arrays.asList(
+                        empty(),
+                        pile(new Card(Rank.NINE, Suit.CLUBS)),
+                        empty(),
+                        empty(),
+                        empty(),
+                        pile(new Card(Rank.EIGHT, Suit.HEARTS), new Card(Rank.SEVEN, Suit.CLUBS), new Card(Rank.SIX, Suit.HEARTS)),
+                        empty()
+                ),
+                Arrays.asList(0, 1, 0, 0, 0, 3, 0));
+        seedFoundation(solitaire, Arrays.asList(pile(new Card(Rank.ACE, Suit.DIAMONDS)), empty(), empty(), empty()));
+
+        assertTrue(solitaire.moveCard("T6", "T2"));
+        // Destination should now have moved stack on top.
+        assertEquals(4, solitaire.getTableau().get(1).size());
     }
 
     @Test
