@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
  */
 public class RuleBasedHeuristicsPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(RuleBasedHeuristicsPlayerResultsTest.class);
+    private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
+    private static final String TABLE_DIVIDER = "|------------------------------|--------------|-------|---------------|------------|-----------|-----------------|";
 
     @Test
     void playMultipleGamesAndReport() {
@@ -32,6 +34,8 @@ public class RuleBasedHeuristicsPlayerResultsTest {
                 stats.totalTimeSeconds(),
                 stats.avgMoves(),
                 stats.bestWinStreak);
+        System.out.println(TABLE_HEADER);
+        System.out.println(TABLE_DIVIDER);
         System.out.println(summary);
         log.info(summary);
         // Sanity check we ran something

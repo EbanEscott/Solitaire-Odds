@@ -30,7 +30,7 @@ public class Game implements CommandLineRunner {
         Solitaire solitaire = new Solitaire(deck);
         boolean aiMode = player instanceof AIPlayer;
         int iterations = 0;
-        final int maxIterations = 500;
+        final int maxIterations = 1000;
 
         while (true) {
             if (log.isDebugEnabled()) {
