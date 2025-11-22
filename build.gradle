@@ -30,3 +30,17 @@ tasks.named('test') {
 tasks.named('bootRun') {
     standardInput = System.in // allow interactive CLI input
 }
+
+tasks.withType(Test).configureEach {
+    testLogging {
+        events "passed", "skipped", "failed"
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+    afterSuite { desc, result ->
+        if (!desc.parent) {
+            println "Test summary: ${result.resultType} - total: ${result.testCount}, passed: ${result.successfulTestCount}, failed: ${result.failedTestCount}, skipped: ${result.skippedTestCount}"
+        }
+    }
+}

@@ -10,9 +10,13 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
 ## Layout
 - `src/main/java/ai/games/Game` — Spring Boot entry, constructor-injected `Player`.
 - `src/main/java/ai/games/game/` — core model: `Solitaire`, `Deck`, `Card`, `Rank`, `Suit`.
-- `src/main/java/ai/games/player/` — `Player` plus implementations: `HumanPlayer` (default CLI), `AIPlayer` (stub, `@Profile("ai")`).
+- `src/main/java/ai/games/player/` — `Player` base plus:
+  - `HumanPlayer` (default CLI)
+  - `AIPlayer` base
+  - `ai.games.player.ai.RuleBasedHeuristicsPlayer` (@Profile `ai-rule`)
+  - `ai.games.player.ai.GreedySearchPlayer` (@Profile `ai-greedy`)
 - `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
-  - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`.
+  - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
 ## Running (from `cards/`)
@@ -21,11 +25,11 @@ Human CLI (default):
 ./gradlew bootRun
 ```
 
-AI stub (loads `AIPlayer` bean):
+AI profiles:
 ```
-./gradlew bootRun --args='' --console=plain -Dspring.profiles.active=ai
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule    # rule-based heuristics
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy  # greedy search
 ```
-(AI currently returns a stub command; extend `AIPlayer` for real moves.)
 
 ## Build & Test
 Build:
@@ -38,6 +42,12 @@ Tests:
 ./gradlew test
 ```
 (Tests seed deterministic board states to verify legal/illegal moves, tableau flipping, foundation progression, and deck integrity.)
+
+Single test / class:
+```
+./gradlew test --tests ai.games.LegalMovesTest
+./gradlew test --tests ai.games.LegalMovesTest.aceMovesToEmptyFoundation
+```
 
 Clean:
 ```
