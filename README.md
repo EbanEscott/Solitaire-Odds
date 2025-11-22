@@ -105,12 +105,12 @@ Pile codes:
 - Stockpile: `S` (turned via `turn`, not `move`)
 
 Terminology:
-- Tableau: Seven main play piles. The active/top card is the nearest/last face-up card; covered cards beneath it are less visible.
-- Foundation: Four suit piles built Ace → King.
-- Talon (Waste): Face-up cards flipped from stock.
-- Stockpile: Face-down deck; `turn` flips up to three to the talon.
-- Top card: The top most visible face-up card in a tableau pile (nearest to the player).
-- Bottom card: The bottom least visible face-up card in a tableau pile (closet to the foundation).
+- **Tableau**: Seven main play piles. The active/top card is the nearest/last face-up card; covered cards beneath it are less visible.
+- **Foundation**: Four suit piles built Ace → King.
+- **Talon (Waste)**: Face-up cards flipped from stock.
+- **Stockpile**: Face-down deck; `turn` flips up to three to the talon.
+- **Top card**: The top most visible face-up card in a tableau pile (nearest to the player).
+- **Bottom card**: The bottom least visible face-up card in a tableau pile (closet to the foundation).
 
 ## Notes
 - ANSI suit symbols are used (hearts/diamonds in red).
