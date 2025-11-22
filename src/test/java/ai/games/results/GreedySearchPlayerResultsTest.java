@@ -19,16 +19,17 @@ import org.slf4j.LoggerFactory;
  */
 public class GreedySearchPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(GreedySearchPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
-    private static final String TABLE_DIVIDER = "|------------------------------|--------------|-------|---------------|------------|-----------|-----------------|";
+    private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
+    private static final String TABLE_DIVIDER = "|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
 
     @Test
     void playMultipleGamesAndReport() {
-        int gamesToPlay = Integer.getInteger("games", 20);
-        Stats stats = runGames(GreedySearchPlayer::new, gamesToPlay, 1000);
-        String summary = String.format("| %s | %d | %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+        int gamesToPlay = ResultsConfig.GAMES;
+        Stats stats = runGames(GreedySearchPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+        String summary = String.format("| %s | %d | %d | %.2f%% | %.3fs | %.3fs | %.2f | %d |",
                 "Greedy Search",
                 stats.games,
+                stats.wins,
                 stats.winPercent(),
                 stats.avgTimeSeconds(),
                 stats.totalTimeSeconds(),

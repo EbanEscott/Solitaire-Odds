@@ -27,7 +27,7 @@ The last test run was performed at X.
 
 A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` package. The game supports pluggable players (human CLI by default; AI profile-ready).
 
-- JDK 17+
+- JDK 21+ (toolchain set to 21)
 - Use the bundled Gradle wrapper (pinned to Gradle 8.7). Gradle 9.x is incompatible with Spring Boot 3.2.
   - If Gradle 9.x was cached: `rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin`
 
@@ -71,6 +71,12 @@ Single test / class:
 ```
 ./gradlew test --tests ai.games.LegalMovesTest
 ./gradlew test --tests ai.games.LegalMovesTest.aceMovesToEmptyFoundation
+```
+
+AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-tasks` to force execution):
+```
+./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest --console=plain --rerun-tasks
 ```
 
 Clean:
