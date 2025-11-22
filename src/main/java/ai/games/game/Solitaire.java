@@ -44,6 +44,10 @@ public class Solitaire {
         return Collections.unmodifiableList(talon);
     }
 
+    public List<Integer> getTableauFaceUpCounts() {
+        return Collections.unmodifiableList(new ArrayList<>(tableauFaceUp));
+    }
+
     /**
      * Turn three cards from the stockpile onto the talon, preserving order of draw.
      */
