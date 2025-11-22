@@ -50,8 +50,18 @@ public class Solitaire {
 
     /**
      * Turn three cards from the stockpile onto the talon, preserving order of draw.
+     * If the stockpile is empty, recycle the talon back into the stockpile (face-down)
+     * before turning.
      */
     public void turnThree() {
+        if (stockpile.isEmpty() && !talon.isEmpty()) {
+            // Recycle talon back to stockpile: top of talon becomes bottom of new stock.
+            for (int i = talon.size() - 1; i >= 0; i--) {
+                stockpile.add(talon.get(i));
+            }
+            talon.clear();
+        }
+
         for (int i = 0; i < 3 && !stockpile.isEmpty(); i++) {
             talon.add(stockpile.remove(stockpile.size() - 1));
         }

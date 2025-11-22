@@ -61,6 +61,11 @@ AI profiles:
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama  # Ollama via Spring AI (requires local Ollama)
 ```
 
+Ollama model selection:
+- Default model is set in `src/main/resources/application.properties` (`ollama.model=llama3`).
+- Override per run: `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama -Dollama.model=mistral:latest`
+- Or set env: `OLLAMA_MODEL=mistral:latest ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama`
+
 ## Build & Test
 Build:
 ```
