@@ -4,6 +4,10 @@ Have you ever wondered what the odds of winnng a game of Solitaire is? This proj
 
 A well-shuffled 52-card deck has *52! permutations (about 8.1 × 10^67)*, so many that it dwarfs the *roughly 10^20 grains of sand on Earth*. In other words, almost every Solitaire deal you have ever seen is effectively a one-off in cosmic terms. Even at *one deal per second*, brute-forcing every deck order would take *around 2.6 × 10^60 years*, a timespan so huge the age of the universe does not even register on the same scale.
 
+This means testing every deck permutation is impossible. So, we are leaning on AI and solid engineering to run repeatable regression test suites over large batches of randomly shuffled games, letting us measure performance statistically instead of trying to brute-force every possible deal. The goal is not to “solve” all of Solitaire, but to apply a range of AI algorithms that can reliably solve as many deals as possible, and in doing so reveal the true probability of winning Solitaire under real rules.
+
+This means testing every deck permutation is impossible. Instead, we lean on AI and solid engineering to run repeatable regression test suites over large batches of randomly shuffled games, so we can measure performance statistically rather than brute-forcing every possible deal. The goal is not to “solve” all of Solitaire, but to apply a range of AI algorithms that reliably solve as many deals as possible and, in doing so, reveal the true probability of winning under real rules.
+
 ## Test Results
 
 The last test run was performed at Nov 22, 2025 2:27:53 PM.
