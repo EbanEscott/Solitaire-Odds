@@ -57,14 +57,14 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         List<List<Card>> foundations = solitaire.getFoundation();
         for (int f = 0; f < foundations.size(); f++) {
             if (canMoveToFoundation(moving, foundations.get(f))) {
-                out.add(new Move("move W F" + (f + 1), SCORE_FOUNDATION));
+                out.add(new Move("move W " + moving.shortName() + " F" + (f + 1), SCORE_FOUNDATION));
             }
         }
 
         List<List<Card>> tableau = solitaire.getTableau();
         for (int t = 0; t < tableau.size(); t++) {
             if (canMoveToTableau(moving, tableau.get(t))) {
-                out.add(new Move("move W T" + (t + 1), SCORE_TABLEAU));
+                out.add(new Move("move W " + moving.shortName() + " T" + (t + 1), SCORE_TABLEAU));
             }
         }
     }
@@ -79,7 +79,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
             }
             for (int f = 0; f < foundations.size(); f++) {
                 if (canMoveToFoundation(moving, foundations.get(f))) {
-                    out.add(new Move("move T" + (from + 1) + " F" + (f + 1), SCORE_FOUNDATION));
+                    out.add(new Move("move T" + (from + 1) + " " + moving.shortName() + " F" + (f + 1), SCORE_FOUNDATION));
                 }
             }
         }
@@ -98,7 +98,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
                 }
                 if (canMoveToTableau(moving, tableau.get(to))) {
                     // Slightly favor moves that might expose a face-down card by weighting tableau moves modestly.
-                    out.add(new Move("move T" + (from + 1) + " T" + (to + 1), SCORE_TABLEAU_FLIP));
+                    out.add(new Move("move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1), SCORE_TABLEAU_FLIP));
                 }
             }
         }

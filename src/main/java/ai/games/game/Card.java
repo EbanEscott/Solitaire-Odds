@@ -19,6 +19,20 @@ public class Card {
         return suit;
     }
 
+    /**
+     * Short, non-colored name (e.g., "Q♠", "10♦").
+     */
+    public String shortName() {
+        return rank.toString() + suit.getSymbol();
+    }
+
+    public boolean matchesShortName(String name) {
+        if (name == null) {
+            return false;
+        }
+        return shortName().equalsIgnoreCase(name.trim());
+    }
+
     @Override
     public String toString() {
         String value = rank.toString() + suit.getSymbol();

@@ -66,8 +66,12 @@ class RuleBasedHeuristicsPlayerTest {
             return;
         }
         String[] parts = trimmed.split("\\s+");
-        if (parts.length == 3 && parts[0].equalsIgnoreCase("move")) {
-            solitaire.moveCard(parts[1], parts[2]);
+        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
+            if (parts.length == 4) {
+                solitaire.moveCard(parts[1], parts[2], parts[3]);
+            } else {
+                solitaire.moveCard(parts[1], null, parts[2]);
+            }
         }
     }
 

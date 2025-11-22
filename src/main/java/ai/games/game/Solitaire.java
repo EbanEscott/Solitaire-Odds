@@ -62,6 +62,14 @@ public class Solitaire {
      * Returns true on success, false if the move is illegal or piles are invalid/empty.
      */
     public boolean moveCard(String from, String to) {
+        return moveCard(from, null, to);
+    }
+
+    /**
+     * Attempt to move a card (and any cards above it) from one pile to another. If cardCode is null,
+     * uses the top visible card for tableau or top card for other piles.
+     */
+    public boolean moveCard(String from, String cardCode, String to) {
         String fromNormalized = normalizeCode(from);
         String toNormalized = normalizeCode(to);
         if (fromNormalized == null || toNormalized == null) {
@@ -78,24 +86,43 @@ public class Solitaire {
         if (fromPile == null || toPile == null || fromPile.isEmpty()) {
             return false;
         }
+        int faceUp = fromType == 'T' ? tableauFaceUp.get(fromIndex) : 1;
+        if (fromType == 'T' && faceUp <= 0) {
+            return false;
+        }
+        int startFaceUpIdx = fromType == 'T' ? Math.max(0, fromPile.size() - faceUp) : fromPile.size() - 1;
+        int movingIdx = fromPile.size() - 1; // default top card
+        if (cardCode != null) {
+            movingIdx = -1;
+            for (int i = startFaceUpIdx; i < fromPile.size(); i++) {
+                if (fromPile.get(i).matchesShortName(cardCode)) {
+                    movingIdx = i;
+                    break;
+                }
+            }
+            if (movingIdx == -1) {
+                return false;
+            }
+        }
+        // For talon/stock/foundation sources, must be top card.
+        if (fromType != 'T' && movingIdx != fromPile.size() - 1) {
+            return false;
+        }
 
-        // Determine moving segment for tableau: allow moving a visible stack starting at the first face-up card.
-        int fromFaceUp = fromType == 'T' ? tableauFaceUp.get(fromIndex) : 1;
-        int startIdx = fromType == 'T' ? Math.max(0, fromPile.size() - fromFaceUp) : fromPile.size() - 1;
-        Card moving = fromPile.get(startIdx);
+        Card moving = fromPile.get(movingIdx);
 
         if (!isLegalMove(moving, toNormalized, toPile)) {
             return false;
         }
 
-        // If moving to foundation, only permit single-card moves.
-        if (toType == 'F' && startIdx != fromPile.size() - 1) {
+        // If moving to foundation, only permit single-card moves and only from top.
+        if (toType == 'F' && movingIdx != fromPile.size() - 1) {
             return false;
         }
 
-        int movedCount = fromPile.size() - startIdx;
-        List<Card> segment = new ArrayList<>(fromPile.subList(startIdx, fromPile.size()));
-        for (int i = fromPile.size() - 1; i >= startIdx; i--) {
+        int movedCount = fromPile.size() - movingIdx;
+        List<Card> segment = new ArrayList<>(fromPile.subList(movingIdx, fromPile.size()));
+        for (int i = fromPile.size() - 1; i >= movingIdx; i--) {
             fromPile.remove(i);
         }
         toPile.addAll(segment);

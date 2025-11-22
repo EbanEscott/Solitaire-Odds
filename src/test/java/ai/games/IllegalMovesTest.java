@@ -24,7 +24,7 @@ class IllegalMovesTest {
         seedTableau(solitaire, Collections.nCopies(7, empty()), Arrays.asList(0, 0, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertFalse(solitaire.moveCard("T1", "F1"));
+        assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
 
     @Test
@@ -35,7 +35,7 @@ class IllegalMovesTest {
                 Arrays.asList(1, 0, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(pile(new Card(Rank.ACE, Suit.HEARTS)), empty(), empty(), empty()));
 
-        assertFalse(solitaire.moveCard("T1", "F1"));
+        assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
 
     @Test
@@ -46,7 +46,7 @@ class IllegalMovesTest {
                 Arrays.asList(1, 0, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertFalse(solitaire.moveCard("T1", "F1"));
+        assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
 
     @Test
@@ -57,7 +57,7 @@ class IllegalMovesTest {
                 Arrays.asList(0, 0, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertFalse(solitaire.moveCard("T1", "F1"));
+        assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
 
     @Test
@@ -69,7 +69,7 @@ class IllegalMovesTest {
                 Arrays.asList(1, 1, 0, 0, 0, 0, 0));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        assertFalse(solitaire.moveCard("T1", "T2"));
+        assertFalse(solitaire.moveCard("T1", null, "T2"));
     }
 
     private static List<Card> empty() {

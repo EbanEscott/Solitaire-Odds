@@ -31,7 +31,7 @@ class BoundaryTest {
 
         seedTableau(solitaire, Arrays.asList(pile(new Card(Rank.KING, Suit.CLUBS)), empty(), empty(), empty(), empty(), empty(), empty()),
                 Arrays.asList(1, 0, 0, 0, 0, 0, 0));
-        assertTrue(solitaire.moveCard("T1", "T2"));
+        assertTrue(solitaire.moveCard("T1", null, "T2"));
     }
 
     @Test
