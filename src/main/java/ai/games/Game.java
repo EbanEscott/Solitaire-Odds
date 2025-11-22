@@ -86,13 +86,12 @@ public class Game implements CommandLineRunner {
                 break;
             } else if (input.equalsIgnoreCase("turn")) {
                 solitaire.turnThree();
-                feedback = "Turned up to three cards. Stock: " + solitaire.getStockpile().size()
-                        + ", Talon: " + solitaire.getTalon().size() + ".";
+                feedback = "";
             } else if (input.toLowerCase().startsWith("move")) {
                 String[] parts = input.split("\\s+");
                 if (parts.length == 4) {
                     Solitaire.MoveResult result = solitaire.attemptMove(parts[1], parts[2], parts[3]);
-                    feedback = result.message == null ? "" : result.message;
+                    feedback = result.success ? "" : (result.message == null ? "" : result.message);
                     if (!result.success) {
                         System.out.println("Illegal move: " + feedback);
                         if (log.isDebugEnabled()) {
@@ -103,7 +102,7 @@ public class Game implements CommandLineRunner {
                     }
                 } else if (parts.length == 3) {
                     Solitaire.MoveResult result = solitaire.attemptMove(parts[1], null, parts[2]);
-                    feedback = result.message == null ? "" : result.message;
+                    feedback = result.success ? "" : (result.message == null ? "" : result.message);
                     if (!result.success) {
                         System.out.println("Illegal move: " + feedback);
                         if (log.isDebugEnabled()) {
