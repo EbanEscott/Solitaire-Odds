@@ -3,6 +3,7 @@ package ai.games;
 import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
+import ai.games.player.AIPlayer;
 import ai.games.player.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,9 @@ public class Game implements CommandLineRunner {
     public void run(String... args) {
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
+        boolean aiMode = player instanceof AIPlayer;
+        int iterations = 0;
+        final int maxIterations = 500;
 
         while (true) {
             if (log.isDebugEnabled()) {
@@ -41,6 +45,10 @@ public class Game implements CommandLineRunner {
                 break;
             }
 
+            if (!aiMode) {
+                System.out.print("Enter command (turn | move FROM TO | quit): ");
+            }
+
             String input = player.nextCommand(solitaire);
             if (input == null) {
                 System.out.println("Input closed. Exiting.");
@@ -52,6 +60,16 @@ public class Game implements CommandLineRunner {
             input = input.trim();
             if (log.isDebugEnabled()) {
                 log.debug("Received command from {}: {}", player.getClass().getSimpleName(), input);
+            }
+            if (aiMode) {
+                System.out.println("AI command: " + input);
+            }
+            iterations++;
+            if (iterations > maxIterations) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Max iterations ({}) reached, stopping game loop to avoid runaway execution.", maxIterations);
+                }
+                break;
             }
             if (input.equalsIgnoreCase("quit")) {
                 break;
