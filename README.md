@@ -1,17 +1,16 @@
-# Solitaire CLI (Spring Boot)
+# Solitaire Odds
 
-This project was built to demonstrate how AI (GPT-5.1-Codex-Max on Medium) and Human (Eban Escott on Coffee) can vibe to find the probability of winning a Solitaire game.
+Have you ever wondered what the odds of winnng a game of Solitaire is? This project was built to demonstrate how AI (GPT-5.1-Codex-Max on Medium) and Human (Eban Escott on Coffee) can vibe to find the probability of winning a Solitaire game.
 
-The total time it took to build this project was X.
+A well-shuffled 52-card deck has *52! permutations (about 8.1 × 10^67)*, so many that it dwarfs the *roughly 10^20 grains of sand on Earth*. In other words, almost every Solitaire deal you have ever seen is effectively a one-off in cosmic terms. Even at *one deal per second*, brute-forcing every deck order would take *around 2.6 × 10^60 years*, a timespan so huge the age of the universe does not even register on the same scale.
 
 ## Test Results
 
-The last test run was performed at X.
+The last test run was performed at Nov 22, 2025 2:27:53 PM.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
-| Rule-based Heuristics        | 500          | 60        | 12%   | 0.3s          | 150s       | 95        | 3               |
-| Greedy Search                | 500          | 90        | 18%   | 0.5s          | 250s       | 105       | 4               |
+| Rule-based Heuristics | 1000000 | 388 | 0.04% | 0.000s | 44.643s | 21.51 | 1 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
@@ -22,7 +21,6 @@ The last test run was performed at X.
 * **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
 * **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
 * **Best Win Streak** Longest run of consecutive wins within the batch.
-
 
 ## Prereqs
 
