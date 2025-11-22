@@ -82,6 +82,32 @@ class BoundaryTest {
     }
 
     @Test
+    void turnThreeRecyclesTalonWhenStockEmpty() {
+        // Stock empty, talon has four cards (Q top). A turn should recycle and deal three.
+        Solitaire solitaire = new Solitaire(new Deck());
+        seedTableau(solitaire, Arrays.asList(empty(), empty(), empty(), empty(), empty(), empty(), empty()),
+                Arrays.asList(0, 0, 0, 0, 0, 0, 0));
+        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+        SolitaireTestHelper.setStockpile(solitaire, empty());
+        SolitaireTestHelper.setTalon(solitaire, pile(
+                new Card(Rank.TEN, Suit.SPADES),
+                new Card(Rank.JACK, Suit.SPADES),
+                new Card(Rank.QUEEN, Suit.SPADES),
+                new Card(Rank.KING, Suit.SPADES) // top of talon
+        ));
+
+        solitaire.turnThree();
+
+        // After recycling, the original bottom (TEN) should be drawn first.
+        assertEquals(pile(
+                new Card(Rank.TEN, Suit.SPADES),
+                new Card(Rank.JACK, Suit.SPADES),
+                new Card(Rank.QUEEN, Suit.SPADES)
+        ), SolitaireTestHelper.getTalon(solitaire));
+        assertEquals(pile(new Card(Rank.KING, Suit.SPADES)), SolitaireTestHelper.getStockpile(solitaire));
+    }
+
+    @Test
     void moveFromEmptyTalonFails() {
         // No cards in talon; moving W to foundation should fail.
         Solitaire solitaire = new Solitaire(new Deck());
