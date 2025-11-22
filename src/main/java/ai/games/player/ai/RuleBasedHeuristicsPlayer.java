@@ -2,6 +2,7 @@ package ai.games.player.ai;
 
 import ai.games.game.Card;
 import ai.games.game.Solitaire;
+import ai.games.game.Rank;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
 import java.util.List;
@@ -119,8 +120,9 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
                 if (to == from) {
                     continue;
                 }
-                if (moving.getRank() == ai.games.game.Rank.KING && tableau.get(from).size() == 1 && tableauFaceUpCounts.get(from) == 1 && tableau.get(to).isEmpty()) {
-                    continue; // avoid looping king from solo pile to empty pile
+                // Skip ping-ponging a lone king: only consider kings if the source pile has more than one card (would reveal something).
+                if (moving.getRank() == Rank.KING && tableau.get(from).size() == faceUpCounts.get(from)) {
+                    continue;
                 }
                 if (canMoveToTableau(moving, tableau.get(to))) {
                     return "move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1);
