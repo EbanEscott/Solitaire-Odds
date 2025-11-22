@@ -104,7 +104,8 @@ Pile codes:
 - Talon/Waste: `W`
 - Stockpile: `S` (turned via `turn`, not `move`)
 
-Terminology:
+## Terminology
+
 - **Tableau**: Seven main play piles. The active/top card is the nearest/last face-up card; covered cards beneath it are less visible.
 - **Foundation**: Four suit piles built Ace → King.
 - **Talon (Waste)**: Face-up cards flipped from stock.
