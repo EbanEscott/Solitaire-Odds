@@ -32,6 +32,20 @@ class GreedySearchPlayerTest {
         assertTrue(isWon(solitaire));
     }
 
+    @Test
+    void greedyAiWinsKnownMidGameState() {
+        // Seed a winnable mid-game so the greedy AI has to make several choices.
+        Solitaire solitaire = seedMidGameWinnable();
+        Player ai = new GreedySearchPlayer();
+
+        for (int i = 0; i < 50 && !isWon(solitaire); i++) {
+            String command = ai.nextCommand(solitaire);
+            applyCommand(solitaire, command);
+        }
+
+        assertTrue(isWon(solitaire), "Greedy AI should win the seeded mid-game state");
+    }
+
     private void runSingleMoveCompletion(Solitaire solitaire, Player ai) {
         for (int i = 0; i < 5 && !isWon(solitaire); i++) {
             String command = ai.nextCommand(solitaire);
@@ -89,6 +103,38 @@ class GreedySearchPlayerTest {
         List<Card> pile = fillerPile(fillersBelow);
         pile.add(top);
         return pile;
+    }
+
+    private Solitaire seedMidGameWinnable() {
+        Solitaire solitaire = new Solitaire(new Deck());
+
+        // Tableau with a mix of face-up cards that can progress to foundation.
+        List<List<Card>> tableau = Arrays.asList(
+                SolitaireTestHelper.pile(new Card(Rank.THREE, Suit.SPADES)),
+                SolitaireTestHelper.pile(new Card(Rank.TWO, Suit.SPADES)),
+                SolitaireTestHelper.pile(new Card(Rank.KING, Suit.HEARTS)),
+                SolitaireTestHelper.pile(new Card(Rank.JACK, Suit.CLUBS)),
+                SolitaireTestHelper.pile(new Card(Rank.QUEEN, Suit.DIAMONDS)),
+                SolitaireTestHelper.emptyPile(),
+                SolitaireTestHelper.emptyPile()
+        );
+        List<Integer> faceUp = Arrays.asList(1, 1, 1, 1, 1, 0, 0);
+        SolitaireTestHelper.setTableau(solitaire, tableau, faceUp);
+
+        // Foundation has A♠ to allow progression of spades.
+        List<List<Card>> foundation = Arrays.asList(
+                SolitaireTestHelper.pile(new Card(Rank.ACE, Suit.SPADES)),
+                SolitaireTestHelper.emptyPile(),
+                SolitaireTestHelper.emptyPile(),
+                SolitaireTestHelper.emptyPile()
+        );
+        SolitaireTestHelper.setFoundation(solitaire, foundation);
+
+        // Talon gives the next spade.
+        SolitaireTestHelper.setTalon(solitaire, SolitaireTestHelper.pile(new Card(Rank.FOUR, Suit.SPADES)));
+        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
+
+        return solitaire;
     }
 
     private List<Card> fillerPile(int count) {
