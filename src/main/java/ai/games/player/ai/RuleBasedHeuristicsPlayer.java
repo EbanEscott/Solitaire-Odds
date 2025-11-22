@@ -76,6 +76,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
         List<List<Card>> foundations = solitaire.getFoundation();
         // Tableau to foundation
         for (int t = tableau.size() - 1; t >= 0; t--) {
+            // Only consider the top/active visible card for foundation moves.
             Card moving = topTableauCard(tableau.get(t), faceUpCounts.get(t));
             if (moving == null) {
                 continue;
