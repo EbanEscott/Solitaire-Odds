@@ -1,15 +1,17 @@
 # Solitaire CLI (Spring Boot)
 
-This project was built to demonstrate how AI (Codex) and Human (Eban Escott) can vibe to find the probability of winning a Solitaire game.
+This project was built to demonstrate how AI (GPT-5.1-Codex-Max on Medium) and Human (Eban Escott on Coffee) can vibe to find the probability of winning a Solitaire game.
+
+The total time it took to build this project was X.
 
 ## Test Results
 
 The last test run was performed at X.
 
-| Algorithm                     | Games Played | Win % | Avg Time/Game | Total Time | Avg Moves | Avg Score | Best Win Streak | Avg Search Depth |
-|------------------------------|--------------|-------|----------------|-------------|-----------|-----------|------------------|-------------------|
-| Rule-based Heuristics        | 500          | 12%   | 0.3s           | 150s        | 95        | 4200      | 3                | 0                 |
-| Greedy Search                | 500          | 18%   | 0.5s           | 250s        | 105       | 4800      | 4                | 1                 |
+| Algorithm                     | Games Played | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
+|------------------------------|--------------|-------|----------------|-------------|-----------|-----------|
+| Rule-based Heuristics        | 500          | 12%   | 0.3s           | 150s        | 95        | 3                |
+| Greedy Search                | 500          | 18%   | 0.5s           | 250s        | 105       | 4                |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
@@ -19,7 +21,6 @@ The last test run was performed at X.
 * **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
 * **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
 * **Best Win Streak** Longest run of consecutive wins within the batch.
-* **Avg Search Depth** Typical depth of lookahead or tree expansion during decision-making (applies to algorithms that search).
 
 
 ## Prereqs

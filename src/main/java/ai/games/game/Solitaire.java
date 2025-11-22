@@ -79,23 +79,38 @@ public class Solitaire {
             return false;
         }
 
-        Card moving = peekMovableCard(fromType, fromIndex, fromPile);
-        if (moving == null) {
-            return false;
-        }
+        // Determine moving segment for tableau: allow moving a visible stack starting at the first face-up card.
+        int fromFaceUp = fromType == 'T' ? tableauFaceUp.get(fromIndex) : 1;
+        int startIdx = fromType == 'T' ? Math.max(0, fromPile.size() - fromFaceUp) : fromPile.size() - 1;
+        Card moving = fromPile.get(startIdx);
 
         if (!isLegalMove(moving, toNormalized, toPile)) {
             return false;
         }
 
-        fromPile.remove(fromPile.size() - 1);
-        if (fromType == 'T') {
-            decrementFaceUp(fromIndex, fromPile);
+        // If moving to foundation, only permit single-card moves.
+        if (toType == 'F' && startIdx != fromPile.size() - 1) {
+            return false;
         }
 
-        toPile.add(moving);
+        int movedCount = fromPile.size() - startIdx;
+        List<Card> segment = new ArrayList<>(fromPile.subList(startIdx, fromPile.size()));
+        for (int i = fromPile.size() - 1; i >= startIdx; i--) {
+            fromPile.remove(i);
+        }
+        toPile.addAll(segment);
+
+        if (fromType == 'T') {
+            // Adjust face-up count on source pile.
+            int remainingFaceUp = Math.max(0, tableauFaceUp.get(fromIndex) - movedCount);
+            if (remainingFaceUp == 0 && !fromPile.isEmpty()) {
+                remainingFaceUp = 1; // flip next card
+            }
+            tableauFaceUp.set(fromIndex, remainingFaceUp);
+        }
+
         if (toType == 'T' && toIndex >= 0 && toIndex < tableauFaceUp.size()) {
-            tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + 1);
+            tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + movedCount);
         }
         return true;
     }
@@ -357,28 +372,6 @@ public class Solitaire {
             return Integer.parseInt(normalized.substring(1)) - 1;
         } catch (NumberFormatException e) {
             return -1;
-        }
-    }
-
-    private Card peekMovableCard(char fromType, int fromIndex, List<Card> fromPile) {
-        if (fromPile.isEmpty()) {
-            return null;
-        }
-        switch (fromType) {
-            case 'T':
-                if (fromIndex < 0 || fromIndex >= tableauFaceUp.size()) {
-                    return null;
-                }
-                if (tableauFaceUp.get(fromIndex) <= 0) {
-                    return null;
-                }
-                return fromPile.get(fromPile.size() - 1);
-            case 'W':
-            case 'F':
-            case 'S':
-                return fromPile.get(fromPile.size() - 1);
-            default:
-                return null;
         }
     }
 
