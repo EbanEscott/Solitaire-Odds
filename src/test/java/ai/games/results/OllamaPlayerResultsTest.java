@@ -53,7 +53,7 @@ public class OllamaPlayerResultsTest {
             int moves = 0;
             boolean won = false;
             for (int step = 0; step < maxMovesPerGame; step++) {
-                String command = ai.nextCommand(solitaire);
+                String command = ai.nextCommand(solitaire, "");
                 if (command == null || "quit".equalsIgnoreCase(command.trim())) {
                     break;
                 }

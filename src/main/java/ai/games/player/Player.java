@@ -12,5 +12,5 @@ public interface Player {
      * @param solitaire current game state; useful for AI decisions.
      * @return raw command string, or null to signal the game should exit.
      */
-    String nextCommand(Solitaire solitaire);
+    String nextCommand(Solitaire solitaire, String feedback);
 }

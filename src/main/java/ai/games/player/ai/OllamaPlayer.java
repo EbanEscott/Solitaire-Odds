@@ -125,11 +125,14 @@ public class OllamaPlayer extends AIPlayer implements Player {
     }
 
     @Override
-    public String nextCommand(Solitaire solitaire) {
+    public String nextCommand(Solitaire solitaire, String feedback) {
         String board = solitaire.toString();
+        String prompt = feedback == null || feedback.isBlank()
+                ? board
+                : board + "\n\nPrevious feedback: " + feedback;
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
-                .user(board)
+                .user(prompt)
                 .call()
                 .content();
         return response == null ? "quit" : response.trim();

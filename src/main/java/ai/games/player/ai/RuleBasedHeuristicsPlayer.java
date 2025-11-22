@@ -26,7 +26,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
     private boolean sawEmptyStock = false;
 
     @Override
-    public String nextCommand(Solitaire solitaire) {
+    public String nextCommand(Solitaire solitaire, String feedback) {
         // Step 1: first move is to turn three.
         if (!hasTurnedOnce) {
             hasTurnedOnce = true;

@@ -21,7 +21,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     private static final int SCORE_TABLEAU = 1;
 
     @Override
-    public String nextCommand(Solitaire solitaire) {
+    public String nextCommand(Solitaire solitaire, String feedback) {
         Move best = pickBestMove(solitaire);
         if (best != null) {
             return best.command;
