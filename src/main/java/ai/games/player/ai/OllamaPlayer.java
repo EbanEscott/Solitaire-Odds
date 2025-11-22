@@ -3,6 +3,7 @@ package ai.games.player.ai;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
+import ai.games.player.LegalMovesHelper;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,12 +33,20 @@ public class OllamaPlayer extends AIPlayer implements Player {
     private static final String SYSTEM_PROMPT = """
             Developer: # Role and Objective
             - You are an expert Klondike Solitaire player. Your role is to select and output exactly one legal move from the current board configuration.
+            - When a "Legal moves now:" list is provided to you, treat it as the complete set of allowed moves for this turn.
 
             # Instructions
             - You do not know any rules that are not stated below. Follow the stated rules exactly.
             - Output only a single legal command line; do not include explanations or additional text.
             - Perform a concise checklist (3-7 bullets) of sub-tasks internally to select the move. Do NOT output the checklist.
             - After determining a move, validate internally that it is legal by the stated rules before outputting.
+            - If a "Legal moves now:" list is present in the user message:
+              - You MUST output exactly ONE line copied verbatim from that list.
+              - You MUST NOT invent, edit, reformat, or combine moves.
+              - If only one legal move is listed, output it.
+              - If multiple legal moves are listed, choose the best one using the Decision Priorities section below.
+              - If "turn" is listed, it is legal. If "turn" is not listed, you cannot output "turn".
+              - Any output that does not exactly match a listed legal move is wrong.
 
             ## Game Rules
 
@@ -120,7 +129,9 @@ public class OllamaPlayer extends AIPlayer implements Player {
             8. If "turn" is impossible and no legal moves exist, "quit".
 
             ## Final Constraint
-            - Output exactly ONE legal command line only. Do NOT provide explanations.
+            - Output exactly ONE legal command line only.
+            - When "Legal moves now:" is provided, your output must be an exact copy of one listed move.
+            - Do NOT provide explanations.
             """;
 
     /**
@@ -145,12 +156,17 @@ public class OllamaPlayer extends AIPlayer implements Player {
     public String nextCommand(Solitaire solitaire, String feedback) {
         String board = stripAnsi(solitaire.toString());
         String cleanFeedback = stripAnsi(feedback);
+        var legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
+        String legalSection = legalMoves.isEmpty()
+                ? ""
+                : "\n\nLegal moves now:\n- " + String.join("\n- ", legalMoves);
         String prompt = (cleanFeedback == null || cleanFeedback.isBlank())
-                ? board
+                ? board + legalSection
                 : board + "\n\n"
                         + "Your last command was illegal:\n"
                         + cleanFeedback.trim() + "\n"
-                        + "Do NOT repeat it. Choose a different legal move.";
+                        + "Do NOT repeat it. Choose a different legal move."
+                        + legalSection;
         if (log.isTraceEnabled()) {
             log.trace("Ollama prompt (user): {}", prompt);
         }
