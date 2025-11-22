@@ -1,8 +1,31 @@
 # Solitaire CLI (Spring Boot)
 
-A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` package. The game supports pluggable players (human CLI by default; AI profile-ready).
+This project was built to demonstrate how AI (Codex) and Human (Eban Escott) can vibe to find the probability of winning a Solitaire game.
+
+## Test Results
+
+The last test run was performed at X.
+
+| Algorithm                     | Games Played | Win % | Avg Time/Game | Total Time | Avg Moves | Avg Score | Best Win Streak | Avg Search Depth |
+|------------------------------|--------------|-------|----------------|-------------|-----------|-----------|------------------|-------------------|
+| Rule-based Heuristics        | 500          | 12%   | 0.3s           | 150s        | 95        | 4200      | 3                | 0                 |
+| Greedy Search                | 500          | 18%   | 0.5s           | 250s        | 105       | 4800      | 4                | 1                 |
+
+* **Algorithm** Name of the decision or optimisation method being tested.
+* **Games Played** Total number of solitaire games the algorithm attempted.
+* **Win %** Percentage of games successfully completed (foundations fully built).
+* **Avg Time/Game** Mean time taken to finish or fail a game.
+* **Total Time** Sum of all time spent playing the batch of games.
+* **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
+* **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
+* **Best Win Streak** Longest run of consecutive wins within the batch.
+* **Avg Search Depth** Typical depth of lookahead or tree expansion during decision-making (applies to algorithms that search).
+
 
 ## Prereqs
+
+A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` package. The game supports pluggable players (human CLI by default; AI profile-ready).
+
 - JDK 17+
 - Use the bundled Gradle wrapper (pinned to Gradle 8.7). Gradle 9.x is incompatible with Spring Boot 3.2.
   - If Gradle 9.x was cached: `rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin`
