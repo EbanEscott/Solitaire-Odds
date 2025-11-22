@@ -48,7 +48,7 @@ public abstract class AIPlayer implements Player {
         if (pile == null || pile.isEmpty() || faceUpCount <= 0) {
             return null;
         }
-        int start = Math.max(0, pile.size() - faceUpCount);
-        return pile.get(start); // top visible card as rendered
+        // Active/top visible card = nearest/last face-up card; bottom cards are covered.
+        return pile.get(pile.size() - 1);
     }
 }

@@ -52,6 +52,47 @@ class LegalMovesTest {
     }
 
     @Test
+    void topVisibleTableauCardMovesLegally() {
+        // T3 has two face-up cards: J♦ below (covered), Q♣ on top (nearest/active). T7 has K♥. Only the top/active Q♣ is considered and is legal to move.
+        Solitaire solitaire = new Solitaire(new Deck());
+        seedTableau(solitaire,
+                Arrays.asList(
+                        empty(),
+                        empty(),
+                        pile(new Card(Rank.JACK, Suit.DIAMONDS), new Card(Rank.QUEEN, Suit.CLUBS)),
+                        empty(),
+                        empty(),
+                        empty(),
+                        pile(new Card(Rank.KING, Suit.HEARTS))
+                ),
+                Arrays.asList(0, 0, 2, 0, 0, 0, 1));
+        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+
+        assertTrue(solitaire.moveCard("T3", "T7"));
+    }
+
+    @Test
+    void bottomVisibleTableauCardDrivesPileMoveRule() {
+        // Bottom visible card (earliest face-up) drives whether a pile could move; here J♦ on K♥ should be illegal (same color), so no move.
+        Solitaire solitaire = new Solitaire(new Deck());
+        seedTableau(solitaire,
+                Arrays.asList(
+                        empty(),
+                        empty(),
+                        pile(new Card(Rank.JACK, Suit.DIAMONDS), new Card(Rank.QUEEN, Suit.CLUBS)),
+                        empty(),
+                        empty(),
+                        empty(),
+                        pile(new Card(Rank.KING, Suit.HEARTS))
+                ),
+                Arrays.asList(0, 0, 2, 0, 0, 0, 1));
+        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+
+        // Using the current moveCard (top-card move), this is illegal; the heuristic should also treat it as not moveable.
+        assertFalse(solitaire.moveCard("T3", "T7"));
+    }
+
+    @Test
     void talonToFoundationIncrementIsLegal() {
         // F2 has A♦; talon top is 2♦; moving waste to foundation should succeed.
         Solitaire solitaire = new Solitaire(new Deck());
