@@ -24,7 +24,7 @@
         </encoder>
     </appender>
 
-    <logger name="ai.games" level="DEBUG" additivity="false">
+    <logger name="ai.games" level="TRACE" additivity="false">
         <appender-ref ref="FILE"/>
         <appender-ref ref="CONSOLE"/>
     </logger>

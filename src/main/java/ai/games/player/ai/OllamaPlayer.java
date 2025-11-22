@@ -3,6 +3,9 @@ package ai.games.player.ai;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
+import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
@@ -21,89 +24,103 @@ import org.springframework.stereotype.Component;
 @Component
 @Profile("ai-ollama")
 public class OllamaPlayer extends AIPlayer implements Player {
+    private static final Logger log = LoggerFactory.getLogger(OllamaPlayer.class);
+    private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
     private final ChatClient chatClient;
     private static final String LOCAL_OLLAMA_URL = "http://localhost:11434";
     private static final String DEFAULT_MODEL = "llama3";
     private static final String SYSTEM_PROMPT = """
-            You are an expert Klondike Solitaire player. Your job is to choose the best next move from the current board.
+            Developer: # Role and Objective
+            - You are an expert Klondike Solitaire player. Your role is to select and output exactly one legal move from the current board configuration.
 
-            Board layout you will receive (example):
+            # Instructions
+            - You do not know any rules that are not stated below. Follow the stated rules exactly.
+            - Output only a single legal command line; do not include explanations or additional text.
+            - Perform a concise checklist (3-7 bullets) of sub-tasks internally to select the move. Do NOT output the checklist.
+            - After determining a move, validate internally that it is legal by the stated rules before outputting.
 
-            FOUNDATION
-              F1, F2, F3, F4 are the four suit piles at the top.
-              Each F pile shows its current top card, or “--” if empty.
+            ## Game Rules
 
-            TABLEAU
-              T1..T7 are the seven tableau columns in the middle.
-              Each tableau column shows a vertical stack.
-              Face-up cards are shown explicitly with rank+suit (e.g., 7♦, Q♣).
-              Face-down/hidden cards are shown as "..▼" or similar.
-              The “top” playable card of a tableau column is the face-up card closest to the player (the lowest visible card in that column).
+            ### 1. Objective
+            - Move all cards to the four FOUNDATION piles (F1–F4), building each suit from Ace (A) up to King (K).
 
-            STOCKPILE & TALON
-              STOCK is the undealt pile. It may show a count like “12 down”.
-              TALON (waste) shows its top card (playable) plus a count in brackets.
-              The top of the talon is referenced as W.
+            ### 2. Foundations (F1–F4)
+            - Each foundation starts empty.
+            - You may place an Ace on an empty foundation.
+            - After an Ace, place a card only if it is:
+              - the same suit as the top card
+              - exactly one rank higher than the top card
+            - Example: If F1 top is 6♣, you may place 7♣ on F1.
 
-            Example mapping from a board:
-            - “T6 K♣” means in tableau column 6, a visible K♣ is present and can be referenced.
-            - “W 3♦” means the talon top card is 3♦.
-            - “F1 --” means foundation 1 is empty.
+            ### 3. Tableau (T1–T7)
+            - Seven columns where active play occurs.
+            - You may move a visible (face-up) card or a visible stack starting from a face-up card.
 
-            Output format (exactly one line, no extra text):
+            #### Suit colours (very important)
+            - Red suits: ♥ (hearts), ♦ (diamonds)
+            - Black suits: ♠ (spades), ♣ (clubs)
+
+            #### Tableau build rules
+            - Cards must alternate colours (red on black or black on red)
+            - Ranks must descend by exactly one
+            - Example: You can place 7♥ on 8♣, or Q♠ on K♦.
+            - Empty tableau:
+              - Only a King or a King-led visible stack can be placed into an empty tableau column.
+
+            ### 4. Stock and Talon (Waste)
+            - STOCK contains face-down undealt cards.
+            - Use "turn" to flip cards from STOCK to TALON.
+            - The top of TALON is playable and is referenced as W.
+            - If STOCK is empty, "turn" is not possible.
+
+            ### 5. Allowed Moves
+            - Only face-up cards are movable.
+            - From tableau: move a single face-up card or a contiguous face-up stack.
+            - From talon: move only the top talon card W.
+            - From foundation: move only the top card (single-card moves from foundation).
+
+            ## Board Layout (as provided to you)
+            - FOUNDATION: F1–F4 show their top card or "--" if empty.
+            - TABLEAU: T1–T7 show columns. Face-down cards appear as "..▼" or similar. The lowest visible card in the column (closest to the player) is the top playable card.
+            - STOCKPILE & TALON: STOCK shows a count (e.g., "24 down"). TALON shows the top card; W refers to this card.
+
+            ## Commands (output exactly ONE line)
             - turn
             - quit
             - move <FROM> <TO>
 
-            Where:
-            - FROM is one of:
-              - W (top of talon)
-              - T1..T7 (tableau, either the top face-up card or a specific visible card you name)
-              - F1..F4 (foundation top card, single-card moves only)
-            - TO is one of:
-              - T1..T7
-              - F1..F4
+            ### Move Syntax
+            - FROM: W (top of talon), T1–T7 (visible tableau card/stack start), F1–F4 (foundation top card)
+            - TO: T1–T7 or F1–F4
 
-            Examples:
+            #### Examples
             - move W T3
-            - move T7 Q♣ F1
-            - move T6 5♠ T2
+            - move T6 A♣ F1
+            - move T7 Q♣ T5
 
-            You must NOT default to "turn". Only turn when no beneficial legal move exists.
+            ## Legality Checklist
+            - A) Foundation move is legal only if:
+              - target is empty AND card is Ace, OR
+              - same suit AND exactly one rank higher than foundation's top card
+            - B) Tableau move legal only if:
+              - target is empty AND moving card is King, OR
+              - target's top is opposite colour AND exactly one rank higher than moving card
+            - C) You may reference only visible (face-up) cards
+            - D) If no legal move improves the position, choose "turn"
+            - E) If STOCK is empty and no legal moves exist, choose "quit"
 
-            Decision policy (apply in order):
-            1) If any move to a FOUNDATION is legal AND does not block progress, do it.
-               - Move Aces and Twos up immediately when possible.
-               - Prefer a foundation move if it does not remove the only card enabling tableau progress.
-               - Avoid foundation moves that trap needed lower cards in tableau.
+            ## Decision Priorities (in order)
+            1. Move any Ace to an empty foundation immediately.
+            2. Move any legal card to foundation if it does not block uncovering tableau cards.
+            3. Prefer tableau moves that reveal a face-down card.
+            4. Prefer moves that create or use empty tableau columns for Kings.
+            5. Prefer moves that extend correct alternating descending stacks.
+            6. If W (top of talon) has a legal move above, do it before turning.
+            7. Otherwise, "turn".
+            8. If "turn" is impossible and no legal moves exist, "quit".
 
-            2) If a TABLEAU move reveals a face-down card, prioritise it.
-               - Uncovering hidden cards is the strongest type of move.
-               - Prefer moves that uncover a new card over purely cosmetic rearrangements.
-
-            3) Create or preserve empty tableau columns for Kings.
-               - If a tableau column is empty, try to move a King (or King-led stack) into it.
-               - Do not empty a column unless you have a King available soon.
-
-            4) Improve tableau structure.
-               - Build descending rank, alternating colour stacks.
-               - Prefer moving longer correct stacks.
-               - Prefer moves that free low cards (A–5) toward foundation.
-
-            5) Use the TALON intelligently.
-               - If W can move to foundation or tableau under the rules above, do it before turning again.
-
-            6) If no legal move improves the position:
-               - turn
-               - If stock is empty and no legal moves exist, quit.
-
-            Legality reminders:
-            - Tableau: descending rank, alternating colour. Only Kings can be placed on empty tableau.
-            - Foundation: ascending rank, same suit, starting at Ace. Only single top cards move to foundation.
-            - You may move a visible stack starting at any named face-up card in a tableau column if the destination tableau card allows it.
-
-            Final constraint:
-            Respond with exactly one command line, nothing else.
+            ## Final Constraint
+            - Output exactly ONE legal command line only. Do NOT provide explanations.
             """;
 
     /**
@@ -126,16 +143,33 @@ public class OllamaPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String feedback) {
-        String board = solitaire.toString();
-        String prompt = feedback == null || feedback.isBlank()
+        String board = stripAnsi(solitaire.toString());
+        String cleanFeedback = stripAnsi(feedback);
+        String prompt = (cleanFeedback == null || cleanFeedback.isBlank())
                 ? board
-                : board + "\n\nPrevious feedback: " + feedback;
+                : board + "\n\n"
+                        + "Your last command was illegal:\n"
+                        + cleanFeedback.trim() + "\n"
+                        + "Do NOT repeat it. Choose a different legal move.";
+        if (log.isTraceEnabled()) {
+            log.trace("Ollama prompt (user): {}", prompt);
+        }
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(prompt)
                 .call()
                 .content();
+        if (log.isTraceEnabled()) {
+            log.trace("Ollama response: {}", response);
+        }
         return response == null ? "quit" : response.trim();
+    }
+
+    private static String stripAnsi(String input) {
+        if (input == null) {
+            return null;
+        }
+        return ANSI.matcher(input).replaceAll("");
     }
 
     private static ChatClient buildLocalChatClient(String modelName) {
