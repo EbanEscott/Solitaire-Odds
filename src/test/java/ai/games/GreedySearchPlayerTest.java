@@ -39,7 +39,7 @@ class GreedySearchPlayerTest {
         Player ai = new GreedySearchPlayer();
 
         for (int i = 0; i < 50 && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire);
+            String command = ai.nextCommand(solitaire, "");
             applyCommand(solitaire, command);
         }
 
@@ -48,7 +48,7 @@ class GreedySearchPlayerTest {
 
     private void runSingleMoveCompletion(Solitaire solitaire, Player ai) {
         for (int i = 0; i < 5 && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire);
+            String command = ai.nextCommand(solitaire, "");
             applyCommand(solitaire, command);
         }
     }

@@ -14,7 +14,7 @@ public class HumanPlayer implements Player {
     private final Scanner scanner = new Scanner(System.in);
 
     @Override
-    public String nextCommand(Solitaire solitaire) {
+    public String nextCommand(Solitaire solitaire, String feedback) {
         System.out.print("Enter command (turn | move FROM TO | quit): ");
         if (!scanner.hasNextLine()) {
             return null;

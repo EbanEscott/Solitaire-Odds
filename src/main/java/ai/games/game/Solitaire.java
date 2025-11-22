@@ -73,10 +73,21 @@ public class Solitaire {
      * Returns true on success, false if the move is illegal or piles are invalid/empty.
      */
     public boolean moveCard(String from, String cardCode, String to) {
+        MoveResult result = attemptMove(from, cardCode, to);
+        return result.success;
+    }
+
+    /**
+     * Attempt to move a card and return a descriptive result for error reporting.
+     */
+    public MoveResult attemptMove(String from, String cardCode, String to) {
         String fromNormalized = normalizeCode(from);
         String toNormalized = normalizeCode(to);
-        if (fromNormalized == null || toNormalized == null) {
-            return false;
+        if (fromNormalized == null) {
+            return MoveResult.failure("Invalid source pile code: " + from);
+        }
+        if (toNormalized == null) {
+            return MoveResult.failure("Invalid destination pile code: " + to);
         }
 
         char fromType = fromNormalized.charAt(0);
@@ -86,13 +97,19 @@ public class Solitaire {
 
         List<Card> fromPile = resolvePile(fromNormalized);
         List<Card> toPile = resolvePile(toNormalized);
-        if (fromPile == null || toPile == null || fromPile.isEmpty()) {
-            return false;
+        if (fromPile == null) {
+            return MoveResult.failure("Unknown source pile: " + fromNormalized);
+        }
+        if (toPile == null) {
+            return MoveResult.failure("Unknown destination pile: " + toNormalized);
+        }
+        if (fromPile.isEmpty()) {
+            return MoveResult.failure("Source pile " + fromNormalized + " is empty.");
         }
 
         int faceUp = fromType == 'T' ? tableauFaceUp.get(fromIndex) : 1;
         if (fromType == 'T' && faceUp <= 0) {
-            return false;
+            return MoveResult.failure("No face-up cards available in " + fromNormalized + ".");
         }
         int startFaceUpIdx = fromType == 'T' ? Math.max(0, fromPile.size() - faceUp) : fromPile.size() - 1;
         int movingIdx = fromPile.size() - 1; // default top card
@@ -105,22 +122,25 @@ public class Solitaire {
                 }
             }
             if (movingIdx == -1) {
-                return false;
+                return MoveResult.failure("Card " + cardCode + " is not visible in " + fromNormalized + ".");
             }
         }
         // Non-tableau sources must move the top card only.
         if (fromType != 'T' && movingIdx != fromPile.size() - 1) {
-            return false;
+            return MoveResult.failure("Can only move the top card from " + fromNormalized + ".");
         }
 
         Card moving = fromPile.get(movingIdx);
         if (!isLegalMove(moving, toNormalized, toPile)) {
-            return false;
+            String reason = toType == 'T'
+                    ? "Tableau requires alternating color and one rank lower."
+                    : "Foundation requires same suit and one rank higher starting with Ace.";
+            return MoveResult.failure("Cannot place " + moving.shortName() + " on " + toNormalized + ". " + reason);
         }
 
         // Foundation accepts only a single top card.
         if (toType == 'F' && movingIdx != fromPile.size() - 1) {
-            return false;
+            return MoveResult.failure("Foundation only accepts the top card, not a stack.");
         }
 
         int movedCount = fromPile.size() - movingIdx;
@@ -141,7 +161,7 @@ public class Solitaire {
         if (toType == 'T' && toIndex >= 0 && toIndex < tableauFaceUp.size()) {
             tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + movedCount);
         }
-        return true;
+        return MoveResult.success("Moved " + moving.shortName() + " from " + fromNormalized + " to " + toNormalized + ".");
     }
 
     // Backward-compatible signature: move top/visible card.
@@ -461,6 +481,24 @@ public class Solitaire {
         boolean sameSuit = moving.getSuit() == target.getSuit();
         boolean oneHigher = moving.getRank().getValue() == target.getRank().getValue() + 1;
         return sameSuit && oneHigher;
+    }
+
+    public static class MoveResult {
+        public final boolean success;
+        public final String message;
+
+        private MoveResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static MoveResult success(String message) {
+            return new MoveResult(true, message);
+        }
+
+        public static MoveResult failure(String message) {
+            return new MoveResult(false, message);
+        }
     }
 
     private static class TableauDisplay {

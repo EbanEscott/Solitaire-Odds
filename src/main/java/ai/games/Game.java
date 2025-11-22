@@ -32,14 +32,21 @@ public class Game implements CommandLineRunner {
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
         boolean aiMode = player instanceof AIPlayer;
+        String feedback = "";
         int iterations = 0;
-        final int maxIterations = 1000;
+        
+        // Cap iterations at ~4× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
+        // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
+        final int maxIterations = 500;
 
         while (true) {
             if (log.isDebugEnabled()) {
                 log.debug("Current board:\n{}", stripAnsi(solitaire.toString()));
             }
             System.out.println(solitaire);
+            if (!feedback.isBlank() && aiMode) {
+                System.out.println("Feedback: " + feedback);
+            }
             if (isWon(solitaire)) {
                 System.out.println("🎉🤗🎉 Congrats, you moved every card to the foundations! 🎉🤗🎉");
                 if (log.isDebugEnabled()) {
@@ -52,7 +59,7 @@ public class Game implements CommandLineRunner {
                 System.out.print("Enter command (turn | move FROM TO | quit): ");
             }
 
-            String input = player.nextCommand(solitaire);
+            String input = player.nextCommand(solitaire, feedback);
             if (input == null) {
                 System.out.println("Input closed. Exiting.");
                 if (log.isDebugEnabled()) {
@@ -75,39 +82,46 @@ public class Game implements CommandLineRunner {
                 break;
             }
             if (input.equalsIgnoreCase("quit")) {
+                feedback = "Player chose to quit.";
                 break;
             } else if (input.equalsIgnoreCase("turn")) {
                 solitaire.turnThree();
+                feedback = "Turned up to three cards. Stock: " + solitaire.getStockpile().size()
+                        + ", Talon: " + solitaire.getTalon().size() + ".";
             } else if (input.toLowerCase().startsWith("move")) {
                 String[] parts = input.split("\\s+");
                 if (parts.length == 4) {
-                    boolean moved = solitaire.moveCard(parts[1], parts[2], parts[3]);
-                    if (!moved) {
-                        System.out.println("Illegal move. Try again.");
+                    Solitaire.MoveResult result = solitaire.attemptMove(parts[1], parts[2], parts[3]);
+                    feedback = result.message == null ? "" : result.message;
+                    if (!result.success) {
+                        System.out.println("Illegal move: " + feedback);
                         if (log.isDebugEnabled()) {
-                            log.debug("Illegal move command: {}", input);
+                            log.debug("Illegal move command: {} ({})", input, feedback);
                         }
                     } else if (log.isDebugEnabled()) {
                         log.debug("Applied move command: {}", input);
                     }
                 } else if (parts.length == 3) {
-                    boolean moved = solitaire.moveCard(parts[1], null, parts[2]);
-                    if (!moved) {
-                        System.out.println("Illegal move. Try again.");
+                    Solitaire.MoveResult result = solitaire.attemptMove(parts[1], null, parts[2]);
+                    feedback = result.message == null ? "" : result.message;
+                    if (!result.success) {
+                        System.out.println("Illegal move: " + feedback);
                         if (log.isDebugEnabled()) {
-                            log.debug("Illegal move command: {}", input);
+                            log.debug("Illegal move command: {} ({})", input, feedback);
                         }
                     } else if (log.isDebugEnabled()) {
                         log.debug("Applied move command: {}", input);
                     }
                 } else {
-                    System.out.println("Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)");
+                    feedback = "Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)";
+                    System.out.println(feedback);
                     if (log.isDebugEnabled()) {
                         log.debug("Invalid move format from {}: {}", player.getClass().getSimpleName(), input);
                     }
                 }
             } else {
-                System.out.println("Unknown command. Use 'turn', 'move FROM TO', or 'quit'.");
+                feedback = "Unknown command. Use 'turn', 'move FROM TO', or 'quit'.";
+                System.out.println(feedback);
                 if (log.isDebugEnabled()) {
                     log.debug("Unknown command from {}: {}", player.getClass().getSimpleName(), input);
                 }
