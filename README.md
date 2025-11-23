@@ -14,7 +14,8 @@ The last test run was performed at Nov 22, 2025 2:27:53 PM.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
-| Simple Rule-based Heuristics | 1000000 | 45518 | 4.55% | 0.000s | 402.825s | 732.33 | 4 |
+| Simple Rule-based Heuristics | 10000 | 462 | 4.62% | 0.001s | 5.799s | 735.87 | 3 |
+| Greedy Search | 10000 | 651 | 6.51% | 0.003s | 31.046s | 242.42 | 3 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.

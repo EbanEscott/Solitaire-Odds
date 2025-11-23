@@ -57,13 +57,32 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     private static String lastCommand = null;
     private static long firstTurnStateKey = 0L;
     private static boolean hasFirstTurnState = false;
+    private static int consecutiveTurns = 0;
+    private static final int MAX_CONSECUTIVE_TURNS = 40;
+
+    /**
+     * Resets all static per-game state for this player.
+     * Call this when starting a new Solitaire game.
+     */
+    public static void resetForNewGame() {
+        talonMovedThisPass = false;
+        sawEmptyStock = false;
+        lastMove = null;
+        visitedStates.clear();
+        transitions.clear();
+        lastStateKey = null;
+        lastCommand = null;
+        firstTurnStateKey = 0L;
+        hasFirstTurnState = false;
+        consecutiveTurns = 0;
+    }
 
     // -----------------------------
     // Greedy scoring weights
     // -----------------------------
 
-    // Foundation progress is good, but not at any cost (see safety gate).
-    private static final int SCORE_FOUNDATION = 6;
+    // Foundation progress is good; safety gate prevents reckless early pushes.
+    private static final int SCORE_FOUNDATION = 15;
 
     // Big reward for revealing facedown cards (opens the game).
     private static final int SCORE_REVEAL_FACEDOWN = 10;
@@ -101,6 +120,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
             // Any non-turn progress breaks a potential stock-cycle loop.
             if (!"turn".equalsIgnoreCase(best.command)) {
                 hasFirstTurnState = false;
+                consecutiveTurns = 0;
             }
 
             // Any real move resets empty-stock pass tracking.
@@ -119,6 +139,10 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
             // Stock still has cards; turning is the only action.
             sawEmptyStock = false;
             talonMovedThisPass = false;
+            consecutiveTurns++;
+            if (consecutiveTurns >= MAX_CONSECUTIVE_TURNS) {
+                return "quit";
+            }
             // Detect a pure "turn" cycle: if we are back at the same state after only turning, quit.
             if (hasFirstTurnState && firstTurnStateKey == currentKey) {
                 return "quit";
@@ -139,6 +163,10 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         // First time seeing empty stock this pass: try another turn (recycle/no-op).
         sawEmptyStock = true;
         talonMovedThisPass = false;
+        consecutiveTurns++;
+        if (consecutiveTurns >= MAX_CONSECUTIVE_TURNS) {
+            return "quit";
+        }
         return "turn";
     }
 
@@ -157,7 +185,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
                 continue; // hard block ping-pong
             }
             // Avoid moves that lead back to a previously visited state when known.
-            if (leadsToVisited(currentKey, m.command)) {
+            if (leadsToVisited(solitaire, currentKey, m.command)) {
                 continue;
             }
             if (best == null || m.score > best.score) {
@@ -171,10 +199,6 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     // Move generation: Foundation moves
     // ---------------------------------------------------------------------
 
-    /**
-     * Tableau -> Foundation:
-     * Only the TOP face-up card can go to foundation.
-     */
     private void addTableauToFoundationMoves(Solitaire solitaire, List<Move> out) {
         List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
@@ -192,6 +216,9 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
 
             int faceDown = faceDownCounts.get(from);
             boolean revealsFacedown = faceDown > 0 && faceUp == 1;
+
+            boolean safe = isSafeFoundationMove(moving, revealsFacedown, foundations);
+            if (!safe) continue;
 
             for (int f = 0; f < foundations.size(); f++) {
                 if (!canMoveToFoundation(moving, foundations.get(f))) continue;
@@ -216,6 +243,8 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         if (moving == null) return;
 
         List<List<Card>> foundations = solitaire.getFoundation();
+        boolean safe = isSafeFoundationMove(moving, false, foundations);
+        if (!safe) return;
 
         for (int f = 0; f < foundations.size(); f++) {
             if (!canMoveToFoundation(moving, foundations.get(f))) continue;
@@ -225,6 +254,29 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
 
             out.add(new Move(cmd, SCORE_FOUNDATION));
         }
+    }
+
+    private boolean isSafeFoundationMove(Card moving, boolean revealsFacedown, List<List<Card>> foundations) {
+        int rankValue = moving.getRank().getValue();
+        if (rankValue <= 2) {
+            return true;
+        }
+
+        if (revealsFacedown) {
+            return true;
+        }
+
+        int targetRank = rankValue - 1;
+        for (List<Card> pile : foundations) {
+            if (pile.isEmpty()) {
+                continue;
+            }
+            Card top = pile.get(pile.size() - 1);
+            if (top.getSuit() == moving.getSuit() && top.getRank().getValue() == targetRank) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------------
@@ -238,12 +290,14 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     private void addTableauToTableauMoves(Solitaire solitaire, List<Move> out) {
         List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
+        List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
 
         for (int from = 0; from < tableau.size(); from++) {
             List<Card> fromPile = tableau.get(from);
             if (fromPile == null) continue;
 
             int faceUp = faceUpCounts.get(from);
+            int faceDown = faceDownCounts.get(from);
             if (fromPile.isEmpty() || faceUp <= 0) continue;
 
             int lastVisibleIndex = fromPile.size() - 1;
@@ -251,8 +305,12 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
             for (int i = lastVisibleIndex; i >= 0; i--) {
                 Card moving = fromPile.get(i);
 
-                boolean revealsFacedown = (i == lastVisibleIndex && faceUp > fromPile.size());
-                boolean emptiesSource = (i == 0);
+                if (!isValidRunHead(fromPile, i)) {
+                    continue;
+                }
+
+                boolean revealsFacedown = (i == lastVisibleIndex && faceDown > 0 && faceUp == fromPile.size());
+                boolean emptiesSource = (faceDown + i == 0);
 
                 for (int to = 0; to < tableau.size(); to++) {
                     if (to == from) continue;
@@ -314,23 +372,50 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         return pile.get(pile.size() - 1);
     }
 
-    /**
-     * Returns true if moving the TOP face-up card from this pile would reveal a facedown card.
-     */
-    private boolean revealsFacedownIfMovedFromTop(List<Card> pile, int faceUp) {
-        if (pile == null || pile.isEmpty()) return false;
-        int faceDown = Math.max(0, pile.size() - faceUp);
-        return faceDown > 0 && faceUp == 1;
+    private boolean isValidRunHead(List<Card> pile, int index) {
+        for (int i = index; i < pile.size() - 1; i++) {
+            Card current = pile.get(i);
+            Card next = pile.get(i + 1);
+            boolean alternatingColor = current.getSuit().isRed() != next.getSuit().isRed();
+            boolean oneLower = current.getRank().getValue() == next.getRank().getValue() + 1;
+            if (!alternatingColor || !oneLower) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // ---------------------------------------------------------------------
     // Ping-pong prevention (exact inverse only)
     // ---------------------------------------------------------------------
 
-    private boolean leadsToVisited(long currentKey, String command) {
+    private boolean leadsToVisited(Solitaire solitaire, long currentKey, String command) {
         StateCommand key = new StateCommand(currentKey, command);
         Long next = transitions.get(key);
-        return next != null && visitedStates.contains(next);
+        if (next == null) {
+            // Simulate the move on a copy to discover the resulting state key.
+            Solitaire copy = solitaire.copy();
+            String trimmed = command.trim();
+            if ("turn".equalsIgnoreCase(trimmed)) {
+                copy.turnThree();
+            } else if (trimmed.startsWith("move")) {
+                String[] parts = trimmed.split("\\s+");
+                // Destination pile code is always the last token.
+                String dest = parts[parts.length - 1];
+                // Never block moves that go to foundation; they always represent progress.
+                if (dest.startsWith("F")) {
+                    return false;
+                }
+                if (parts.length == 3) {
+                    copy.moveCard(parts[1], null, dest);
+                } else if (parts.length >= 4) {
+                    copy.moveCard(parts[1], parts[2], dest);
+                }
+            }
+            next = copy.getStateKey();
+            transitions.put(key, next);
+        }
+        return visitedStates.contains(next);
     }
 
     private boolean isInverseOfLast(String candidateCmd, String candidateCardShort) {

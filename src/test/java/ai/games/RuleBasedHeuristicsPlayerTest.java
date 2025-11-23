@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
  * to issue the final move to finish.
  */
 class SimpleRuleBasedHeuristicsPlayerTest {
+    private static final int MAX_TEST_STEPS = 1000;
 
     @Test
     void ruleBasedAiFinishesGame() {
@@ -40,7 +41,7 @@ class SimpleRuleBasedHeuristicsPlayerTest {
         Player ai = new SimpleRuleBasedHeuristicsPlayer();
 
         // Allow several moves to reach completion.
-        for (int i = 0; i < 50 && !isWon(solitaire); i++) {
+        for (int i = 0; i < MAX_TEST_STEPS && !isWon(solitaire); i++) {
             String command = ai.nextCommand(solitaire, "");
             applyCommand(solitaire, command);
         }
@@ -78,9 +79,12 @@ class SimpleRuleBasedHeuristicsPlayerTest {
     private Solitaire seedNearlyWonGame() {
         Solitaire solitaire = new Solitaire(new Deck());
 
+        List<Card> deck = SolitaireTestHelper.fullDeck();
+
         // Tableau: T1 holds the final King♥ face up; others empty.
+        Card kHearts = SolitaireTestHelper.takeCard(deck, Rank.KING, Suit.HEARTS);
         List<List<Card>> tableau = Arrays.asList(
-                SolitaireTestHelper.pile(new Card(Rank.KING, Suit.HEARTS)),
+                SolitaireTestHelper.pile(kHearts),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile(),
@@ -91,38 +95,52 @@ class SimpleRuleBasedHeuristicsPlayerTest {
         List<Integer> faceUp = Arrays.asList(1, 0, 0, 0, 0, 0, 0);
         SolitaireTestHelper.setTableau(solitaire, tableau, faceUp);
 
-        // Foundation: pre-fill 51 cards; F1 top is Q♥ so K♥ is legal.
-        List<List<Card>> foundation = Arrays.asList(
-                pileWithTop(new Card(Rank.QUEEN, Suit.HEARTS), 12),
-                fillerPile(13),
-                fillerPile(13),
-                fillerPile(12)
-        );
+        // Foundation: hearts A..Q on F1, remainder split across F2–F4.
+        List<Card> hearts = new ArrayList<>();
+        for (Rank rank : Rank.values()) {
+            if (rank == Rank.KING) {
+                continue;
+            }
+            hearts.add(SolitaireTestHelper.takeCard(deck, rank, Suit.HEARTS));
+        }
+        List<List<Card>> foundation = new ArrayList<>();
+        foundation.add(hearts);
+
+        List<Card> f2 = new ArrayList<>();
+        List<Card> f3 = new ArrayList<>();
+        List<Card> f4 = new ArrayList<>();
+        List<List<Card>> targets = Arrays.asList(f2, f3, f4);
+        int idx = 0;
+        for (Card c : deck) {
+            targets.get(idx % 3).add(c);
+            idx++;
+        }
+        foundation.add(f2);
+        foundation.add(f3);
+        foundation.add(f4);
+
         SolitaireTestHelper.setFoundation(solitaire, foundation);
 
         // Empty stock/talon to force the move.
         SolitaireTestHelper.setTalon(solitaire, Collections.emptyList());
         SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
 
+        SolitaireTestHelper.assertFullDeckState(solitaire);
         return solitaire;
-    }
-
-    private List<Card> pileWithTop(Card top, int fillersBelow) {
-        List<Card> pile = fillerPile(fillersBelow);
-        pile.add(top);
-        return pile;
     }
 
     private Solitaire seedMidGameWinnable() {
         Solitaire solitaire = new Solitaire(new Deck());
 
+        List<Card> deck = SolitaireTestHelper.fullDeck();
+
         // Tableau with a mix of face-up cards enabling foundation moves.
         List<List<Card>> tableau = Arrays.asList(
-                SolitaireTestHelper.pile(new Card(Rank.THREE, Suit.HEARTS)),
-                SolitaireTestHelper.pile(new Card(Rank.TWO, Suit.HEARTS)),
-                SolitaireTestHelper.pile(new Card(Rank.KING, Suit.SPADES)),
-                SolitaireTestHelper.pile(new Card(Rank.JACK, Suit.DIAMONDS)),
-                SolitaireTestHelper.pile(new Card(Rank.QUEEN, Suit.CLUBS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.THREE, Suit.HEARTS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.TWO, Suit.HEARTS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.KING, Suit.SPADES)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.JACK, Suit.DIAMONDS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.QUEEN, Suit.CLUBS)),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile()
         );
@@ -131,7 +149,7 @@ class SimpleRuleBasedHeuristicsPlayerTest {
 
         // Foundation has A♥ so 2♥/3♥ can move.
         List<List<Card>> foundation = Arrays.asList(
-                SolitaireTestHelper.pile(new Card(Rank.ACE, Suit.HEARTS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.ACE, Suit.HEARTS)),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile()
@@ -139,10 +157,12 @@ class SimpleRuleBasedHeuristicsPlayerTest {
         SolitaireTestHelper.setFoundation(solitaire, foundation);
 
         // Talon provides supportive cards.
-        SolitaireTestHelper.setTalon(solitaire, SolitaireTestHelper.pile(new Card(Rank.FOUR, Suit.HEARTS)));
-        // Stockpile empty to force using available moves.
-        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
+        SolitaireTestHelper.setTalon(solitaire, SolitaireTestHelper.pile(
+                SolitaireTestHelper.takeCard(deck, Rank.FOUR, Suit.HEARTS)));
+        // Remaining cards into stockpile.
+        SolitaireTestHelper.setStockpile(solitaire, new ArrayList<>(deck));
 
+        SolitaireTestHelper.assertFullDeckState(solitaire);
         return solitaire;
     }
 

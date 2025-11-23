@@ -49,6 +49,7 @@ public class GreedySearchPlayerResultsTest {
             if (gameNumber == 1 || gameNumber % 50 == 0 || gameNumber == games) {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
+            GreedySearchPlayer.resetForNewGame();
             Player ai = playerSupplier.get();
             Solitaire solitaire = new Solitaire(new Deck());
             long start = System.nanoTime();
