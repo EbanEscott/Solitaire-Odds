@@ -25,7 +25,7 @@ public class GreedySearchPlayerResultsTest {
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
-        Stats stats = runGames(GreedySearchPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+        Stats stats = runGames("Greedy Search", GreedySearchPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
         String summary = String.format("| %s | %d | %d | %.2f%% | %.3fs | %.3fs | %.2f | %d |",
                 "Greedy Search",
                 stats.games,
@@ -42,9 +42,13 @@ public class GreedySearchPlayerResultsTest {
         assertTrue(stats.games == gamesToPlay);
     }
 
-    private Stats runGames(Supplier<Player> playerSupplier, int games, int maxMovesPerGame) {
+    private Stats runGames(String playerName, Supplier<Player> playerSupplier, int games, int maxMovesPerGame) {
         Stats stats = new Stats(games);
         for (int i = 0; i < games; i++) {
+            int gameNumber = i + 1;
+            if (gameNumber == 1 || gameNumber % 50 == 0 || gameNumber == games) {
+                System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
+            }
             Player ai = playerSupplier.get();
             Solitaire solitaire = new Solitaire(new Deck());
             long start = System.nanoTime();

@@ -37,7 +37,7 @@ public final class LegalMovesHelper {
     }
 
     private static void addTableauToFoundation(Solitaire solitaire, List<String> out) {
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
         List<List<Card>> foundations = solitaire.getFoundation();
         // Only top face-up cards can move to foundation.
@@ -57,7 +57,7 @@ public final class LegalMovesHelper {
     }
 
     private static void addTableauToTableau(Solitaire solitaire, List<String> out) {
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
         // Any visible card can move as the start of a stack to another tableau pile.
         for (int from = 0; from < tableau.size(); from++) {
@@ -113,7 +113,7 @@ public final class LegalMovesHelper {
 
     private static void addFoundationToTableau(Solitaire solitaire, List<String> out) {
         List<List<Card>> foundations = solitaire.getFoundation();
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         // Foundations can only move their top card back to tableau.
         for (int f = 0; f < foundations.size(); f++) {
             List<Card> pile = foundations.get(f);
