@@ -35,7 +35,7 @@ public class Game implements CommandLineRunner {
         boolean aiMode = player instanceof AIPlayer;
         String feedback = "";
         String illegalFeedback = "";
-        java.util.Map<String, String> persistentGuidance = new java.util.HashMap<>();
+        java.util.Map<String, Guidance> persistentGuidance = new java.util.HashMap<>();
         String lastCommand = null;
         String secondLastCommand = null;
         int sameCommandCount = 0;
@@ -43,13 +43,14 @@ public class Game implements CommandLineRunner {
         int turnsSinceLastMove = 0;
         int previousStockSize = solitaire.getStockpile().size();
         int iterations = 0;
+        int stockEmptyStrikes = 0;          // full stock passes with zero successful moves
+        int movesSinceLastStockEmpty = 0;   // successful moves since last time STOCK hit 0
         
         // Cap iterations at ~4× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
         // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
         final int maxIterations = 500;
 
         while (true) {
-            java.util.List<String> legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
             if (log.isDebugEnabled()) {
                 log.debug("Current board:\n{}", stripAnsi(solitaire.toString()));
             }
@@ -176,16 +177,27 @@ public class Game implements CommandLineRunner {
             }
 
             // Suggestion 1: repeated identical command (same move over and over).
-            if (sameCommandCount >= 6 && !input.equalsIgnoreCase("turn")) {
-                persistentGuidance.putIfAbsent(input,
-                        "you have chosen this many times without making progress.");
+            if (sameCommandCount >= 4 && !input.equalsIgnoreCase("turn")) {
+                String reason = "you have chosen this many times without making progress.";
+                Guidance g = persistentGuidance.get(input);
+                if (g == null) {
+                    persistentGuidance.put(input, new Guidance(reason, 1, 8, iterations));
+                } else {
+                    g.refresh(iterations, 3);
+                }
             }
 
             // Suggestion 1b: ping-pong between two commands (A,B,A,B,...).
-            if (pingPongCount >= 4 && lastCommand != null && secondLastCommand != null) {
-                String reason = "you have chosen this before and this ping-pong does not improve the board.";
-                persistentGuidance.putIfAbsent(input, reason);
-                persistentGuidance.putIfAbsent(lastCommand, reason);
+            if (pingPongCount >= 3 && lastCommand != null && secondLastCommand != null) {
+                String reason = "you are ping-ponging between two moves without improving the board.";
+                for (String cmd : new String[]{ lastCommand, secondLastCommand }) {
+                    Guidance g = persistentGuidance.get(cmd);
+                    if (g == null) {
+                        persistentGuidance.put(cmd, new Guidance(reason, 1, 10, iterations));
+                    } else {
+                        g.refresh(iterations, 4);
+                    }
+                }
             }
 
             // Suggestion 2: stock cycled entirely with only turns (no successful moves).
@@ -194,21 +206,45 @@ public class Game implements CommandLineRunner {
                     && turnsSinceLastMove > 0
                     && stockBefore > 0
                     && stockAfter == 0) {
-                persistentGuidance.putIfAbsent("quit",
-                        "you have turned through the entire stockpile without making any moves.");
+                String reason = "you have turned through the entire stockpile without making any moves.";
+                Guidance g = persistentGuidance.get("quit");
+                if (g == null) {
+                    persistentGuidance.put("quit", new Guidance(reason, 1, 12, iterations));
+                } else {
+                    g.refresh(iterations, 5);
+                }
             }
 
+            // Recalculate legal moves for the *next* turn, after applying the current command.
+            java.util.List<String> legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
+
             // Build guidance for this turn from persistent guidance that is still relevant.
-            for (java.util.Map.Entry<String, String> entry : persistentGuidance.entrySet()) {
+            java.util.Iterator<java.util.Map.Entry<String, Guidance>> it = persistentGuidance.entrySet().iterator();
+            while (it.hasNext()) {
+                var entry = it.next();
                 String cmd = entry.getKey();
-                String reason = entry.getValue();
+                Guidance g = entry.getValue();
+
+                // Expire old guidance only after its TTL.
+                if (!g.stillAlive(iterations)) {
+                    it.remove();
+                    continue;
+                }
+
+                // Show only when relevant to the current legal move set,
+                // but keep it alive even when temporarily illegal.
                 if (!legalMoves.contains(cmd)) {
                     continue;
                 }
+
+                if ("turn".equalsIgnoreCase(cmd)) {
+                    continue;
+                }
+
                 if ("quit".equalsIgnoreCase(cmd)) {
-                    suggestionLines.add("quit (" + reason + ")");
+                    suggestionLines.add("quit (" + g.reason + ")");
                 } else {
-                    suggestionLines.add("don't " + cmd + " (" + reason + ")");
+                    suggestionLines.add("don't " + cmd + " (" + g.reason + ")");
                 }
             }
 
@@ -227,6 +263,30 @@ public class Game implements CommandLineRunner {
             } else {
                 feedback = "";
             }
+        }
+    }
+
+    private static final class Guidance {
+        final String reason;
+        int strikes;
+        int ttlTurns;
+        int lastSeenIteration;
+
+        Guidance(String reason, int strikes, int ttlTurns, int lastSeenIteration) {
+            this.reason = reason;
+            this.strikes = strikes;
+            this.ttlTurns = ttlTurns;
+            this.lastSeenIteration = lastSeenIteration;
+        }
+
+        void refresh(int iteration, int ttlBoost) {
+            this.strikes++;
+            this.ttlTurns = Math.min(this.ttlTurns + ttlBoost, 30);
+            this.lastSeenIteration = iteration;
+        }
+
+        boolean stillAlive(int iteration) {
+            return (iteration - lastSeenIteration) <= ttlTurns;
         }
     }
 
