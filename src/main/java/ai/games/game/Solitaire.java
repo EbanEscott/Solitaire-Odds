@@ -31,6 +31,39 @@ public class Solitaire {
     }
 
     /**
+     * Creates a deep copy of this Solitaire state for simulation purposes.
+     * Card instances are reused (they are immutable); pile and count lists are copied.
+     */
+    public Solitaire copy() {
+        Deck dummy = new Deck();
+        Solitaire clone = new Solitaire(dummy);
+        // Clear dealt state.
+        clone.tableau.clear();
+        clone.tableauFaceUp.clear();
+        clone.foundation.clear();
+        clone.stockpile.clear();
+        clone.talon.clear();
+
+        // Copy tableau and face-up counts.
+        for (int i = 0; i < tableau.size(); i++) {
+            List<Card> pile = tableau.get(i);
+            clone.tableau.add(new ArrayList<>(pile));
+        }
+        clone.tableauFaceUp.addAll(tableauFaceUp);
+
+        // Copy foundation.
+        for (List<Card> pile : foundation) {
+            clone.foundation.add(new ArrayList<>(pile));
+        }
+
+        // Copy stock and talon.
+        clone.stockpile.addAll(stockpile);
+        clone.talon.addAll(talon);
+
+        return clone;
+    }
+
+    /**
      * Returns full tableau piles including facedown cards.
      * Engine/UI only; AIs should prefer {@link #getVisibleTableau()}.
      */

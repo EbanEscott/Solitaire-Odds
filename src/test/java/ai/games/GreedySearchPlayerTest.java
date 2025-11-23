@@ -9,24 +9,38 @@ import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
 import ai.games.player.Player;
+import ai.games.player.LegalMovesHelper;
 import ai.games.player.ai.GreedySearchPlayer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Simple completion test for the greedy AI: seeds a near-won state and expects the last move.
  */
 class GreedySearchPlayerTest {
+    private static final Logger log = LoggerFactory.getLogger(GreedySearchPlayerTest.class);
+    private static final int MAX_TEST_STEPS = 1000;
 
     @Test
     void greedyAiFinishesGame() {
+        logTestHeader("greedyAiFinishesGame");
         Solitaire solitaire = seedNearlyWonGame();
         Player ai = new GreedySearchPlayer();
 
+        if (log.isDebugEnabled()) {
+            log.debug("Initial board (nearly-won test):\n{}", stripAnsi(solitaire.toString()));
+        }
+
         runSingleMoveCompletion(solitaire, ai);
+
+        if (log.isDebugEnabled()) {
+            log.debug("Final board (nearly-won test):\n{}", stripAnsi(solitaire.toString()));
+        }
 
         assertEquals(52, totalFoundation(solitaire), "AI should finish the game");
         assertTrue(isWon(solitaire));
@@ -34,22 +48,80 @@ class GreedySearchPlayerTest {
 
     @Test
     void greedyAiWinsKnownMidGameState() {
+        logTestHeader("greedyAiWinsKnownMidGameState");
         // Seed a winnable mid-game so the greedy AI has to make several choices.
         Solitaire solitaire = seedMidGameWinnable();
+        GreedySearchPlayer.resetForNewGame();
         Player ai = new GreedySearchPlayer();
 
-        for (int i = 0; i < 50 && !isWon(solitaire); i++) {
+        if (log.isDebugEnabled()) {
+            log.debug("Initial board (mid-game test):\n{}", stripAnsi(solitaire.toString()));
+        }
+
+        for (int i = 0; i < MAX_TEST_STEPS && !isWon(solitaire); i++) {
             String command = ai.nextCommand(solitaire, "");
+            if (log.isDebugEnabled()) {
+                log.debug("greedyAiWinsKnownMidGameState: step {} command={}", i, command);
+            }
+            if (command == null) {
+                break;
+            }
+            String trimmed = command.trim();
+            if ("quit".equalsIgnoreCase(trimmed)) {
+                break;
+            }
             applyCommand(solitaire, command);
+            if (log.isDebugEnabled()) {
+                log.debug("Board after command:\n{}", stripAnsi(solitaire.toString()));
+            }
         }
 
         assertTrue(isWon(solitaire), "Greedy AI should win the seeded mid-game state");
     }
 
+    @Test
+    void greedyAiDoesNotQuitWithMovesAvailableInRandomGame() {
+        logTestHeader("greedyAiDoesNotQuitWithMovesAvailableInRandomGame");
+        GreedySearchPlayer.resetForNewGame();
+        Solitaire solitaire = new Solitaire(new Deck());
+        Player ai = new GreedySearchPlayer();
+
+        if (log.isDebugEnabled()) {
+            log.debug("Initial board (random game test):\n{}", stripAnsi(solitaire.toString()));
+        }
+
+        for (int step = 0; step < MAX_TEST_STEPS && !isWon(solitaire); step++) {
+            String command = ai.nextCommand(solitaire, "");
+            if (log.isDebugEnabled()) {
+                log.debug("greedyAiDoesNotQuitWithMovesAvailableInRandomGame: step {} command={}", step, command);
+            }
+            if (command == null) {
+                break;
+            }
+            String trimmed = command.trim();
+            if ("quit".equalsIgnoreCase(trimmed)) {
+                List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
+                boolean hasNonQuitMove = legal.stream().anyMatch(m -> !"quit".equalsIgnoreCase(m.trim()));
+                assertTrue(!hasNonQuitMove, "Greedy quit while non-quit moves were still legal: " + legal);
+                break;
+            }
+            applyCommand(solitaire, command);
+            if (log.isDebugEnabled()) {
+                log.debug("Board after command:\n{}", stripAnsi(solitaire.toString()));
+            }
+        }
+    }
+
     private void runSingleMoveCompletion(Solitaire solitaire, Player ai) {
         for (int i = 0; i < 5 && !isWon(solitaire); i++) {
             String command = ai.nextCommand(solitaire, "");
+            if (log.isDebugEnabled()) {
+                log.debug("greedyAiFinishesGame: step {} command={}", i, command);
+            }
             applyCommand(solitaire, command);
+            if (log.isDebugEnabled()) {
+                log.debug("Board after command:\n{}", stripAnsi(solitaire.toString()));
+            }
         }
     }
 
@@ -75,9 +147,13 @@ class GreedySearchPlayerTest {
     private Solitaire seedNearlyWonGame() {
         Solitaire solitaire = new Solitaire(new Deck());
 
+        // Build a full 52-card deck and allocate specific cards to tableau/foundation.
+        List<Card> deck = SolitaireTestHelper.fullDeck();
+
         // Tableau: final card K♥ to play; others empty.
+        Card kHearts = SolitaireTestHelper.takeCard(deck, Rank.KING, Suit.HEARTS);
         List<List<Card>> tableau = Arrays.asList(
-                SolitaireTestHelper.pile(new Card(Rank.KING, Suit.HEARTS)),
+                SolitaireTestHelper.pile(kHearts),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile(),
@@ -88,37 +164,56 @@ class GreedySearchPlayerTest {
         List<Integer> faceUp = Arrays.asList(1, 0, 0, 0, 0, 0, 0);
         SolitaireTestHelper.setTableau(solitaire, tableau, faceUp);
 
-        // Foundation: 51 cards already placed; F1 top is Q♥ so K♥ is legal.
-        List<List<Card>> foundation = Arrays.asList(
-                pileWithTop(new Card(Rank.QUEEN, Suit.HEARTS), 12),
-                fillerPile(13),
-                fillerPile(13),
-                fillerPile(12)
-        );
+        // Foundation:
+        // - F1 has hearts A..Q (K♥ reserved on tableau).
+        // - F2–F4 take the remaining cards split evenly.
+        List<Card> hearts = new ArrayList<>();
+        for (Rank rank : Rank.values()) {
+            if (rank == Rank.KING) {
+                continue;
+            }
+            hearts.add(SolitaireTestHelper.takeCard(deck, rank, Suit.HEARTS));
+        }
+        List<List<Card>> foundation = new ArrayList<>();
+        foundation.add(hearts);
+
+        // Distribute remaining cards into three foundation piles.
+        List<Card> f2 = new ArrayList<>();
+        List<Card> f3 = new ArrayList<>();
+        List<Card> f4 = new ArrayList<>();
+        List<List<Card>> targets = Arrays.asList(f2, f3, f4);
+        int idx = 0;
+        for (Card c : deck) {
+            targets.get(idx % 3).add(c);
+            idx++;
+        }
+        foundation.add(f2);
+        foundation.add(f3);
+        foundation.add(f4);
+
         SolitaireTestHelper.setFoundation(solitaire, foundation);
 
+        // No stock or talon: all cards allocated to tableau/foundation.
         SolitaireTestHelper.setTalon(solitaire, Collections.emptyList());
         SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
 
+        SolitaireTestHelper.assertFullDeckState(solitaire);
         return solitaire;
-    }
-
-    private List<Card> pileWithTop(Card top, int fillersBelow) {
-        List<Card> pile = fillerPile(fillersBelow);
-        pile.add(top);
-        return pile;
     }
 
     private Solitaire seedMidGameWinnable() {
         Solitaire solitaire = new Solitaire(new Deck());
 
+        // Start from a full deck and carve out a specific mid-game layout.
+        List<Card> deck = SolitaireTestHelper.fullDeck();
+
         // Tableau with a mix of face-up cards that can progress to foundation.
         List<List<Card>> tableau = Arrays.asList(
-                SolitaireTestHelper.pile(new Card(Rank.THREE, Suit.SPADES)),
-                SolitaireTestHelper.pile(new Card(Rank.TWO, Suit.SPADES)),
-                SolitaireTestHelper.pile(new Card(Rank.KING, Suit.HEARTS)),
-                SolitaireTestHelper.pile(new Card(Rank.JACK, Suit.CLUBS)),
-                SolitaireTestHelper.pile(new Card(Rank.QUEEN, Suit.DIAMONDS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.THREE, Suit.SPADES)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.TWO, Suit.SPADES)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.KING, Suit.HEARTS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.JACK, Suit.CLUBS)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.QUEEN, Suit.DIAMONDS)),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile()
         );
@@ -127,7 +222,7 @@ class GreedySearchPlayerTest {
 
         // Foundation has A♠ to allow progression of spades.
         List<List<Card>> foundation = Arrays.asList(
-                SolitaireTestHelper.pile(new Card(Rank.ACE, Suit.SPADES)),
+                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.ACE, Suit.SPADES)),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile(),
                 SolitaireTestHelper.emptyPile()
@@ -135,9 +230,12 @@ class GreedySearchPlayerTest {
         SolitaireTestHelper.setFoundation(solitaire, foundation);
 
         // Talon gives the next spade.
-        SolitaireTestHelper.setTalon(solitaire, SolitaireTestHelper.pile(new Card(Rank.FOUR, Suit.SPADES)));
-        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
+        SolitaireTestHelper.setTalon(solitaire, SolitaireTestHelper.pile(
+                SolitaireTestHelper.takeCard(deck, Rank.FOUR, Suit.SPADES)));
+        // Remaining cards go to stockpile.
+        SolitaireTestHelper.setStockpile(solitaire, new ArrayList<>(deck));
 
+        SolitaireTestHelper.assertFullDeckState(solitaire);
         return solitaire;
     }
 
@@ -159,5 +257,27 @@ class GreedySearchPlayerTest {
 
     private boolean isWon(Solitaire solitaire) {
         return totalFoundation(solitaire) == 52;
+    }
+
+    private static String stripAnsi(String input) {
+        return input.replaceAll("\\u001B\\[[;\\d]*m", "");
+    }
+
+    private static void logTestHeader(String testName) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        String banner = """
+============================================================
+   ____                 _           _        _             
+  / ___| ___ _ __   ___| |__   __ _| |_ _ __(_)_ __   __ _ 
+ | |  _ / _ \\ '_ \\ / __| '_ \\ / _` | __| '__| | '_ \\ / _` |
+ | |_| |  __/ | | | (__| | | | (_| | |_| |  | | | | | (_| |
+  \\____|\\___|_| |_|\\___|_| |_|\\__,_|\\__|_|  |_|_| |_|\\__, |
+                                                      |___/ 
+============================================================
+GREEDY TEST START: %s
+============================================================""".formatted(testName);
+        log.debug("\n{}", banner);
     }
 }
