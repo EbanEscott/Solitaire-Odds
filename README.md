@@ -14,7 +14,7 @@ The last test run was performed at Nov 22, 2025 2:27:53 PM.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
-| Rule-based Heuristics | 1000000 | 45518 | 4.55% | 0.000s | 402.825s | 732.33 | 4 |
+| Simple Rule-based Heuristics | 1000000 | 45518 | 4.55% | 0.000s | 402.825s | 732.33 | 4 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
@@ -40,7 +40,8 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
 - `src/main/java/ai/games/player/` — `Player` base plus:
   - `HumanPlayer` (default CLI)
   - `AIPlayer` base
-  - `ai.games.player.ai.RuleBasedHeuristicsPlayer` (@Profile `ai-rule`)
+  - `ai.games.player.ai.SimpleRuleBasedHeuristicsPlayer` (@Profile `ai-rule`)
+  - `ai.games.player.ai.ComplexRuleBasedHeuristicsPlayer` (@Profile `ai-rule-complex`)
   - `ai.games.player.ai.GreedySearchPlayer` (@Profile `ai-greedy`)
 - `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
   - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
@@ -56,9 +57,10 @@ Human CLI (default):
 
 AI profiles:
 ```
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule    # rule-based heuristics
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy  # greedy search
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama  # Ollama via Spring AI (requires local Ollama)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule          # simple rule-based heuristics
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule-complex  # complex rule-based heuristics (experimental)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # greedy search
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
 ```
 
 Ollama model selection:
@@ -86,10 +88,14 @@ Single test / class:
 
 AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-tasks` to force execution):
 ```
-./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.SimpleRuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.ComplexRuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
 ```
+
+The simple rule-based player encodes a strict, deterministic set of solitaire rules that are easy to reason about and provide a strong baseline.  
+The complex rule-based player is an experimental variant intended for more advanced heuristics (e.g., deeper lookahead or richer safety checks) while still remaining mostly rule-driven.
 
 Clean:
 ```
