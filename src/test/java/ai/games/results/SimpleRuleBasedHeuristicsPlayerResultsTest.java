@@ -6,7 +6,7 @@ import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
-import ai.games.player.ai.RuleBasedHeuristicsPlayer;
+import ai.games.player.ai.SimpleRuleBasedHeuristicsPlayer;
 import java.util.List;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -14,20 +14,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Aggregates multiple games for the rule-based heuristics AI and logs summary stats to help fill the comparison table.
- * Use -Dgames=N to adjust the number of games (default 20).
+ * Aggregates multiple games for the simple rule-based heuristics AI and logs summary stats
+ * to help fill the comparison table. Use -Dgames=N to adjust the number of games (default 20).
  */
-public class RuleBasedHeuristicsPlayerResultsTest {
-    private static final Logger log = LoggerFactory.getLogger(RuleBasedHeuristicsPlayerResultsTest.class);
+public class SimpleRuleBasedHeuristicsPlayerResultsTest {
+    private static final Logger log = LoggerFactory.getLogger(SimpleRuleBasedHeuristicsPlayerResultsTest.class);
     private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
     private static final String TABLE_DIVIDER = "|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
 
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
-        Stats stats = runGames(RuleBasedHeuristicsPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+        Stats stats = runGames(SimpleRuleBasedHeuristicsPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
         String summary = String.format("| %s | %d | %d | %.2f%% | %.3fs | %.3fs | %.2f | %d |",
-                "Rule-based Heuristics",
+                "Simple Rule-based Heuristics",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
@@ -39,7 +39,6 @@ public class RuleBasedHeuristicsPlayerResultsTest {
         System.out.println(TABLE_DIVIDER);
         System.out.println(summary);
         log.info(summary);
-        // Sanity check we ran something
         assertTrue(stats.games == gamesToPlay);
     }
 
@@ -120,19 +119,20 @@ public class RuleBasedHeuristicsPlayerResultsTest {
         }
 
         double winPercent() {
-            return (wins * 100.0) / games;
+            return games == 0 ? 0.0 : (wins * 100.0) / games;
         }
 
-        double avgTimeSeconds() {
-            return totalTimeSeconds() / games;
+        double avgMoves() {
+            return games == 0 ? 0.0 : (double) totalMoves / games;
         }
 
         double totalTimeSeconds() {
             return totalTimeNanos / 1_000_000_000.0;
         }
 
-        double avgMoves() {
-            return games == 0 ? 0 : totalMoves / (double) games;
+        double avgTimeSeconds() {
+            return games == 0 ? 0.0 : totalTimeSeconds() / games;
         }
     }
 }
+
