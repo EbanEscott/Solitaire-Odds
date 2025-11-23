@@ -31,6 +31,8 @@ public final class LegalMovesHelper {
         if (!solitaire.getStockpile().isEmpty() || !solitaire.getTalon().isEmpty()) {
             moves.add("turn");
         }
+        // "quit" is always a legal command from the engine's perspective.
+        moves.add("quit");
         return moves;
     }
 
@@ -119,6 +121,11 @@ public final class LegalMovesHelper {
                 continue;
             }
             Card top = pile.get(pile.size() - 1);
+            // Do not suggest moving Aces or Twos down from foundations; that is almost
+            // always strategically bad and creates noisy moves for the AI.
+            if (top.getRank() == Rank.ACE || top.getRank() == Rank.TWO) {
+                continue;
+            }
             for (int t = 0; t < tableau.size(); t++) {
                 if (canPlaceOnTableau(top, tableau.get(t))) {
                     out.add("move F" + (f + 1) + " T" + (t + 1));
