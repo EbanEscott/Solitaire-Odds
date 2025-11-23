@@ -19,17 +19,22 @@ import org.springframework.stereotype.Component;
 /**
  * Ollama-backed AI player using Spring AI. Requires a local Ollama server with
  * a chat model available.
- * Responds with a single command: "turn", "quit", or "move FROM [CARD] TO"
- * (e.g., move T6 Q♣ F2).
+ *
+ * Uses in-memory ChatMemory so the model can "remember" earlier turns in the
+ * same game session.
  */
 @Component
 @Profile("ai-ollama")
 public class OllamaPlayer extends AIPlayer implements Player {
+
     private static final Logger log = LoggerFactory.getLogger(OllamaPlayer.class);
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
-    private final ChatClient chatClient;
+
     private static final String LOCAL_OLLAMA_URL = "http://localhost:11434";
     private static final String DEFAULT_MODEL = "llama3";
+
+    private final ChatClient chatClient;
+
     private static final String SYSTEM_PROMPT = """
             Developer: # Role and Objective
             - You are an expert Klondike Solitaire player. Your role is to select and output exactly one legal move from the current board configuration.
@@ -47,6 +52,10 @@ public class OllamaPlayer extends AIPlayer implements Player {
               - If multiple legal moves are listed, choose the best one using the Decision Priorities section below.
               - If "turn" is listed, it is legal. If "turn" is not listed, you cannot output "turn".
               - Any output that does not exactly match a listed legal move is wrong.
+            - If a "Guidance for this turn:" section is present in the user message:
+              - Treat these bullet points as strong guidance from the game engine.
+              - Avoid issuing commands that the guidance tells you to avoid (e.g., \"don't move T6 Q♥ T2\").
+              - When guidance suggests \"quit\" and no clearly improving move exists, strongly prefer outputting \"quit\".
 
             ## Game Rules
 
@@ -134,10 +143,9 @@ public class OllamaPlayer extends AIPlayer implements Player {
             - Do NOT provide explanations.
             """;
 
+
     /**
-     * Default constructor for non-Spring contexts (e.g., tests). Builds a client
-     * that talks to the
-     * local Ollama instance on {@value LOCAL_OLLAMA_URL}.
+     * Default constructor for non-Spring contexts (e.g., tests).
      */
     public OllamaPlayer() {
         this(buildLocalChatClient(DEFAULT_MODEL));
@@ -156,36 +164,37 @@ public class OllamaPlayer extends AIPlayer implements Player {
     public String nextCommand(Solitaire solitaire, String feedback) {
         String board = stripAnsi(solitaire.toString());
         String cleanFeedback = stripAnsi(feedback);
+
         var legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
         String legalSection = legalMoves.isEmpty()
                 ? ""
                 : "\n\nLegal moves now:\n- " + String.join("\n- ", legalMoves);
+
         String prompt = (cleanFeedback == null || cleanFeedback.isBlank())
                 ? board + legalSection
                 : board + "\n\n"
-                        + "Your last command was illegal:\n"
-                        + cleanFeedback.trim() + "\n"
-                        + "Do NOT repeat it. Choose a different legal move."
+                        + cleanFeedback.trim()
                         + legalSection;
+
         if (log.isTraceEnabled()) {
             log.trace("Ollama prompt (user): {}", prompt);
         }
+
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(prompt)
                 .call()
                 .content();
+
         if (log.isTraceEnabled()) {
             log.trace("Ollama response: {}", response);
         }
+
         return response == null ? "quit" : response.trim();
     }
 
     private static String stripAnsi(String input) {
-        if (input == null) {
-            return null;
-        }
-        return ANSI.matcher(input).replaceAll("");
+        return input == null ? null : ANSI.matcher(input).replaceAll("");
     }
 
     private static ChatClient buildLocalChatClient(String modelName) {
