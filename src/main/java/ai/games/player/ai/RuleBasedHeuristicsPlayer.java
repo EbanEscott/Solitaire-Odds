@@ -69,7 +69,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
     }
 
     private String foundationPriority(Solitaire solitaire) {
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
         List<List<Card>> foundations = solitaire.getFoundation();
         // Tableau to foundation
@@ -99,9 +99,10 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
     }
 
     private String tableauScan(Solitaire solitaire) {
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<List<Card>> foundations = solitaire.getFoundation();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
+        List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
         // T7 down to T1
         for (int from = tableau.size() - 1; from >= 0; from--) {
             Card moving = bottomVisibleCard(tableau.get(from), faceUpCounts.get(from));
@@ -119,8 +120,8 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
                 if (to == from) {
                     continue;
                 }
-                // Skip ping-ponging a lone king: only consider kings if the source pile has more than one card (would reveal something).
-                if (moving.getRank() == Rank.KING && tableau.get(from).size() == faceUpCounts.get(from)) {
+                // Skip ping-ponging a lone king: only consider kings if moving them would reveal a facedown card.
+                if (moving.getRank() == Rank.KING && faceDownCounts.get(from) == 0) {
                     continue;
                 }
                 if (canMoveToTableau(moving, tableau.get(to))) {
@@ -144,7 +145,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
             }
         }
         // Try tableau T7 -> T1
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         for (int t = tableau.size() - 1; t >= 0; t--) {
             if (canMoveToTableau(moving, tableau.get(t))) {
                 return "move W " + moving.shortName() + " T" + (t + 1);

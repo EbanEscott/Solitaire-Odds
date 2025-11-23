@@ -10,10 +10,12 @@ import java.util.Objects;
  */
 public class Solitaire {
     private static final int CELL_WIDTH = 8;
+    private static final long[] STATE_ZOBRIST = initStateZobrist();
 
     // Tableau: seven piles where most play occurs.
     private final List<List<Card>> tableau = new ArrayList<>();
-    private final List<Integer> tableauFaceUp = new ArrayList<>(); // face-up card counts per tableau pile
+    // face-up card counts per tableau pile; visible cards are the last N cards in the pile.
+    private final List<Integer> tableauFaceUp = new ArrayList<>();
     // Foundation: four suit piles built up from Ace to King.
     private final List<List<Card>> foundation = new ArrayList<>();
     // Stockpile: undealt cards remaining after the tableau is dealt.
@@ -28,8 +30,34 @@ public class Solitaire {
         moveRemainingToStockpile(deck);
     }
 
+    /**
+     * Returns full tableau piles including facedown cards.
+     * Engine/UI only; AIs should prefer {@link #getVisibleTableau()}.
+     */
+    @Deprecated
     public List<List<Card>> getTableau() {
         return unmodifiablePiles(tableau);
+    }
+
+    /**
+     * Returns a visibility-safe view of the tableau where each pile contains only
+     * the face-up (visible) suffix. Hidden cards are excluded and the returned
+     * lists are immutable snapshots.
+     */
+    public List<List<Card>> getVisibleTableau() {
+        List<List<Card>> visible = new ArrayList<>(tableau.size());
+        for (int i = 0; i < tableau.size(); i++) {
+            List<Card> pile = tableau.get(i);
+            int faceUp = i < tableauFaceUp.size() ? tableauFaceUp.get(i) : 0;
+            if (pile.isEmpty() || faceUp <= 0) {
+                visible.add(Collections.emptyList());
+                continue;
+            }
+            int start = Math.max(0, pile.size() - faceUp);
+            List<Card> suffix = new ArrayList<>(pile.subList(start, pile.size()));
+            visible.add(Collections.unmodifiableList(suffix));
+        }
+        return Collections.unmodifiableList(visible);
     }
 
     public List<List<Card>> getFoundation() {
@@ -44,8 +72,27 @@ public class Solitaire {
         return Collections.unmodifiableList(talon);
     }
 
+    /**
+     * Returns the count of face-up (visible) cards for each tableau pile.
+     * Visible cards are the last N cards in the corresponding internal pile.
+     */
     public List<Integer> getTableauFaceUpCounts() {
         return Collections.unmodifiableList(new ArrayList<>(tableauFaceUp));
+    }
+
+    /**
+     * Returns the count of facedown (hidden) cards for each tableau pile,
+     * derived as total size minus the face-up count.
+     */
+    public List<Integer> getTableauFaceDownCounts() {
+        List<Integer> faceDown = new ArrayList<>(tableau.size());
+        for (int i = 0; i < tableau.size(); i++) {
+            List<Card> pile = tableau.get(i);
+            int faceUp = i < tableauFaceUp.size() ? tableauFaceUp.get(i) : 0;
+            int count = Math.max(0, pile.size() - faceUp);
+            faceDown.add(count);
+        }
+        return Collections.unmodifiableList(faceDown);
     }
 
     /**
@@ -190,6 +237,46 @@ public class Solitaire {
         while (!deck.isEmpty()) {
             stockpile.add(deck.draw());
         }
+    }
+
+    /**
+     * Returns an opaque 64-bit key representing the full internal game state.
+     * This is intended for AI cycle detection and does not expose hidden cards directly.
+     */
+    public long getStateKey() {
+        long h = 0L;
+        int idx = 0;
+
+        // Tableau piles (include hidden + visible).
+        for (List<Card> pile : tableau) {
+            for (Card c : pile) {
+                h ^= cardSlotKey(idx++, c);
+            }
+        }
+
+        // Foundation piles.
+        for (List<Card> pile : foundation) {
+            for (Card c : pile) {
+                h ^= cardSlotKey(idx++, c);
+            }
+        }
+
+        // Stockpile.
+        for (Card c : stockpile) {
+            h ^= cardSlotKey(idx++, c);
+        }
+
+        // Talon.
+        for (Card c : talon) {
+            h ^= cardSlotKey(idx++, c);
+        }
+
+        // Encode stock vs talon presence as a simple extra bit of state.
+        if (stockpile.isEmpty() && !talon.isEmpty()) {
+            h ^= STATE_ZOBRIST[STATE_ZOBRIST.length - 1];
+        }
+
+        return h;
     }
 
     private List<List<Card>> unmodifiablePiles(List<List<Card>> piles) {
@@ -509,5 +596,25 @@ public class Solitaire {
             this.labels = labels;
             this.columns = columns;
         }
+    }
+
+    private static long[] initStateZobrist() {
+        // Enough entries for all possible card slots plus one extra flag.
+        int size = 64 * 64 + 1;
+        long[] table = new long[size];
+        long seed = 0x9E3779B97F4A7C15L;
+        for (int i = 0; i < size; i++) {
+            seed ^= (seed << 7);
+            seed ^= (seed >>> 9);
+            seed ^= (seed << 8);
+            table[i] = seed;
+        }
+        return table;
+    }
+
+    private long cardSlotKey(int slotIndex, Card card) {
+        int ordinal = card.getSuit().ordinal() * Rank.values().length + card.getRank().ordinal();
+        int index = (slotIndex * 64 + ordinal) % (STATE_ZOBRIST.length - 1);
+        return STATE_ZOBRIST[index];
     }
 }

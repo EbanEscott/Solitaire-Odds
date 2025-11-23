@@ -46,9 +46,9 @@ public class Game implements CommandLineRunner {
         int stockEmptyStrikes = 0;          // full stock passes with zero successful moves
         int movesSinceLastStockEmpty = 0;   // successful moves since last time STOCK hit 0
         
-        // Cap iterations at ~4× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
+        // Cap iterations at ~8× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
         // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
-        final int maxIterations = 500;
+        final int maxIterations = 10000;
 
         while (true) {
             if (log.isDebugEnabled()) {

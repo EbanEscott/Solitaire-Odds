@@ -5,7 +5,11 @@ import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -18,11 +22,11 @@ import org.springframework.stereotype.Component;
  *
  * Key differences vs the old greedy:
  * 1) Tableau-to-tableau considers ANY face-up run head, not just top cards.
- * 2) Adds explicit greedy features that matter in solitaire:
+ * 2) Always plays any legal foundation move, with extra score for those that reveal facedown cards.
+ * 3) Adds explicit greedy features that matter in solitaire:
  *    - reveal facedown cards
  *    - create / use empty columns
- *    - avoid unsafe early foundation moves
- * 3) Blocks exact inverse moves to avoid ping-pong loops.
+ * 4) Blocks exact inverse moves and known cycle moves to avoid ping-pong loops.
  *
  * Notes:
  * - This stays greedy: it only looks at the current position and never simulates outcomes.
@@ -33,13 +37,26 @@ import org.springframework.stereotype.Component;
 public class GreedySearchPlayer extends AIPlayer implements Player {
 
     // Tracks whether we made any talon move in the current empty-stock pass.
-    private boolean talonMovedThisPass = false;
+    // NOTE: made static because the game loop appears to recreate the player each move,
+    // which would otherwise reset this and break the "empty stock pass" logic.
+    private static boolean talonMovedThisPass = false;
 
     // Helps detect a full pass through empty stock without progress.
-    private boolean sawEmptyStock = false;
+    // NOTE: made static for the same reason as talonMovedThisPass.
+    private static boolean sawEmptyStock = false;
 
     // Last real move, used to block exact inverse ("ping-pong") moves.
-    private MoveSignature lastMove = null;
+    // NOTE: made static because the game loop appears to recreate the player each move.
+    // Without persistence, lastMove was always null and inverse blocking never fired.
+    private static MoveSignature lastMove = null;
+
+    // Visited engine states and observed transitions for cycle detection.
+    private static final Set<Long> visitedStates = new HashSet<>();
+    private static final Map<StateCommand, Long> transitions = new HashMap<>();
+    private static Long lastStateKey = null;
+    private static String lastCommand = null;
+    private static long firstTurnStateKey = 0L;
+    private static boolean hasFirstTurnState = false;
 
     // -----------------------------
     // Greedy scoring weights
@@ -65,11 +82,26 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String feedback) {
-        Move best = pickBestMove(solitaire);
+        long currentKey = solitaire.getStateKey();
+
+        // Learn the transition from the previous state and command, if any.
+        if (lastStateKey != null && lastCommand != null) {
+            transitions.put(new StateCommand(lastStateKey, lastCommand), currentKey);
+        }
+        visitedStates.add(currentKey);
+
+        Move best = pickBestMove(solitaire, currentKey);
 
         if (best != null) {
             // Remember last move for inverse blocking.
             lastMove = MoveSignature.tryParse(best.command);
+            lastStateKey = currentKey;
+            lastCommand = best.command;
+
+            // Any non-turn progress breaks a potential stock-cycle loop.
+            if (!"turn".equalsIgnoreCase(best.command)) {
+                hasFirstTurnState = false;
+            }
 
             // Any real move resets empty-stock pass tracking.
             sawEmptyStock = false;
@@ -87,6 +119,14 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
             // Stock still has cards; turning is the only action.
             sawEmptyStock = false;
             talonMovedThisPass = false;
+            // Detect a pure "turn" cycle: if we are back at the same state after only turning, quit.
+            if (hasFirstTurnState && firstTurnStateKey == currentKey) {
+                return "quit";
+            }
+            if (!hasFirstTurnState) {
+                firstTurnStateKey = currentKey;
+                hasFirstTurnState = true;
+            }
             return "turn";
         }
 
@@ -102,7 +142,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         return "turn";
     }
 
-    private Move pickBestMove(Solitaire solitaire) {
+    private Move pickBestMove(Solitaire solitaire, long currentKey) {
         List<Move> candidates = new ArrayList<>();
 
         // Fixed generation order also acts as deterministic tie-breaker.
@@ -115,6 +155,10 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         for (Move m : candidates) {
             if (isInverseOfLast(m.command)) {
                 continue; // hard block ping-pong
+            }
+            // Avoid moves that lead back to a previously visited state when known.
+            if (leadsToVisited(currentKey, m.command)) {
+                continue;
             }
             if (best == null || m.score > best.score) {
                 best = m;
@@ -130,23 +174,24 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     /**
      * Tableau -> Foundation:
      * Only the TOP face-up card can go to foundation.
-     * We add a safety gate to avoid locking ourselves early.
      */
     private void addTableauToFoundationMoves(Solitaire solitaire, List<Move> out) {
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
+        List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
         List<List<Card>> foundations = solitaire.getFoundation();
 
         for (int from = 0; from < tableau.size(); from++) {
             List<Card> pile = tableau.get(from);
             int faceUp = faceUpCounts.get(from);
+            if (pile == null) continue;
+            if (faceUp <= 0) continue;
 
-            Card moving = topTableauCard(pile, faceUp);
+            Card moving = topVisibleTableauCard(pile, faceUp);
             if (moving == null) continue;
 
-            boolean revealsFacedown = revealsFacedownIfMovedFromTop(pile, faceUp);
-            boolean safe = isSafeFoundationMove(moving, revealsFacedown);
-            if (!safe) continue;
+            int faceDown = faceDownCounts.get(from);
+            boolean revealsFacedown = faceDown > 0 && faceUp == 1;
 
             for (int f = 0; f < foundations.size(); f++) {
                 if (!canMoveToFoundation(moving, foundations.get(f))) continue;
@@ -164,15 +209,13 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
 
     /**
      * Talon -> Foundation:
-     * Greedy-safe gate applied as well. Talon moves don't reveal facedown directly.
+     * Talon moves don't reveal facedown directly.
      */
     private void addTalonToFoundationMoves(Solitaire solitaire, List<Move> out) {
         Card moving = top(solitaire.getTalon());
         if (moving == null) return;
 
         List<List<Card>> foundations = solitaire.getFoundation();
-        boolean safe = isSafeFoundationMove(moving, false);
-        if (!safe) return;
 
         for (int f = 0; f < foundations.size(); f++) {
             if (!canMoveToFoundation(moving, foundations.get(f))) continue;
@@ -184,19 +227,6 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         }
     }
 
-    /**
-     * Safety gate for foundation:
-     * - Always safe for Ace / Two.
-     * - Otherwise only safe if the move *immediately* reveals a facedown card.
-     *
-     * This avoids dumping low cards to foundation too early and losing mobility.
-     */
-    private boolean isSafeFoundationMove(Card moving, boolean revealsFacedown) {
-        int r = moving.getRank().getValue();
-        if (r <= 2) return true;
-        return revealsFacedown;
-    }
-
     // ---------------------------------------------------------------------
     // Move generation: Tableau -> Tableau
     // ---------------------------------------------------------------------
@@ -206,23 +236,23 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
      * Consider ANY face-up run head in each pile (bottom face-up -> top face-up).
      */
     private void addTableauToTableauMoves(Solitaire solitaire, List<Move> out) {
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
 
         for (int from = 0; from < tableau.size(); from++) {
             List<Card> fromPile = tableau.get(from);
-            int faceUp = faceUpCounts.get(from);
+            if (fromPile == null) continue;
 
+            int faceUp = faceUpCounts.get(from);
             if (fromPile.isEmpty() || faceUp <= 0) continue;
 
-            int firstFaceUpIndex = fromPile.size() - faceUp;
+            int lastVisibleIndex = fromPile.size() - 1;
 
-            // Scan all run heads from bottom face-up -> top face-up.
-            for (int i = firstFaceUpIndex; i < fromPile.size(); i++) {
+            for (int i = lastVisibleIndex; i >= 0; i--) {
                 Card moving = fromPile.get(i);
 
-                boolean revealsFacedown = (i == firstFaceUpIndex && firstFaceUpIndex > 0);
-                boolean emptiesSource = (i == 0); // moving whole pile
+                boolean revealsFacedown = (i == lastVisibleIndex && faceUp > fromPile.size());
+                boolean emptiesSource = (i == 0);
 
                 for (int to = 0; to < tableau.size(); to++) {
                     if (to == from) continue;
@@ -256,7 +286,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         Card moving = top(solitaire.getTalon());
         if (moving == null) return;
 
-        List<List<Card>> tableau = solitaire.getTableau();
+        List<List<Card>> tableau = solitaire.getVisibleTableau();
         for (int t = 0; t < tableau.size(); t++) {
             List<Card> toPile = tableau.get(t);
 
@@ -277,17 +307,31 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     // ---------------------------------------------------------------------
 
     /**
+     * Returns the top visible tableau card given top-first storage.
+     */
+    private Card topVisibleTableauCard(List<Card> pile, int faceUp) {
+        if (pile == null || pile.isEmpty() || faceUp <= 0) return null;
+        return pile.get(pile.size() - 1);
+    }
+
+    /**
      * Returns true if moving the TOP face-up card from this pile would reveal a facedown card.
      */
     private boolean revealsFacedownIfMovedFromTop(List<Card> pile, int faceUp) {
-        if (pile == null || pile.isEmpty() || faceUp <= 0) return false;
-        int firstFaceUpIndex = pile.size() - faceUp;
-        return firstFaceUpIndex > 0;
+        if (pile == null || pile.isEmpty()) return false;
+        int faceDown = Math.max(0, pile.size() - faceUp);
+        return faceDown > 0 && faceUp == 1;
     }
 
     // ---------------------------------------------------------------------
     // Ping-pong prevention (exact inverse only)
     // ---------------------------------------------------------------------
+
+    private boolean leadsToVisited(long currentKey, String command) {
+        StateCommand key = new StateCommand(currentKey, command);
+        Long next = transitions.get(key);
+        return next != null && visitedStates.contains(next);
+    }
 
     private boolean isInverseOfLast(String candidateCmd, String candidateCardShort) {
         if (lastMove == null) return false;
@@ -358,6 +402,38 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         Move(String command, int score) {
             this.command = command;
             this.score = score;
+        }
+    }
+
+    private static final class StateCommand {
+        final long stateKey;
+        final String command;
+
+        StateCommand(long stateKey, String command) {
+            this.stateKey = stateKey;
+            this.command = command;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof StateCommand)) {
+                return false;
+            }
+            StateCommand other = (StateCommand) obj;
+            if (stateKey != other.stateKey) {
+                return false;
+            }
+            return command == null ? other.command == null : command.equals(other.command);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Long.hashCode(stateKey);
+            result = 31 * result + (command != null ? command.hashCode() : 0);
+            return result;
         }
     }
 }
