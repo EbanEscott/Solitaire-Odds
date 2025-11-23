@@ -138,6 +138,9 @@ public class Game implements CommandLineRunner {
                         }
                         illegalFeedback = "";
                         turnsSinceLastMove = 0;
+                        movesSinceLastStockEmpty++;
+                        persistentGuidance.remove("quit");
+                        stockEmptyStrikes = 0;
                     }
                 } else if (parts.length == 3) {
                     Solitaire.MoveResult result = solitaire.attemptMove(parts[1], null, parts[2]);
@@ -157,6 +160,9 @@ public class Game implements CommandLineRunner {
                         }
                         illegalFeedback = "";
                         turnsSinceLastMove = 0;
+                        movesSinceLastStockEmpty++;
+                        persistentGuidance.remove("quit");
+                        stockEmptyStrikes = 0;
                     }
                 } else {
                     illegalFeedback = "Usage error:\n"
@@ -188,30 +194,44 @@ public class Game implements CommandLineRunner {
             }
 
             // Suggestion 1b: ping-pong between two commands (A,B,A,B,...).
+            // Use current legal moves to tune TTL: if a move is no longer legal, let it decay faster.
+            java.util.List<String> legalMovesForPingPong = LegalMovesHelper.listLegalMoves(solitaire);
             if (pingPongCount >= 3 && lastCommand != null && secondLastCommand != null) {
                 String reason = "you are ping-ponging between two moves without improving the board.";
                 for (String cmd : new String[]{ lastCommand, secondLastCommand }) {
+                    int ttlBoost = legalMovesForPingPong.contains(cmd) ? 4 : 1;
                     Guidance g = persistentGuidance.get(cmd);
                     if (g == null) {
-                        persistentGuidance.put(cmd, new Guidance(reason, 1, 10, iterations));
+                        persistentGuidance.put(cmd, new Guidance(reason, 1, 8, iterations));
                     } else {
-                        g.refresh(iterations, 4);
+                        g.refresh(iterations, ttlBoost);
                     }
                 }
             }
 
-            // Suggestion 2: stock cycled entirely with only turns (no successful moves).
+            // Suggestion 2: STOCK emptied without any successful moves since the last empty.
             int stockAfter = solitaire.getStockpile().size();
             if (input.equalsIgnoreCase("turn")
-                    && turnsSinceLastMove > 0
                     && stockBefore > 0
                     && stockAfter == 0) {
-                String reason = "you have turned through the entire stockpile without making any moves.";
-                Guidance g = persistentGuidance.get("quit");
-                if (g == null) {
-                    persistentGuidance.put("quit", new Guidance(reason, 1, 12, iterations));
+
+                if (movesSinceLastStockEmpty == 0) {
+                    stockEmptyStrikes++;
                 } else {
-                    g.refresh(iterations, 5);
+                    stockEmptyStrikes = 0;
+                }
+                movesSinceLastStockEmpty = 0;
+
+                // Only start warning to quit after repeated unproductive passes.
+                if (stockEmptyStrikes >= 2) {
+                    String reason = "you have turned through the entire stockpile "
+                            + stockEmptyStrikes + " times without making any moves.";
+                    Guidance g = persistentGuidance.get("quit");
+                    if (g == null) {
+                        persistentGuidance.put("quit", new Guidance(reason, 1, 16, iterations));
+                    } else {
+                        g.refresh(iterations, 6);
+                    }
                 }
             }
 
