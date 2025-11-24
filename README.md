@@ -8,12 +8,13 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 ## Test Results
 
-The last test run was performed at Nov 22, 2025 2:27:53 PM.
+The last test run was performed at Nov 24, 2025 8:03:44 PM.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
 | Simple Rule-based Heuristics | 10000 | 462 | 4.62% | 0.001s | 5.799s | 735.87 | 3 |
 | Greedy Search | 10000 | 651 | 6.51% | 0.003s | 31.046s | 242.42 | 3 |
+| Hill-climbing Search | 10000 | 1317 | 13.17% | 0.002s | 16.514s | 97.82 | 4 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
@@ -39,6 +40,7 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
 - `src/main/java/ai/games/player/` — `Player` base plus:
   - `HumanPlayer` (default CLI)
   - `AIPlayer` base
+  - `ai.games.player.HillClimberPlayer` (@Profile `ai-hill`)
   - `ai.games.player.ai.SimpleRuleBasedHeuristicsPlayer` (@Profile `ai-rule`)
   - `ai.games.player.ai.ComplexRuleBasedHeuristicsPlayer` (@Profile `ai-rule-complex`)
   - `ai.games.player.ai.GreedySearchPlayer` (@Profile `ai-greedy`)
@@ -56,6 +58,7 @@ Human CLI (default):
 
 AI profiles:
 ```
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-hill          # hill-climbing search (state-hash driven)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule          # simple rule-based heuristics
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule-complex  # complex rule-based heuristics (experimental)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # greedy search
@@ -90,8 +93,18 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.SimpleRuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.ComplexRuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
 ```
+
+Hill-climbing player:
+- Profile: `ai-hill`
+- Uses a Zobrist-style `stateKey` from `Solitaire` as the primary handle for visited/duplicate detection and per-state scoring.
+- Performs local hill-climbing with backtracking (rejecting moves that lead to strictly worse or known-bad states) and bounded random restarts to escape local maxima/plateaus.
+- Tunable parameters (via constants in `HillClimberPlayer`):
+  - `MAX_STEPS_PER_GAME` — hard cap on total decisions per game to avoid non-terminating runs.
+  - `MAX_RESTARTS_PER_POSITION` — number of random restarts allowed from a local maximum before giving up.
+  - Evaluation weights (foundation progress, visible vs facedown cards, stock size) that guide the climb.
 
 The simple rule-based player encodes a strict, deterministic set of solitaire rules that are easy to reason about and provide a strong baseline.  
 The complex rule-based player is an experimental variant intended for more advanced heuristics (e.g., deeper lookahead or richer safety checks) while still remaining mostly rule-driven.
