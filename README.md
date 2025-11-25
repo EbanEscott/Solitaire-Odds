@@ -48,6 +48,7 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
   - `ai.games.player.ai.BeamSearchPlayer` (@Profile `ai-beam`)
   - `ai.games.player.HillClimberPlayer` (@Profile `ai-hill`)
   - `ai.games.player.ai.MonteCarloPlayer` (@Profile `ai-mcts`)
+  - `ai.games.player.ai.AStarPlayer` (@Profile `ai-astar`)
 - `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
   - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
@@ -69,6 +70,7 @@ AI profiles:
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # greedy search
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-mcts          # Monte Carlo (MCTS-style) search
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar         # A* search
 ```
 
 Ollama model selection:
@@ -103,6 +105,7 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
 ./gradlew test --tests ai.games.results.MonteCarloPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
 ```
 
 Hill-climbing player:
