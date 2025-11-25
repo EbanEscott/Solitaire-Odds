@@ -15,7 +15,7 @@ The last test run was performed at Nov 24, 2025 8:45:14 PM.
 | Simple Rule-based Heuristics | 10000 | 462 | 4.62% ± 0.97% | 0.001s | 5.799s | 735.87 | 3 |
 | Greedy Search                | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 |
 | Hill-climbing Search         | 10000 | 1317 | 13.17% ± 1.76% | 0.002s | 16.514s | 97.82 | 4 |
-| Beam Search                  | 10000 | 1154 | 11.54% ± 1.70% | 0.039s | 391.002s | 902.94 | 4 |
+| Beam Search                  | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
