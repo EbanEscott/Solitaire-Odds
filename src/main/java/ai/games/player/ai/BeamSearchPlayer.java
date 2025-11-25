@@ -34,8 +34,8 @@ public class BeamSearchPlayer extends AIPlayer implements Player {
     private static final int DEFAULT_BEAM_WIDTH = 8;
 
     // Soft penalties to discourage endless churning.
-    private static final int PER_DEPTH_PENALTY = 1;
-    private static final int PER_TURN_PENALTY = 2;
+    private static final int PER_DEPTH_PENALTY = 2;
+    private static final int PER_TURN_PENALTY = 4;
 
     private final int depthLimit;
     private final int beamWidth;
@@ -67,11 +67,12 @@ public class BeamSearchPlayer extends AIPlayer implements Player {
         List<Node> frontier = Collections.singletonList(root);
 
         Node bestNode = null;
+        // Global visited set for this decision to avoid ping-ponging between the same states.
+        java.util.Set<Long> globalSeenKeys = new java.util.HashSet<>();
+        globalSeenKeys.add(root.state.getStateKey());
 
         for (int depth = 0; depth < depthLimit; depth++) {
             List<Node> nextFrontier = new ArrayList<>();
-            // Per-layer visited set to avoid exploding on simple cycles.
-            java.util.Set<Long> seenKeys = new java.util.HashSet<>();
             for (Node node : frontier) {
                 List<String> moves = LegalMovesHelper.listLegalMoves(node.state);
                 // Mild branching factor cap per node.
@@ -90,7 +91,7 @@ public class BeamSearchPlayer extends AIPlayer implements Player {
                     Solitaire copy = node.state.copy();
                     applyMove(copy, move);
                     long key = copy.getStateKey();
-                    if (!seenKeys.add(key)) {
+                    if (!globalSeenKeys.add(key)) {
                         continue;
                     }
                     int baseScore = evaluate(copy);
@@ -182,20 +183,27 @@ public class BeamSearchPlayer extends AIPlayer implements Player {
     private int evaluate(Solitaire solitaire) {
         int score = 0;
 
-        // Foundation progress.
+        // Foundation progress: strongly encourage completing foundations.
         for (var pile : solitaire.getFoundation()) {
-            score += pile.size() * 20;
+            score += pile.size() * 25;
         }
 
         // Tableau visibility: reward visible, penalise hidden.
         List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
         List<Integer> faceDowns = solitaire.getTableauFaceDownCounts();
+        int emptyColumns = 0;
         for (int i = 0; i < faceUps.size(); i++) {
-            score += faceUps.get(i) * 5;
+            int up = faceUps.get(i);
+            int down = faceDowns.get(i);
+            score += up * 6;
+            score -= down * 4;
+            if (up == 0 && down == 0) {
+                emptyColumns++;
+            }
         }
-        for (int i = 0; i < faceDowns.size(); i++) {
-            score -= faceDowns.get(i) * 3;
-        }
+
+        // Reward creating empty tableau columns – they are valuable for king moves.
+        score += emptyColumns * 10;
 
         // Stockpile drag: fewer buried cards is generally better.
         score -= solitaire.getStockpile().size();
