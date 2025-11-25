@@ -8,7 +8,7 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 ## Test Results
 
-The last test run was performed at Nov 24, 2025 8:45:14 PM.
+The last test run was performed at Nov 25, 2025 6:04:00 PM AEST.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
@@ -16,6 +16,7 @@ The last test run was performed at Nov 24, 2025 8:45:14 PM.
 | Greedy Search                | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 |
 | Hill-climbing Search         | 10000 | 1317 | 13.17% ± 1.76% | 0.002s | 16.514s | 97.82 | 4 |
 | Beam Search                  | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 |
+| Monte Carlo Search           | 100 | 20 | 20.00% ± 7.84% | 3.044s | 304.354s | 107.08 | 2 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
@@ -43,9 +44,10 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
   - `AIPlayer` base
   - `ai.games.player.ai.SimpleRuleBasedHeuristicsPlayer` (@Profile `ai-rule`)
   - `ai.games.player.ai.ComplexRuleBasedHeuristicsPlayer` (@Profile `ai-rule-complex`)
-  - `ai.games.player.ai.GreedySearchPlayer` (@Profile `ai-greedy`)
+- `ai.games.player.ai.GreedySearchPlayer` (@Profile `ai-greedy`)
   - `ai.games.player.ai.BeamSearchPlayer` (@Profile `ai-beam`)
   - `ai.games.player.HillClimberPlayer` (@Profile `ai-hill`)
+  - `ai.games.player.ai.MonteCarloPlayer` (@Profile `ai-mcts`)
 - `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
   - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
@@ -66,6 +68,7 @@ AI profiles:
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule-complex  # complex rule-based heuristics (experimental)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # greedy search
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-mcts          # Monte Carlo (MCTS-style) search
 ```
 
 Ollama model selection:
@@ -99,6 +102,7 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.BeamSearchPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
+./gradlew test --tests ai.games.results.MonteCarloPlayerResultsTest --console=plain --rerun-tasks
 ```
 
 Hill-climbing player:

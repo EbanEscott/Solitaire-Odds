@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
-import ai.games.player.HillClimberPlayer;
 import ai.games.player.Player;
+import ai.games.player.ai.MonteCarloPlayer;
 import java.util.List;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -14,20 +14,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Aggregates multiple games for the hill-climbing AI and logs summary stats
- * to help fill the comparison table. Use -Dgames=N to adjust the number of games (default 20).
+ * Aggregates multiple games for the Monte Carlo (MCTS-style) AI and logs summary stats
+ * to help fill the comparison table.
  */
-public class HillClimberPlayerResultsTest {
-    private static final Logger log = LoggerFactory.getLogger(HillClimberPlayerResultsTest.class);
+public class MonteCarloPlayerResultsTest {
+    private static final Logger log = LoggerFactory.getLogger(MonteCarloPlayerResultsTest.class);
     private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
     private static final String TABLE_DIVIDER = "|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
 
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
-        Stats stats = runGames("Hill-Climber", () -> new HillClimberPlayer(123L), gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+        Stats stats = runGames("Monte Carlo Search", MonteCarloPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
         String summary = String.format("| %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
-                "Hill-climbing Search",
+                "Monte Carlo Search",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
