@@ -12,15 +12,15 @@ The last test run was performed at Nov 24, 2025 8:45:14 PM.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
-| Simple Rule-based Heuristics | 10000 | 462 | 4.62% | 0.001s | 5.799s | 735.87 | 3 |
-| Greedy Search | 10000 | 651 | 6.51% | 0.003s | 31.046s | 242.42 | 3 |
-| Hill-climbing Search | 10000 | 1317 | 13.17% | 0.002s | 16.514s | 97.82 | 4 |
-| Beam Search | 10000 | 1154 | 11.54% | 0.039s | 391.002s | 902.94 | 4 |
+| Simple Rule-based Heuristics | 10000 | 462 | 4.62% ± 0.97% | 0.001s | 5.799s | 735.87 | 3 |
+| Greedy Search                | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 |
+| Hill-climbing Search         | 10000 | 1317 | 13.17% ± 1.76% | 0.002s | 16.514s | 97.82 | 4 |
+| Beam Search                  | 10000 | 1154 | 11.54% ± 1.70% | 0.039s | 391.002s | 902.94 | 4 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
-* **Win %** Percentage of games successfully completed (foundations fully built).
+* **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
 * **Avg Time/Game** Mean time taken to finish or fail a game.
 * **Total Time** Sum of all time spent playing the batch of games.
 * **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
