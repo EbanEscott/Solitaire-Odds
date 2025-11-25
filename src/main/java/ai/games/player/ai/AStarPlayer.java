@@ -76,6 +76,7 @@ public class AStarPlayer extends AIPlayer implements Player {
         bestG.put(rootKey, 0);
 
         Node bestNode = null;
+        Node turnNode = null;
         int expansions = 0;
 
         while (!open.isEmpty() && expansions < MAX_EXPANSIONS) {
@@ -125,6 +126,10 @@ public class AStarPlayer extends AIPlayer implements Player {
 
                 Node child = new Node(copy, current, move, tentativeG, h);
 
+                if (isTurn(move) && turnNode == null) {
+                    turnNode = child;
+                }
+
                 // If we reach a won position, stop early and use this path.
                 if (isWon(copy)) {
                     bestNode = child;
@@ -135,9 +140,25 @@ public class AStarPlayer extends AIPlayer implements Player {
             }
         }
 
-        // If search did not find anything better, quit to avoid pointless looping.
+        // If search did not find anything clearly better, fall back to a safe turn
+        // move (if available and not cycling), otherwise quit to avoid looping.
         if (bestNode == null || bestNode.parent == null) {
-            System.out.println("A* quitting: no improving node found from root state.");
+            if (turnNode != null && !isRecentlySeen(turnNode.state.getStateKey())) {
+                Node currentTurn = turnNode;
+                Node previousTurn = null;
+                while (currentTurn.parent != null && currentTurn.parent.parent != null) {
+                    previousTurn = currentTurn;
+                    currentTurn = currentTurn.parent;
+                }
+                Node firstTurnStep = currentTurn.parent == null ? previousTurn : currentTurn;
+                String turnMove = firstTurnStep != null && firstTurnStep.move != null
+                        ? firstTurnStep.move
+                        : "quit";
+                if (!"quit".equalsIgnoreCase(turnMove.trim())) {
+                    lastMove = MoveSignature.tryParse(turnMove);
+                    return turnMove;
+                }
+            }
             return "quit";
         }
 
