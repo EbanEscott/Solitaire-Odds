@@ -8,7 +8,7 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 ## Test Results
 
-The last test run was performed at Nov 25, 2025 7:47:40 PM AEST.
+The last test run was performed at Nov 26, 2025 6:30:19 AM AEST.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
@@ -17,7 +17,7 @@ The last test run was performed at Nov 25, 2025 7:47:40 PM AEST.
 | Hill-climbing Search         | 10000 | 1317 | 13.17% ± 1.76% | 0.002s | 16.514s | 97.82 | 4 |
 | Beam Search                  | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 |
 | Monte Carlo Search           | 100 | 20 | 20.00% ± 7.84% | 3.044s | 304.354s | 107.08 | 2 |
-| A* Search                    | 1000 | 223 | 22.30% ± 2.58% | 0.188s | 188.410s | 313.05 | 4 |
+| A* Search                    | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **Games Played** Total number of solitaire games the algorithm attempted.
