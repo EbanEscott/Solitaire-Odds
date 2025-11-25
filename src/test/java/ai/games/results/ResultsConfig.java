@@ -34,7 +34,7 @@ public final class ResultsConfig {
      * - Early tuning / broad comparisons: 25k–100k is usually enough.
      * - Final benchmarks / tiny improvements (<0.2%): 250k–1M.
      */
-    public static final int GAMES = 100;
+    public static final int GAMES = 1000;
 
     /**
      * How often to log progress during multi-game sweeps.
