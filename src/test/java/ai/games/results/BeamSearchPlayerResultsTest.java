@@ -48,7 +48,9 @@ public class BeamSearchPlayerResultsTest {
         Stats stats = new Stats(games);
         for (int i = 0; i < games; i++) {
             int gameNumber = i + 1;
-            if (gameNumber == 1 || gameNumber % 50 == 0 || gameNumber == games) {
+            if (gameNumber == 1
+                    || gameNumber % ResultsConfig.PROGRESS_LOG_INTERVAL == 0
+                    || gameNumber == games) {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
             Player ai = playerSupplier.get();
