@@ -28,11 +28,12 @@ public class ComplexRuleBasedHeuristicsPlayerResultsTest {
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
         Stats stats = runGames("Complex Rule-based Heuristics", ComplexRuleBasedHeuristicsPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
-        String summary = String.format("| %s | %d | %d | %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+        String summary = String.format("| %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
                 "Complex Rule-based Heuristics",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
+                stats.winPercentConfidenceInterval(),
                 stats.avgTimeSeconds(),
                 stats.totalTimeSeconds(),
                 stats.avgMoves(),
@@ -138,6 +139,16 @@ public class ComplexRuleBasedHeuristicsPlayerResultsTest {
 
         double avgTimeSeconds() {
             return games == 0 ? 0.0 : totalTimeSeconds() / games;
+        }
+
+        double winPercentConfidenceInterval() {
+            if (games == 0) {
+                return 0.0;
+            }
+            double p = wins / (double) games;
+            double standardError = Math.sqrt(p * (1.0 - p) / games);
+            double halfWidth = 1.96 * standardError * 100.0;
+            return halfWidth;
         }
     }
 }
