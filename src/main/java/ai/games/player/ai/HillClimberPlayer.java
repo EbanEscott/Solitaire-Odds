@@ -1,6 +1,9 @@
-package ai.games.player;
+package ai.games.player.ai;
 
 import ai.games.game.Solitaire;
+import ai.games.player.AIPlayer;
+import ai.games.player.LegalMovesHelper;
+import ai.games.player.Player;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -233,3 +236,4 @@ public class HillClimberPlayer extends AIPlayer implements Player {
         return score;
     }
 }
+
