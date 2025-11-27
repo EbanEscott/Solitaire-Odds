@@ -7,37 +7,50 @@ import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * Monte Carlo Tree Search (MCTS)-style player for Klondike Solitaire.
+ * Monte Carlo (sampling-based) player for Klondike Solitaire.
  *
- * <p>Simplified algorithm:
+ * <p>Algorithm sketch (root-level multi-armed bandit):
  * <ul>
- *     <li>At each decision point, enumerate all legal non-quit moves.</li>
- *     <li>For each move, run a fixed number of random playouts from the resulting state.</li>
- *     <li>Each playout is bounded by a maximum number of steps and uses random legal moves.</li>
- *     <li>At playout end, score the terminal state using a heuristic (foundation, visibility, stock size).</li>
- *     <li>Choose the move with the highest average playout score.</li>
+ *     <li>Enumerate legal root moves and prune obviously bad ones:
+ *         <ul>
+ *             <li>never move from foundation back to tableau</li>
+ *             <li>avoid king moves that do not reveal any facedown card</li>
+ *             <li>avoid immediate inverse of the last real move</li>
+ *         </ul>
+ *     </li>
+ *     <li>Allocate a fixed playout budget and treat each root move as an "arm".</li>
+ *     <li>Use UCB1 to choose which move to sample next: explore rarely-sampled moves,
+ *     exploit high-reward ones.</li>
+ *     <li>Each playout performs a short, biased-random simulation and returns a numeric reward
+ *     based on win / foundation cards / visibility / stock size.</li>
+ *     <li>Play the root move with the highest average reward.</li>
  * </ul>
  *
- * <p>This is closer to Monte Carlo control than a full UCT-based tree, but follows the same spirit:
- * sampling futures from candidate moves and backing up average values to pick actions.
+ * <p>This is "true Monte Carlo" in the sense that decisions are driven by sampled outcomes,
+ * not by a purely deterministic heuristic; but the policy inside playouts is biased to favour
+ * structural progress and to avoid pointless ping-ponging.
  */
 @Component
 @Profile("ai-mcts")
 public class MonteCarloPlayer extends AIPlayer implements Player {
 
-    private static final int PLAYOUTS_PER_MOVE = 16;
-    private static final int MAX_PLAYOUT_STEPS = 200;
+    // Overall playout budget per decision (spread across moves via UCB).
+    private static final int MAX_ROOT_PLAYOUTS = 48;
+    // Maximum depth for a single playout.
+    private static final int MAX_PLAYOUT_STEPS = 60;
+    // UCB exploration constant.
+    private static final double UCB_C = Math.sqrt(2.0);
 
-    // Track last real move across instances to help block simple ping-pong moves.
+    // Track last real move across decisions to avoid simple two-move ping-pong.
     private static MoveSignature lastMove = null;
-    // Track visited engine states across the current game to avoid cycling.
-    private static final java.util.Set<Long> visitedStates = new java.util.HashSet<>();
 
     private final Random random;
 
@@ -51,9 +64,6 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String feedback) {
-        long currentKey = solitaire.getStateKey();
-        visitedStates.add(currentKey);
-
         List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
         if (legal.isEmpty()) {
             return "quit";
@@ -63,102 +73,169 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
             return isQuit(only) ? "quit" : only;
         }
 
-        List<String> candidateMoves = new ArrayList<>();
+        // Filter out clearly undesirable moves.
+        List<String> candidates = new ArrayList<>();
         for (String move : legal) {
-            long nextKey = simulateStateKey(solitaire, move);
-            // Skip no-op moves or moves that lead back into already visited states.
-            if (nextKey == currentKey || (nextKey != 0L && visitedStates.contains(nextKey))) {
+            if (isQuit(move)) {
                 continue;
             }
-            if (!isQuit(move)
-                    && !isFromFoundation(move)
-                    && !isUselessKingMove(solitaire, move)
-                    && !isInverseOfLast(move)) {
-                candidateMoves.add(move);
+            if (isFromFoundation(move)) {
+                continue;
             }
+            if (isInverseOfLast(move)) {
+                continue;
+            }
+            if (isUselessKingMove(solitaire, move)) {
+                continue;
+            }
+            candidates.add(move);
         }
-        if (candidateMoves.isEmpty()) {
+
+        if (candidates.isEmpty()) {
             return "quit";
         }
 
-        // Greedy priority: if any safe move goes to foundation, take it immediately.
-        List<String> toFoundation = new ArrayList<>();
-        for (String move : candidateMoves) {
-            if (isToFoundation(move)) {
-                toFoundation.add(move);
+        // If we have direct moves to foundation among the filtered moves, still treat them
+        // as high-value: MC will tend to agree, but we can short-circuit for speed.
+        String foundationMove = pickFoundationMove(candidates);
+        if (foundationMove != null) {
+            lastMove = MoveSignature.tryParse(foundationMove);
+            return foundationMove;
+        }
+
+        int moveCount = candidates.size();
+        double[] totalReward = new double[moveCount];
+        int[] visits = new int[moveCount];
+
+        int totalPlayouts = 0;
+        while (totalPlayouts < MAX_ROOT_PLAYOUTS) {
+            int index = selectMoveByUcb(totalReward, visits, totalPlayouts, moveCount);
+            String move = candidates.get(index);
+
+            Solitaire copy = solitaire.copy();
+            applyMove(copy, move);
+            double reward = runPlayout(copy);
+
+            totalReward[index] += reward;
+            visits[index] += 1;
+            totalPlayouts++;
+        }
+
+        // Pick the move with the highest mean reward.
+        String bestMove = candidates.get(0);
+        double bestScore = visits[0] == 0 ? Double.NEGATIVE_INFINITY : totalReward[0] / visits[0];
+        for (int i = 1; i < moveCount; i++) {
+            if (visits[i] == 0) {
+                continue;
+            }
+            double mean = totalReward[i] / visits[i];
+            if (mean > bestScore) {
+                bestScore = mean;
+                bestMove = candidates.get(i);
             }
         }
-        if (!toFoundation.isEmpty()) {
-            return toFoundation.getFirst();
-        }
 
-        String bestMove = null;
-        double bestScore = Double.NEGATIVE_INFINITY;
-
-        for (String move : candidateMoves) {
-            double avgScore = evaluateMoveByPlayouts(solitaire, move);
-            if (avgScore > bestScore) {
-                bestScore = avgScore;
-                bestMove = move;
-            }
-        }
-
-        String chosen = bestMove != null ? bestMove : candidateMoves.get(0);
-        lastMove = MoveSignature.tryParse(chosen);
-        return chosen;
+        lastMove = MoveSignature.tryParse(bestMove);
+        return bestMove;
     }
 
-    private double evaluateMoveByPlayouts(Solitaire root, String move) {
-        double total = 0.0;
-        for (int i = 0; i < PLAYOUTS_PER_MOVE; i++) {
-            Solitaire copy = root.copy();
-            applyMove(copy, move);
-            total += runPlayout(copy);
+    private int selectMoveByUcb(double[] totalReward, int[] visits, int totalPlayouts, int moveCount) {
+        // Ensure every move is tried at least once.
+        for (int i = 0; i < moveCount; i++) {
+            if (visits[i] == 0) {
+                return i;
+            }
         }
-        return total / PLAYOUTS_PER_MOVE;
+        double logTotal = Math.log(totalPlayouts);
+        double best = Double.NEGATIVE_INFINITY;
+        int bestIndex = 0;
+        for (int i = 0; i < moveCount; i++) {
+            double mean = totalReward[i] / visits[i];
+            double bonus = UCB_C * Math.sqrt(logTotal / visits[i]);
+            double score = mean + bonus;
+            if (score > best) {
+                best = score;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
     }
 
     private double runPlayout(Solitaire solitaire) {
+        MoveSignature lastPlayoutMove = null;
+        Set<Long> localStates = new HashSet<>();
+        localStates.add(solitaire.getStateKey());
+
         for (int step = 0; step < MAX_PLAYOUT_STEPS; step++) {
             if (isWon(solitaire)) {
-                // Large reward for completed game.
-                return evaluate(solitaire) + 1000.0;
+                // Very large bonus for a solved game.
+                return evaluate(solitaire) + 10_000.0;
             }
             List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
             if (legal.isEmpty()) {
                 break;
             }
-            // Prefer non-quit moves; if none, accept quit.
-            String move = pickRandomNonQuit(legal);
+
+            String move = pickPlayoutMove(solitaire, legal, lastPlayoutMove, localStates);
             if (move == null || isQuit(move)) {
                 break;
             }
+
             applyMove(solitaire, move);
+            lastPlayoutMove = MoveSignature.tryParse(move);
+
+            long key = solitaire.getStateKey();
+            if (!localStates.add(key)) {
+                // Simple cycle detected within playout: stop this rollout.
+                break;
+            }
         }
+
         return evaluate(solitaire);
     }
 
-    private String pickRandomNonQuit(List<String> legal) {
-        List<String> nonQuit = new ArrayList<>();
+    private String pickPlayoutMove(Solitaire solitaire, List<String> legal, MoveSignature lastPlayoutMove, Set<Long> localStates) {
+        List<String> moves = new ArrayList<>();
         for (String m : legal) {
-            if (!isQuit(m)
-                    && !isFromFoundation(m)) {
-                nonQuit.add(m);
+            if (isQuit(m)) {
+                continue;
             }
+            if (isFromFoundation(m)) {
+                continue;
+            }
+            if (lastPlayoutMove != null && lastPlayoutMove.isInverseOf(MoveSignature.tryParse(m))) {
+                continue;
+            }
+            if (isUselessKingMove(solitaire, m)) {
+                continue;
+            }
+            moves.add(m);
         }
-        if (nonQuit.isEmpty()) {
+        if (moves.isEmpty()) {
             return null;
         }
-        return nonQuit.get(random.nextInt(nonQuit.size()));
+
+        // With high probability, favour moves to foundation during playout.
+        List<String> toFoundation = new ArrayList<>();
+        for (String m : moves) {
+            if (isToFoundation(m)) {
+                toFoundation.add(m);
+            }
+        }
+        if (!toFoundation.isEmpty() && random.nextDouble() < 0.85) {
+            return toFoundation.get(random.nextInt(toFoundation.size()));
+        }
+
+        return moves.get(random.nextInt(moves.size()));
     }
 
-    private long simulateStateKey(Solitaire solitaire, String move) {
-        if (move == null) {
-            return 0L;
+    private String pickFoundationMove(List<String> moves) {
+        for (String m : moves) {
+            if (isToFoundation(m)) {
+                return m;
+            }
         }
-        Solitaire copy = solitaire.copy();
-        applyMove(copy, move);
-        return copy.getStateKey();
+        return null;
     }
 
     private boolean isQuit(String move) {
@@ -201,8 +278,8 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
     }
 
     /**
-     * Prunes moves that shift a king from a tableau pile without revealing any new card.
-     * These tend to just shuffle kings between columns and cause pointless ping-ponging.
+     * Prunes moves that shift a king from a tableau pile to another tableau pile
+     * without revealing any new card (no facedown cards underneath).
      */
     private boolean isUselessKingMove(Solitaire solitaire, String move) {
         if (move == null) {
@@ -216,9 +293,9 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
         if (!parts[0].equalsIgnoreCase("move")) {
             return false;
         }
-        // Do not treat king moves to foundation as useless – those are progress.
         String dest = parts[parts.length - 1].toUpperCase();
         if (dest.startsWith("F")) {
+            // King moves to foundation are always allowed.
             return false;
         }
         String from = parts[1];
@@ -231,20 +308,25 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
         } catch (NumberFormatException e) {
             return false;
         }
-        if (pileIndex < 0 || pileIndex >= solitaire.getVisibleTableau().size()) {
+
+        List<List<Card>> fullTableau = solitaire.getTableau();
+        if (pileIndex < 0 || pileIndex >= fullTableau.size()) {
             return false;
         }
 
         String cardToken = parts[2];
-        List<Card> tableauPile = solitaire.getVisibleTableau().get(pileIndex);
-        if (tableauPile == null || tableauPile.isEmpty()) {
+        List<Card> pile = fullTableau.get(pileIndex);
+        if (pile == null || pile.isEmpty()) {
             return false;
         }
 
         Card moving = null;
-        for (Card c : tableauPile) {
+        int movingIndex = -1;
+        for (int i = 0; i < pile.size(); i++) {
+            Card c = pile.get(i);
             if (cardToken.equalsIgnoreCase(c.shortName())) {
                 moving = c;
+                movingIndex = i;
                 break;
             }
         }
@@ -252,12 +334,13 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
             return false;
         }
 
-        // If there are no facedown cards beneath this pile, moving the king won't reveal anything.
+        // Facedown cards are those before the visible suffix.
         List<Integer> faceDowns = solitaire.getTableauFaceDownCounts();
         if (pileIndex < 0 || pileIndex >= faceDowns.size()) {
             return false;
         }
         int facedownCount = faceDowns.get(pileIndex);
+        // If there are no facedown cards underneath, moving this king will not reveal anything.
         return facedownCount == 0;
     }
 
@@ -335,27 +418,42 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
     }
 
     /**
-     * Heuristic similar to other AIs: reward foundation progress, visible tableau,
-     * and lightly penalise hidden cards and stock size.
+     * State evaluation used as a playout reward:
+     * <ul>
+     *     <li>strong reward for foundation progress</li>
+     *     <li>reward visible tableau cards and empty columns</li>
+     *     <li>penalise facedown cards and large stockpile</li>
+     * </ul>
      */
     private int evaluate(Solitaire solitaire) {
         int score = 0;
 
         // Foundation progress.
+        int foundationCards = 0;
         for (var pile : solitaire.getFoundation()) {
-            score += pile.size() * 25;
+            foundationCards += pile.size();
         }
+        score += foundationCards * 40;
 
         // Tableau visibility.
         List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
         List<Integer> faceDowns = solitaire.getTableauFaceDownCounts();
+        int emptyColumns = 0;
         for (int i = 0; i < faceUps.size(); i++) {
-            score += faceUps.get(i) * 6;
-            score -= faceDowns.get(i) * 4;
+            int up = faceUps.get(i);
+            int down = faceDowns.get(i);
+            score += up * 4;
+            score -= down * 9;
+            if (up == 0 && down == 0) {
+                emptyColumns++;
+            }
         }
 
+        // Reward empty tableau columns for king placement flexibility.
+        score += emptyColumns * 20;
+
         // Stock drag.
-        score -= solitaire.getStockpile().size();
+        score -= solitaire.getStockpile().size() * 2;
 
         return score;
     }
