@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
-import ai.games.player.HillClimberPlayer;
+import ai.games.player.ai.HillClimberPlayer;
 import ai.games.player.Player;
 import java.util.HashSet;
 import java.util.Set;
@@ -98,4 +98,3 @@ class HillClimberPlayerTest {
         }
     }
 }
-

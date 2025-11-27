@@ -2,7 +2,6 @@ package ai.games.player.ai;
 
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
-import ai.games.player.HillClimberPlayer;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
 import java.util.ArrayList;

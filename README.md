@@ -8,13 +8,13 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 ## Test Results
 
-The last test run was performed at Nov 27, 2025 2:13:40 PM AEST.
+The last test run was performed at Nov 28, 2025 8:22:50 AM AEST.
 
 | Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
 |------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
 | Simple Rule-based Heuristics | 10000 | 462 | 4.62% ± 0.97% | 0.001s | 5.799s | 735.87 | 3 |
 | Greedy Search                | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 |
-| Hill-climbing Search         | 10000 | 1317 | 13.17% ± 1.76% | 0.002s | 16.514s | 97.82 | 4 |
+| Hill-climbing Search         | 10000 | 1301 | 13.01% ± 0.66% | 0.002s | 17.181s | 96.20 | 5 |
 | Beam Search                  | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 |
 | Monte Carlo Search           | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 |
 | A* Search                    | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 |
@@ -40,16 +40,19 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
 ## Layout
 - `src/main/java/ai/games/Game` — Spring Boot entry, constructor-injected `Player`.
 - `src/main/java/ai/games/game/` — core model: `Solitaire`, `Deck`, `Card`, `Rank`, `Suit`.
-- `src/main/java/ai/games/player/` — `Player` base plus:
+- `src/main/java/ai/games/player/` — player base types:
   - `HumanPlayer` (default CLI)
-  - `AIPlayer` base
-  - `ai.games.player.ai.SimpleRuleBasedHeuristicsPlayer` (@Profile `ai-rule`)
-  - `ai.games.player.ai.ComplexRuleBasedHeuristicsPlayer` (@Profile `ai-rule-complex`)
-- `ai.games.player.ai.GreedySearchPlayer` (@Profile `ai-greedy`)
-  - `ai.games.player.ai.BeamSearchPlayer` (@Profile `ai-beam`)
-  - `ai.games.player.HillClimberPlayer` (@Profile `ai-hill`)
-  - `ai.games.player.ai.MonteCarloPlayer` (@Profile `ai-mcts`)
-  - `ai.games.player.ai.AStarPlayer` (@Profile `ai-astar`)
+  - `AIPlayer` base class
+  - `LegalMovesHelper`
+- `src/main/java/ai/games/player/ai/` — AI players (all `@Profile`-gated):
+  - `RuleBasedHeuristicsPlayer` / `SimpleRuleBasedHeuristicsPlayer` (`ai-rule`)
+  - `ComplexRuleBasedHeuristicsPlayer` (`ai-rule-complex`)
+  - `GreedySearchPlayer` (`ai-greedy`)
+  - `BeamSearchPlayer` (`ai-beam`)
+  - `HillClimberPlayer` (`ai-hill`)
+  - `MonteCarloPlayer` (`ai-mcts`)
+  - `AStarPlayer` (`ai-astar`)
+  - `OllamaPlayer` (`ai-ollama`)
 - `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
   - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
