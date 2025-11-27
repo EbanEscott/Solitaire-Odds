@@ -9,7 +9,7 @@ import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
 import ai.games.player.Player;
-import ai.games.player.ai.SimpleRuleBasedHeuristicsPlayer;
+import ai.games.player.ai.RuleBasedHeuristicsPlayer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -20,13 +20,13 @@ import org.junit.jupiter.api.Test;
  * Basic end-to-end test for the rule-based AI: seeds a near-complete game and expects the AI
  * to issue the final move to finish.
  */
-class SimpleRuleBasedHeuristicsPlayerTest {
+class RuleBasedHeuristicsPlayerTest {
     private static final int MAX_TEST_STEPS = 1000;
 
     @Test
     void ruleBasedAiFinishesGame() {
         Solitaire solitaire = seedNearlyWonGame();
-        Player ai = new SimpleRuleBasedHeuristicsPlayer();
+        Player ai = new RuleBasedHeuristicsPlayer();
 
         runSingleMoveCompletion(solitaire, ai);
 
@@ -38,7 +38,7 @@ class SimpleRuleBasedHeuristicsPlayerTest {
     void ruleBasedAiWinsKnownMidGameState() {
         // Seed a winnable mid-game state: AI should push toward finishing given deterministic setup.
         Solitaire solitaire = seedMidGameWinnable();
-        Player ai = new SimpleRuleBasedHeuristicsPlayer();
+        Player ai = new RuleBasedHeuristicsPlayer();
 
         // Allow several moves to reach completion.
         for (int i = 0; i < MAX_TEST_STEPS && !isWon(solitaire); i++) {

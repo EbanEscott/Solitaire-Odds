@@ -6,7 +6,7 @@ import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
-import ai.games.player.ai.ComplexRuleBasedHeuristicsPlayer;
+import ai.games.player.ai.RuleBasedHeuristicsPlayer;
 import java.util.List;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -14,22 +14,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Batch runner for the experimental complex rule-based heuristics AI.
- *
- * This mirrors the simple player’s results test so that we can directly compare
- * win rates, move counts and timing as the complex rules evolve.
+ * Aggregates multiple games for the rule-based heuristics AI and logs summary stats
+ * to help fill the comparison table. Use -Dgames=N to adjust the number of games.
  */
-public class ComplexRuleBasedHeuristicsPlayerResultsTest {
-    private static final Logger log = LoggerFactory.getLogger(ComplexRuleBasedHeuristicsPlayerResultsTest.class);
+public class RuleBasedHeuristicsPlayerResultsTest {
+    private static final Logger log = LoggerFactory.getLogger(RuleBasedHeuristicsPlayerResultsTest.class);
     private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
     private static final String TABLE_DIVIDER = "|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
 
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
-        Stats stats = runGames("Complex Rule-based Heuristics", ComplexRuleBasedHeuristicsPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+        Stats stats = runGames("Rule-based Heuristics", RuleBasedHeuristicsPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
         String summary = String.format("| %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
-                "Complex Rule-based Heuristics",
+                "Rule-based Heuristics",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
@@ -128,19 +126,19 @@ public class ComplexRuleBasedHeuristicsPlayerResultsTest {
         }
 
         double winPercent() {
-            return games == 0 ? 0.0 : (wins * 100.0) / games;
+            return (wins * 100.0) / games;
         }
 
-        double avgMoves() {
-            return games == 0 ? 0.0 : (double) totalMoves / games;
+        double avgTimeSeconds() {
+            return totalTimeSeconds() / games;
         }
 
         double totalTimeSeconds() {
             return totalTimeNanos / 1_000_000_000.0;
         }
 
-        double avgTimeSeconds() {
-            return games == 0 ? 0.0 : totalTimeSeconds() / games;
+        double avgMoves() {
+            return games == 0 ? 0 : totalMoves / (double) games;
         }
 
         double winPercentConfidenceInterval() {
@@ -154,3 +152,4 @@ public class ComplexRuleBasedHeuristicsPlayerResultsTest {
         }
     }
 }
+
