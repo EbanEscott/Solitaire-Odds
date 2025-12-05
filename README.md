@@ -10,14 +10,14 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 The last test run was performed at Nov 28, 2025 8:27:55 AM AEST.
 
-| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
-|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
-| Rule-based Heuristics        | Search | 10000 | 418 | 4.18% ± 0.39% | 0.001s | 7.187s | 733.35 | 2 |
-| Greedy Search                | Search | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 |
-| Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 0.002s | 17.181s | 96.20 | 5 |
-| Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 |
-| Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 |
-| A* Search                    | Search | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 |
+| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
+|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
+| Rule-based Heuristics        | Search | 10000 | 418 | 4.18% ± 0.39% | 0.001s | 7.187s | 733.35 | 2 | Deterministic rule-based baseline; see [code](src/main/java/ai/games/player/ai/RuleBasedHeuristicsPlayer.java). |
+| Greedy Search                | Search | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 | Greedy one-step lookahead using heuristic scoring; see [code](src/main/java/ai/games/player/ai/GreedySearchPlayer.java). |
+| Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 0.002s | 17.181s | 96.20 | 5 | Local hill-climbing with restarts over hashed game states; see [code](src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
+| Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
+| Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
+| A* Search                    | Search | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 | A* search guided by a heuristic evaluation; see [code](src/main/java/ai/games/player/ai/AStarPlayer.java). |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
 * **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
@@ -29,6 +29,7 @@ The last test run was performed at Nov 28, 2025 8:27:55 AM AEST.
 * **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
 * **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
 * **Best Win Streak** Longest run of consecutive wins within the batch.
+* **Notes** Free-form notes and clickable links to the implementing classes or external model pages.
 
 ## Prereqs
 

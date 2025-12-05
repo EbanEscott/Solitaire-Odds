@@ -19,15 +19,15 @@ import org.slf4j.LoggerFactory;
  */
 public class BeamSearchPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(BeamSearchPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
-    private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
+    private static final String TABLE_HEADER = "| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
+    private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
         Supplier<Player> supplier = () -> new BeamSearchPlayer();
         Stats stats = runGames("Beam Search", supplier, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
-        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                 "Beam Search",
                 "Search",
                 stats.games,
@@ -37,7 +37,8 @@ public class BeamSearchPlayerResultsTest {
                 stats.avgTimeSeconds(),
                 stats.totalTimeSeconds(),
                 stats.avgMoves(),
-                stats.bestWinStreak);
+                stats.bestWinStreak,
+                "Fixed-width beam search over move sequences; see [code](src/main/java/ai/games/player/ai/BeamSearchPlayer.java).");
         System.out.println(TABLE_HEADER);
         System.out.println(TABLE_DIVIDER);
         System.out.println(summary);

@@ -19,14 +19,14 @@ import org.slf4j.LoggerFactory;
  */
 public class GreedySearchPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(GreedySearchPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
-    private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
+    private static final String TABLE_HEADER = "| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
+    private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
         Stats stats = runGames("Greedy Search", GreedySearchPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
-        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                 "Greedy Search",
                 "Search",
                 stats.games,
@@ -36,7 +36,8 @@ public class GreedySearchPlayerResultsTest {
                 stats.avgTimeSeconds(),
                 stats.totalTimeSeconds(),
                 stats.avgMoves(),
-                stats.bestWinStreak);
+                stats.bestWinStreak,
+                "Greedy one-step lookahead using heuristic scoring; see [code](src/main/java/ai/games/player/ai/GreedySearchPlayer.java).");
         System.out.println(TABLE_HEADER);
         System.out.println(TABLE_DIVIDER);
         System.out.println(summary);

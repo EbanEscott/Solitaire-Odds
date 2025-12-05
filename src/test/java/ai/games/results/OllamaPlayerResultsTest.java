@@ -21,8 +21,8 @@ import org.slf4j.LoggerFactory;
  */
 public class OllamaPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(OllamaPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | AI   | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
-    private static final String TABLE_DIVIDER = "|------------------------------|------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
+    private static final String TABLE_HEADER = "| Algorithm                     | AI   | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
+    private static final String TABLE_DIVIDER = "|------------------------------|------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
     void playMultipleGamesAndReport() {
@@ -49,7 +49,11 @@ public class OllamaPlayerResultsTest {
                 System.out.println(modelInfo.getPlayerName() + " " + modelInfo.getModelName() + " " + modelInfo.getUrl());
             }
 
-            String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+            String notes = modelInfo != null
+                    ? "[`OllamaPlayer`](src/main/java/ai/games/player/ai/OllamaPlayer.java), [" + modelInfo.getProvider() + "'s " + modelInfo.getModelName() + "](" + modelInfo.getUrl() + ")"
+                    : "[`OllamaPlayer`](src/main/java/ai/games/player/ai/OllamaPlayer.java)";
+
+            String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                     algorithmLabel,
                     "LLM",
                     stats.games,
@@ -59,7 +63,8 @@ public class OllamaPlayerResultsTest {
                     stats.avgTimeSeconds(),
                     stats.totalTimeSeconds(),
                     stats.avgMoves(),
-                    stats.bestWinStreak);
+                    stats.bestWinStreak,
+                    notes);
             System.out.println(summary);
             log.info(summary);
             assertTrue(stats.games == gamesToPlay);
