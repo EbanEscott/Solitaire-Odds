@@ -7,7 +7,9 @@ import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
+import ai.games.player.ai.OllamaModelInfo;
 import ai.games.player.ai.OllamaPlayer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -26,24 +28,57 @@ public class OllamaPlayerResultsTest {
     void playMultipleGamesAndReport() {
         assumeTrue(Boolean.getBoolean("ollama.tests"), "Enable with -Dollama.tests=true (requires local Ollama)");
 
-        int gamesToPlay = ResultsConfig.GAMES;
-        Stats stats = runGames("Ollama", OllamaPlayer::new, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
-        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
-                "Ollama",
-                "LLM",
-                stats.games,
-                stats.wins,
-                stats.winPercent(),
-                stats.winPercentConfidenceInterval(),
-                stats.avgTimeSeconds(),
-                stats.totalTimeSeconds(),
-                stats.avgMoves(),
-                stats.bestWinStreak);
         System.out.println(TABLE_HEADER);
         System.out.println(TABLE_DIVIDER);
-        System.out.println(summary);
-        log.info(summary);
-        assertTrue(stats.games == gamesToPlay);
+
+        int gamesToPlay = ResultsConfig.GAMES;
+        List<String> models = resolveModels();
+        assumeTrue(!models.isEmpty(), "Configure at least one model with -Dollama.models=model1,model2 or -Dollama.model=name");
+
+        for (String modelName : models) {
+            OllamaModelInfo modelInfo = OllamaModelInfo.byModelName(modelName).orElse(null);
+            String algorithmLabel = modelInfo != null
+                    ? modelInfo.algorithmLabel()
+                    : "Ollama (" + modelName + ")";
+
+            Stats stats = runGames(algorithmLabel, () -> new OllamaPlayer(modelName), gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+
+            if (modelInfo != null) {
+                // Helper line that can be copied into docs:
+                // e.g. "OpenAIPlayer gpt-oss:120b https://ollama.com/library/gpt-oss"
+                System.out.println(modelInfo.getPlayerName() + " " + modelInfo.getModelName() + " " + modelInfo.getUrl());
+            }
+
+            String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+                    algorithmLabel,
+                    "LLM",
+                    stats.games,
+                    stats.wins,
+                    stats.winPercent(),
+                    stats.winPercentConfidenceInterval(),
+                    stats.avgTimeSeconds(),
+                    stats.totalTimeSeconds(),
+                    stats.avgMoves(),
+                    stats.bestWinStreak);
+            System.out.println(summary);
+            log.info(summary);
+            assertTrue(stats.games == gamesToPlay);
+        }
+    }
+
+    private List<String> resolveModels() {
+        String modelsProp = System.getProperty("ollama.models");
+        if (modelsProp != null && !modelsProp.isBlank()) {
+            return Arrays.stream(modelsProp.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+        }
+        String singleModel = System.getProperty("ollama.model");
+        if (singleModel != null && !singleModel.isBlank()) {
+            return List.of(singleModel.trim());
+        }
+        return List.of();
     }
 
     private Stats runGames(String playerName, Supplier<Player> playerSupplier, int games, int maxMovesPerGame) {

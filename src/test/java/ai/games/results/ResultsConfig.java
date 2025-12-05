@@ -34,14 +34,14 @@ public final class ResultsConfig {
      * - Early tuning / broad comparisons: 25k–100k is usually enough.
      * - Final benchmarks / tiny improvements (<0.2%): 250k–1M.
      */
-    public static final int GAMES = 10000;
+    public static final int GAMES = 10;
 
     /**
      * How often to log progress during multi-game sweeps.
      *
      * Example: 50 means log at games 1, 50, 100, …, N.
      */
-    public static final int PROGRESS_LOG_INTERVAL = 10;
+    public static final int PROGRESS_LOG_INTERVAL = 1;
 
     /**
      * Safety cap on the number of moves allowed per game.
