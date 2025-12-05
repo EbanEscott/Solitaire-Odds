@@ -6,16 +6,17 @@ When asked complete these tasks:
 
 1. **Run the Tests** found in the `cards/src/test/java/ai/games/results` package.
 2. **Gather the Test Results** from the logging info for each test suite.
-3. **Format a Table** using the results and the example table below.
+3. **Format a Table** using the results and the example table below, including the **AI** column to indicate whether the method is an LLM or a search-based algorithm.
 4. **Paste the Table** into the `cards/README.md` and insert the date/time the tests were run.
 
-| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
-|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
-| Rule-based Heuristics        | 500          | 60        | 12%   | 0.3s          | 150s       | 95        | 3               |
-| Greedy Search                | 500          | 90        | 18%   | 0.5s          | 250s       | 105       | 4               |
-| Ollama                       | 500          | TBD       | TBD   | TBD           | TBD        | TBD       | TBD             |
+| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |
+|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|
+| Rule-based Heuristics        | Search | 500          | 60        | 12%   | 0.3s          | 150s       | 95        | 3               |
+| Greedy Search                | Search | 500          | 90        | 18%   | 0.5s          | 250s       | 105       | 4               |
+| Ollama                       | LLM    | 500          | TBD       | TBD   | TBD           | TBD        | TBD       | TBD             |
 
 * **Algorithm** Name of the decision or optimisation method being tested.
+* **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
 * **Win %** Percentage of games successfully completed (foundations fully built).

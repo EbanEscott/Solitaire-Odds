@@ -19,15 +19,16 @@ import org.slf4j.LoggerFactory;
  */
 public class HillClimberPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(HillClimberPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
-    private static final String TABLE_DIVIDER = "|------------------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
+    private static final String TABLE_HEADER = "| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak |";
+    private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|";
 
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
         Stats stats = runGames("Hill-Climber", () -> new HillClimberPlayer(123L), gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
-        String summary = String.format("| %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
+        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d |",
                 "Hill-climbing Search",
+                "Search",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
