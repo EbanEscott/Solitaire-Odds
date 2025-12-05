@@ -80,6 +80,13 @@ Ollama model selection:
 - Default model is set in `src/main/resources/application.properties` (`ollama.model=llama3`).
 - Override per run: `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama -Dollama.model=mistral:latest`
 - Or set env: `OLLAMA_MODEL=mistral:latest ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama`
+- Recommended benchmark models (configured in Ollama and passed via `ollama.model` or `ollama.models`):
+  - `gpt-oss:120b`
+  - `llama4:scout`
+  - `gemma3:27b`
+  - `qwen3:30b`
+  - `mistral:latest`
+  - `deepseek-r1:70b`
 
 ## Build & Test
 Build:
@@ -105,22 +112,11 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.BeamSearchPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
 ./gradlew test --tests ai.games.results.MonteCarloPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3:30b,mistral:latest,deepseek-r1:70b
 ```
-
-Hill-climbing player:
-- Profile: `ai-hill`
-- Uses a Zobrist-style `stateKey` from `Solitaire` as the primary handle for visited/duplicate detection and per-state scoring.
-- Performs local hill-climbing with backtracking (rejecting moves that lead to strictly worse or known-bad states) and bounded random restarts to escape local maxima/plateaus.
-- Tunable parameters (via constants in `HillClimberPlayer`):
-  - `MAX_STEPS_PER_GAME` — hard cap on total decisions per game to avoid non-terminating runs.
-  - `MAX_RESTARTS_PER_POSITION` — number of random restarts allowed from a local maximum before giving up.
-  - Evaluation weights (foundation progress, visible vs facedown cards, stock size) that guide the climb.
-
-The simple rule-based player encodes a strict, deterministic set of solitaire rules that are easy to reason about and provide a strong baseline.  
-The complex rule-based player is an experimental variant intended for more advanced heuristics (e.g., deeper lookahead or richer safety checks) while still remaining mostly rule-driven.
 
 Clean:
 ```
