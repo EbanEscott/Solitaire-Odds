@@ -27,9 +27,21 @@ public class Game implements CommandLineRunner {
         app.setWebApplicationType(WebApplicationType.NONE);
         app.run(args);
     }
-
+    
     @Override
     public void run(String... args) {
+        // CLI entrypoint ignores the result; tests and other harnesses
+        // can call play() directly and use the returned GameResult.
+        play();
+    }
+
+    /**
+     * Core game loop used by both the CLI runner and automated tests.
+     *
+     * @return summary of whether the player won, how many successful moves
+     *         were applied, and how long the game took.
+     */
+    public GameResult play() {
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
         boolean aiMode = player instanceof AIPlayer;
@@ -45,6 +57,9 @@ public class Game implements CommandLineRunner {
         int iterations = 0;
         int stockEmptyStrikes = 0;          // full stock passes with zero successful moves
         int movesSinceLastStockEmpty = 0;   // successful moves since last time STOCK hit 0
+        int successfulMoves = 0;
+        long startNanos = System.nanoTime();
+        boolean won = false;
         
         // Cap iterations at ~8× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
         // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
@@ -59,6 +74,7 @@ public class Game implements CommandLineRunner {
                 System.out.println("Feedback: " + feedback);
             }
             if (isWon(solitaire)) {
+                won = true;
                 System.out.println("🎉🤗🎉 Congrats, you moved every card to the foundations! 🎉🤗🎉");
                 if (log.isDebugEnabled()) {
                     log.debug("Game won by {}", player.getClass().getSimpleName());
@@ -116,6 +132,7 @@ public class Game implements CommandLineRunner {
                 break;
             } else if (input.equalsIgnoreCase("turn")) {
                 solitaire.turnThree();
+                successfulMoves++;
                 illegalFeedback = "";
                 turnsSinceLastMove++;
             } else if (input.toLowerCase().startsWith("move")) {
@@ -137,6 +154,7 @@ public class Game implements CommandLineRunner {
                             log.debug("Applied move command: {}", input);
                         }
                         illegalFeedback = "";
+                        successfulMoves++;
                         turnsSinceLastMove = 0;
                         movesSinceLastStockEmpty++;
                         persistentGuidance.remove("quit");
@@ -159,6 +177,7 @@ public class Game implements CommandLineRunner {
                             log.debug("Applied move command: {}", input);
                         }
                         illegalFeedback = "";
+                        successfulMoves++;
                         turnsSinceLastMove = 0;
                         movesSinceLastStockEmpty++;
                         persistentGuidance.remove("quit");
@@ -273,6 +292,18 @@ public class Game implements CommandLineRunner {
                 suggestions = "Guidance for this turn:\n- " + String.join("\n- ", suggestionLines);
             }
 
+            // Surface legal moves and guidance to the console so that
+            // AI-driven runs (including tests) are easy to follow.
+            if (!suggestions.isBlank()) {
+                System.out.println(suggestions);
+            }
+            if (!legalMoves.isEmpty()) {
+                System.out.println("Legal moves now:");
+                for (String move : legalMoves) {
+                    System.out.println("- " + move);
+                }
+            }
+
             // Build feedback for next turn from illegal feedback + suggestions.
             if (!illegalFeedback.isBlank() && !suggestions.isBlank()) {
                 feedback = illegalFeedback + "\n\n" + suggestions;
@@ -284,6 +315,8 @@ public class Game implements CommandLineRunner {
                 feedback = "";
             }
         }
+        long durationNanos = System.nanoTime() - startNanos;
+        return new GameResult(won, successfulMoves, durationNanos);
     }
 
     private static final class Guidance {
@@ -320,5 +353,32 @@ public class Game implements CommandLineRunner {
 
     private static String stripAnsi(String input) {
         return input.replaceAll("\\u001B\\[[;\\d]*m", "");
+    }
+
+    /**
+     * Lightweight summary of a single game run.
+     */
+    public static final class GameResult {
+        private final boolean won;
+        private final int moves;
+        private final long durationNanos;
+
+        public GameResult(boolean won, int moves, long durationNanos) {
+            this.won = won;
+            this.moves = moves;
+            this.durationNanos = durationNanos;
+        }
+
+        public boolean isWon() {
+            return won;
+        }
+
+        public int getMoves() {
+            return moves;
+        }
+
+        public long getDurationNanos() {
+            return durationNanos;
+        }
     }
 }
