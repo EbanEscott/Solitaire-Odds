@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
  */
 public class OllamaPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(OllamaPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | AI   | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
+    private static final String TABLE_HEADER = "| Player                        | AI   | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
     private static final String TABLE_DIVIDER = "|------------------------------|------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
@@ -38,8 +38,8 @@ public class OllamaPlayerResultsTest {
         for (String modelName : models) {
             OllamaModelInfo modelInfo = OllamaModelInfo.byModelName(modelName).orElse(null);
             String algorithmLabel = modelInfo != null
-                    ? modelInfo.algorithmLabel()
-                    : "Ollama (" + modelName + ")";
+                    ? modelInfo.getProvider()
+                    : "Ollama";
 
             Stats stats = runGames(algorithmLabel, () -> new OllamaPlayer(modelName), gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
 
