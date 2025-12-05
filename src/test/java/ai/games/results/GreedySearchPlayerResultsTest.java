@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
  */
 public class GreedySearchPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(GreedySearchPlayerResultsTest.class);
-    private static final String TABLE_HEADER = "| Algorithm                     | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
+    private static final String TABLE_HEADER = "| Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
     private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
