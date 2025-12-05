@@ -3,9 +3,8 @@ package ai.games.results;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import ai.games.game.Card;
-import ai.games.game.Deck;
-import ai.games.game.Solitaire;
+import ai.games.Game;
+import ai.games.Game.GameResult;
 import ai.games.player.Player;
 import ai.games.player.ai.OllamaModelInfo;
 import ai.games.player.ai.OllamaPlayer;
@@ -37,11 +36,11 @@ public class OllamaPlayerResultsTest {
 
         for (String modelName : models) {
             OllamaModelInfo modelInfo = OllamaModelInfo.byModelName(modelName).orElse(null);
-            String algorithmLabel = modelInfo != null
+            String playerLabel = modelInfo != null
                     ? modelInfo.getProvider()
                     : "Ollama";
 
-            Stats stats = runGames(algorithmLabel, () -> new OllamaPlayer(modelName), gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+            Stats stats = runGames(playerLabel, () -> new OllamaPlayer(modelName), gamesToPlay);
 
             if (modelInfo != null) {
                 // Helper line that can be copied into docs:
@@ -54,7 +53,7 @@ public class OllamaPlayerResultsTest {
                     : "[`OllamaPlayer`](src/main/java/ai/games/player/ai/OllamaPlayer.java)";
 
             String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
-                    algorithmLabel,
+                    playerLabel,
                     "LLM",
                     stats.games,
                     stats.wins,
@@ -86,7 +85,7 @@ public class OllamaPlayerResultsTest {
         return List.of();
     }
 
-    private Stats runGames(String playerName, Supplier<Player> playerSupplier, int games, int maxMovesPerGame) {
+    private Stats runGames(String playerName, Supplier<Player> playerSupplier, int games) {
         Stats stats = new Stats(games);
         for (int i = 0; i < games; i++) {
             int gameNumber = i + 1;
@@ -96,52 +95,11 @@ public class OllamaPlayerResultsTest {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
             Player ai = playerSupplier.get();
-            Solitaire solitaire = new Solitaire(new Deck());
-            long start = System.nanoTime();
-            int moves = 0;
-            boolean won = false;
-            for (int step = 0; step < maxMovesPerGame; step++) {
-                String command = ai.nextCommand(solitaire, "");
-                if (command == null || "quit".equalsIgnoreCase(command.trim())) {
-                    break;
-                }
-                if (applyCommand(solitaire, command)) {
-                    moves++;
-                }
-                if (isWon(solitaire)) {
-                    won = true;
-                    break;
-                }
-            }
-            long duration = System.nanoTime() - start;
-            stats.recordGame(won, moves, duration);
+            Game game = new Game(ai);
+            GameResult result = game.play();
+            stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
         }
         return stats;
-    }
-
-    private boolean applyCommand(Solitaire solitaire, String command) {
-        String trimmed = command.trim();
-        if ("turn".equalsIgnoreCase(trimmed)) {
-            solitaire.turnThree();
-            return true;
-        }
-        String[] parts = trimmed.split("\\s+");
-        if ("move".equalsIgnoreCase(parts[0])) {
-            if (parts.length == 4) {
-                return solitaire.moveCard(parts[1], parts[2], parts[3]);
-            } else if (parts.length == 3) {
-                return solitaire.moveCard(parts[1], null, parts[2]);
-            }
-        }
-        return false;
-    }
-
-    private boolean isWon(Solitaire solitaire) {
-        int total = 0;
-        for (List<Card> pile : solitaire.getFoundation()) {
-            total += pile.size();
-        }
-        return total == 52;
     }
 
     private static class Stats {
