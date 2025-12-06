@@ -23,6 +23,7 @@ public class MonteCarloPlayerResultsTest {
     @Test
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
+        System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
         Stats stats = runGames("Monte Carlo Search", MonteCarloPlayer::new, gamesToPlay);
         String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                 "Monte Carlo Search",

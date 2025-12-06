@@ -40,10 +40,10 @@ public enum OllamaModelInfo {
     QWEN3_30B(
             "AlibabaPlayer",
             "Alibaba",
-            "qwen3:30b",
-            "https://ollama.com/library/qwen3",
-            "19GB",
-            "256K"),
+            "qwen3-coder:30b",
+            "https://ollama.com/library/qwen3-coder",
+            null,
+            null),
 
     MISTRAL_LATEST(
             "MistralPlayer",

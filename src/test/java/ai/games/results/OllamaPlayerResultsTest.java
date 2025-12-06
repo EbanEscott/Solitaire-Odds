@@ -27,6 +27,8 @@ public class OllamaPlayerResultsTest {
     void playMultipleGamesAndReport() {
         assumeTrue(Boolean.getBoolean("ollama.tests"), "Enable with -Dollama.tests=true (requires local Ollama)");
 
+        System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
+
         System.out.println(TABLE_HEADER);
         System.out.println(TABLE_DIVIDER);
 
