@@ -63,6 +63,8 @@ public class OpenAIPlayerResultsTest {
                     || gameNumber == games) {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
+            System.setProperty("game.index", String.valueOf(gameNumber));
+            System.setProperty("game.total", String.valueOf(games));
             Player ai = playerSupplier.get();
             Game game = new Game(ai);
             GameResult result = game.play();

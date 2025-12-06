@@ -8,7 +8,7 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 ## Test Results
 
-The last test run was performed at Nov 28, 2025 8:27:55 AM AEST.
+The last test run was performed at Dec 06, 2025 6:40:18 PM AEST.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
@@ -18,6 +18,7 @@ The last test run was performed at Nov 28, 2025 8:27:55 AM AEST.
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
 | A* Search                    | Search | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 | A* search guided by a heuristic evaluation; see [code](src/main/java/ai/games/player/ai/AStarPlayer.java). |
+| OpenAI                       | LLM    | 10 | 2 | 20.00% ± 24.79% | 185.071s | 1850.706s | 190.70 | 1 | OpenAI gpt-5-mini via API; see [code](src/main/java/ai/games/player/ai/OpenAIPlayer.java). |
 | Alibaba                      | LLM    | 10 | 0 | 0.00% ± 0.00% | 235.863s | 2358.627s | 311.60 | 0 | Alibaba qwen3-coder:30b via Ollama; see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java) and [model](https://ollama.com/library/qwen3-coder). |
 
 * **Player** Name of the decision or optimisation method or LLM-backed player being tested.
@@ -31,6 +32,10 @@ The last test run was performed at Nov 28, 2025 8:27:55 AM AEST.
 * **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
 * **Best Win Streak** Longest run of consecutive wins within the batch.
 * **Notes** Free-form notes and clickable links to the implementing classes or external model pages.
+
+> Why do search-based AI far out perform LLM's at games like Solitaire? In short: LLMs don’t maintain or reason over complete card-game states, they don’t do efficient tree-search or simulation, and so they can’t reliably choose optimal moves in a structured card-game like Solitaire.
+>
+> LLMs can describe good play. They cannot compute good play.
 
 ## Prereqs
 
@@ -82,14 +87,14 @@ AI profiles:
 
 Ollama model selection:
 - Default model is set in `src/main/resources/application.properties` (`ollama.model=llama3`).
-- Override per run: `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama -Dollama.model=mistral:latest`
-- Or set env: `OLLAMA_MODEL=mistral:latest ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama`
+- Override per run: `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama -Dollama.model=mistral-large:123b`
+- Or set env: `OLLAMA_MODEL=mistral-large:123b ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama`
 - Recommended benchmark models (configured in Ollama and passed via `ollama.model` or `ollama.models`):
   - `gpt-oss:120b`
   - `llama4:scout`
   - `gemma3:27b`
   - `qwen3-coder:30b`
-  - `mistral:latest`
+  - `mistral-large:123b`
   - `deepseek-r1:70b`
 
 OpenAI setup:
@@ -132,7 +137,7 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks        # enable with -Dopenai.tests=true
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral:latest,deepseek-r1:70b
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b
 ```
 
 Clean:

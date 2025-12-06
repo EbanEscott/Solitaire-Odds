@@ -45,13 +45,13 @@ public enum OllamaModelInfo {
             null,
             null),
 
-    MISTRAL_LATEST(
+    MISTRAL_LARGE_123B(
             "MistralPlayer",
             "Mistral",
-            "mistral:latest",
-            "https://ollama.com/library/mistral",
-            "4.4GB",
-            "32K"),
+            "mistral-large:123b",
+            "https://ollama.com/library/mistral-large",
+            null,
+            null),
 
     DEEPSEEK_R1_70B(
             "DeepSeekPlayer",
@@ -114,9 +114,52 @@ public enum OllamaModelInfo {
         return playerName + " (" + modelName + ")";
     }
 
+    /**
+     * Exact lookup by fully-qualified model name (e.g. {@code gpt-oss:120b}).
+     */
     public static Optional<OllamaModelInfo> byModelName(String modelName) {
         return Arrays.stream(values())
                 .filter(info -> info.modelName.equals(modelName))
                 .findFirst();
+    }
+
+    /**
+     * Best-effort lookup that allows for model variants that share a common base
+     * name (e.g. {@code qwen3}, {@code qwen3:30b}, {@code qwen3-coder:30b}).
+     *
+     * <p>If no exact match exists, this method compares the base name segment
+     * (substring before the first {@code ':'}) in a case-insensitive way.</p>
+     */
+    public static Optional<OllamaModelInfo> byModelNameOrBase(String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<OllamaModelInfo> exact = byModelName(modelName);
+        if (exact.isPresent()) {
+            return exact;
+        }
+        String requestedBase = baseName(modelName);
+        return Arrays.stream(values())
+                .filter(info -> baseName(info.modelName).equalsIgnoreCase(requestedBase))
+                .findFirst();
+    }
+
+    /**
+     * Infer a provider label for an arbitrary Ollama model name. If the model
+     * is not explicitly listed in this enum, this still attempts to match the
+     * base name to one of the known providers (e.g. {@code gpt-oss}, {@code llama4},
+     * {@code gemma3}, {@code qwen3}, {@code mistral}, {@code deepseek-r1}).
+     *
+     * <p>Falls back to the generic label {@code "Ollama"} if no match is found.</p>
+     */
+    public static String inferProvider(String modelName) {
+        return byModelNameOrBase(modelName)
+                .map(OllamaModelInfo::getProvider)
+                .orElse("Ollama");
+    }
+
+    private static String baseName(String modelName) {
+        int idx = modelName.indexOf(':');
+        return idx >= 0 ? modelName.substring(0, idx) : modelName;
     }
 }
