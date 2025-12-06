@@ -59,7 +59,7 @@ class GreedySearchPlayerTest {
         }
 
         for (int i = 0; i < MAX_TEST_STEPS && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             if (log.isDebugEnabled()) {
                 log.debug("greedyAiWinsKnownMidGameState: step {} command={}", i, command);
             }
@@ -91,7 +91,7 @@ class GreedySearchPlayerTest {
         }
 
         for (int step = 0; step < MAX_TEST_STEPS && !isWon(solitaire); step++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             if (log.isDebugEnabled()) {
                 log.debug("greedyAiDoesNotQuitWithMovesAvailableInRandomGame: step {} command={}", step, command);
             }
@@ -114,7 +114,7 @@ class GreedySearchPlayerTest {
 
     private void runSingleMoveCompletion(Solitaire solitaire, Player ai) {
         for (int i = 0; i < 5 && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             if (log.isDebugEnabled()) {
                 log.debug("greedyAiFinishesGame: step {} command={}", i, command);
             }

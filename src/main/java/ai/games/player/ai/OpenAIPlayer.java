@@ -2,7 +2,6 @@ package ai.games.player.ai;
 
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
-import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -51,26 +50,24 @@ public class OpenAIPlayer extends AIPlayer implements Player {
     }
 
     @Override
-    public String nextCommand(Solitaire solitaire, String feedback) {
+    public String nextCommand(Solitaire solitaire, String moves, String feedback) {
         String board = stripAnsi(solitaire.toString());
+        String cleanMoves = stripAnsi(moves);
         String cleanFeedback = stripAnsi(feedback);
 
-        var legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
-        String legalSection = legalMoves.isEmpty()
-                ? ""
-                : "\n\nLegal moves now:\n- " + String.join("\n- ", legalMoves);
-
-        String prompt = (cleanFeedback == null || cleanFeedback.isBlank())
-                ? board + legalSection
-                : board + "\n\n"
-                        + cleanFeedback.trim()
-                        + legalSection;
+        StringBuilder prompt = new StringBuilder(board);
+        if (cleanFeedback != null && !cleanFeedback.isBlank()) {
+            prompt.append("\n\n").append(cleanFeedback.trim());
+        }
+        if (cleanMoves != null && !cleanMoves.isBlank()) {
+            prompt.append("\n\n").append(cleanMoves.trim());
+        }
 
         if (log.isTraceEnabled()) {
             log.trace("OpenAI prompt (user): {}", prompt);
         }
 
-        String response = executeWithRateLimitHandling(prompt);
+        String response = executeWithRateLimitHandling(prompt.toString());
 
         if (log.isTraceEnabled()) {
             log.trace("OpenAI response: {}", response);

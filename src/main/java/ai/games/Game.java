@@ -38,41 +38,53 @@ public class Game implements CommandLineRunner {
     /**
      * Core game loop used by both the CLI runner and automated tests.
      *
+     * <p>The loop is intentionally structured in clearly separated phases:
+     * <ol>
+     *     <li>Build a {@link TurnView} from the current board (guidance, recommended moves, feedback).</li>
+     *     <li>Render the view to the console (board, guidance, recommended moves).</li>
+     *     <li>Ask the player for the next command.</li>
+     *     <li>Track ping-pong behaviour and enforce safety limits.</li>
+     *     <li>Apply the command and update statistics and guidance.</li>
+     * </ol>
+     *
      * @return summary of whether the player won, how many successful moves
      *         were applied, and how long the game took.
      */
     public GameResult play() {
+        // Each play() call starts from a fresh, shuffled deck.
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
         boolean aiMode = player instanceof AIPlayer;
+        // Textual feedback passed into the player for the next decision.
         String feedback = "";
+        // "Recommended moves" string passed into the player (LLMs) each turn.
+        String moves = "";
+        // Detailed explanation of why the last command was illegal (if it was).
         String illegalFeedback = "";
+        // Long-lived guidance entries that survive across turns (e.g., "don't keep doing X").
         java.util.Map<String, Guidance> persistentGuidance = new java.util.HashMap<>();
-        String lastCommand = null;
-        String secondLastCommand = null;
-        int sameCommandCount = 0;
-        int pingPongCount = 0;
+        // Tracks last commands so we can detect repetition and ping-pong patterns.
+        PingPongState pingPongState = new PingPongState();
         int turnsSinceLastMove = 0;
-        int previousStockSize = solitaire.getStockpile().size();
         int iterations = 0;
-        int stockEmptyStrikes = 0;          // full stock passes with zero successful moves
-        int movesSinceLastStockEmpty = 0;   // successful moves since last time STOCK hit 0
+        // Tracks stock passes and how many moves happened between stock empty events.
+        StockStats stockStats = new StockStats();
         int successfulMoves = 0;
         long startNanos = System.nanoTime();
         boolean won = false;
-        
+        final int maxPingPongRepeats = 12;
         // Cap iterations at ~8× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
         // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
         final int maxIterations = 10000;
 
         while (true) {
-            if (log.isDebugEnabled()) {
-                log.debug("Current board:\n{}", stripAnsi(solitaire.toString()));
-            }
-            System.out.println(solitaire);
-            if (!feedback.isBlank() && aiMode) {
-                System.out.println("Feedback: " + feedback);
-            }
+            // Build the "view" of this turn (guidance + recommended moves + feedback).
+            TurnView view = buildTurnView(solitaire, persistentGuidance, iterations, illegalFeedback);
+            feedback = view.feedbackForPlayer;
+            moves = view.movesForPrompt;
+
+            // Render the current board and guidance for humans following along.
+            printTurnView(solitaire, aiMode, view, iterations);
             if (isWon(solitaire)) {
                 won = true;
                 System.out.println("🎉🤗🎉 Congrats, you moved every card to the foundations! 🎉🤗🎉");
@@ -82,11 +94,14 @@ public class Game implements CommandLineRunner {
                 break;
             }
 
+            // If this is a human player, prompt on the console.
             if (!aiMode) {
                 System.out.print("Enter command (turn | move FROM TO | quit): ");
             }
 
-            String input = player.nextCommand(solitaire, feedback);
+            // Ask the player (AI or human) for the next command using the
+            // recommended moves and feedback we just prepared.
+            String input = player.nextCommand(solitaire, moves, feedback);
             if (input == null) {
                 System.out.println("Input closed. Exiting.");
                 if (log.isDebugEnabled()) {
@@ -94,119 +109,232 @@ public class Game implements CommandLineRunner {
                 }
                 break;
             }
+
             // Normalise basic formatting artefacts (e.g., LLM copying bullet "- turn").
             input = input.trim();
             if (input.startsWith("- ")) {
                 input = input.substring(2).trim();
             }
+
             // Track simple repetition and ping-pong patterns (A,B,A,B,...).
-            if (lastCommand != null && input.equalsIgnoreCase(lastCommand)) {
-                sameCommandCount++;
-            } else {
-                sameCommandCount = 1;
+            boolean pingPongLimitHit = trackPingPongs(input, aiMode, maxPingPongRepeats, pingPongState, player);
+            if (pingPongLimitHit) {
+                feedback = "Ping-pong limit exceeded; forcing quit.";
+                illegalFeedback = "";
+                break;
             }
-            if (secondLastCommand != null
-                    && input.equalsIgnoreCase(secondLastCommand)
-                    && !input.equalsIgnoreCase(lastCommand)) {
-                // e.g. history ... A,B and we see A again -> potential ping-pong.
-                pingPongCount++;
-            } else if (!input.equalsIgnoreCase(lastCommand)) {
-                pingPongCount = 1;
-            }
-            secondLastCommand = lastCommand;
-            lastCommand = input;
-            if (log.isDebugEnabled()) {
-                log.debug("Received command from {}: {}", player.getClass().getSimpleName(), input);
-            }
-            if (aiMode) {
-                System.out.println("AI command: " + input);
-            }
+
+            // Update iteration count and enforce a hard safety cap.
             iterations++;
             if (iterations > maxIterations) {
+                System.out.println("Maximum iteration limit reached (" + maxIterations
+                        + "); stopping game loop for " + player.getClass().getSimpleName() + ".");
                 if (log.isDebugEnabled()) {
                     log.debug("Max iterations ({}) reached, stopping game loop to avoid runaway execution.", maxIterations);
                 }
                 break;
             }
-            java.util.List<String> suggestionLines = new java.util.ArrayList<>();
+
+            // Process the command and update the game state.
             int stockBefore = solitaire.getStockpile().size();
-            if (input.equalsIgnoreCase("quit")) {
-                feedback = "Player chose to quit.";
-                illegalFeedback = "";
-                break;
-            } else if (input.equalsIgnoreCase("turn")) {
-                solitaire.turnThree();
-                successfulMoves++;
-                illegalFeedback = "";
-                turnsSinceLastMove++;
-            } else if (input.toLowerCase().startsWith("move")) {
-                String[] parts = input.split("\\s+");
-                if (parts.length == 4) {
-                    Solitaire.MoveResult result = solitaire.attemptMove(parts[1], parts[2], parts[3]);
-                    if (!result.success) {
-                        String reason = result.message == null ? "Illegal move." : result.message;
-                        illegalFeedback = "Your last command was illegal:\n"
-                                + "- " + input + "\n"
-                                + "- Reason: " + reason + "\n"
-                                + "- Do NOT repeat this exact command.";
-                        System.out.println("Illegal move: " + reason);
-                        if (log.isDebugEnabled()) {
-                            log.debug("Illegal move command: {} ({})", input, reason);
-                        }
-                    } else {
-                        if (log.isDebugEnabled()) {
-                            log.debug("Applied move command: {}", input);
-                        }
-                        illegalFeedback = "";
-                        successfulMoves++;
-                        turnsSinceLastMove = 0;
-                        movesSinceLastStockEmpty++;
-                        persistentGuidance.remove("quit");
-                        stockEmptyStrikes = 0;
-                    }
-                } else if (parts.length == 3) {
-                    Solitaire.MoveResult result = solitaire.attemptMove(parts[1], null, parts[2]);
-                    if (!result.success) {
-                        String reason = result.message == null ? "Illegal move." : result.message;
-                        illegalFeedback = "Your last command was illegal:\n"
-                                + "- " + input + "\n"
-                                + "- Reason: " + reason + "\n"
-                                + "- Do NOT repeat this exact command.";
-                        System.out.println("Illegal move: " + reason);
-                        if (log.isDebugEnabled()) {
-                            log.debug("Illegal move command: {} ({})", input, reason);
-                        }
-                    } else {
-                        if (log.isDebugEnabled()) {
-                            log.debug("Applied move command: {}", input);
-                        }
-                        illegalFeedback = "";
-                        successfulMoves++;
-                        turnsSinceLastMove = 0;
-                        movesSinceLastStockEmpty++;
-                        persistentGuidance.remove("quit");
-                        stockEmptyStrikes = 0;
-                    }
-                } else {
-                    illegalFeedback = "Usage error:\n"
-                            + "- Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)";
-                    System.out.println("Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)");
-                    if (log.isDebugEnabled()) {
-                        log.debug("Invalid move format from {}: {}", player.getClass().getSimpleName(), input);
-                    }
-                }
-            } else {
-                illegalFeedback = "Unknown command:\n"
-                        + "- \"" + input + "\" is not recognised.\n"
-                        + "- Use 'turn', 'move FROM TO', or 'quit'.";
-                System.out.println("Unknown command. Use 'turn', 'move FROM TO', or 'quit'.");
-                if (log.isDebugEnabled()) {
-                    log.debug("Unknown command from {}: {}", player.getClass().getSimpleName(), input);
-                }
+            CommandResult commandResult = processCommand(
+                    solitaire,
+                    input,
+                    successfulMoves,
+                    turnsSinceLastMove,
+                    stockStats,
+                    persistentGuidance,
+                    illegalFeedback,
+                    player);
+
+            illegalFeedback = commandResult.illegalFeedback;
+            successfulMoves = commandResult.successfulMoves;
+            turnsSinceLastMove = commandResult.turnsSinceLastMove;
+            boolean quitRequested = commandResult.quitRequested;
+
+            // Update long-lived guidance based on this command's effects.
+            updateGuidanceAfterCommand(solitaire, input, stockBefore, iterations,
+                    pingPongState, persistentGuidance, stockStats);
+
+            if (aiMode) {
+                System.out.println("AI command: " + input);
             }
 
+            if (quitRequested) {
+                break;
+            }
+        }
+        long durationNanos = System.nanoTime() - startNanos;
+        return new GameResult(won, successfulMoves, durationNanos);
+    }
+
+    /**
+     * Build a {@link TurnView} for the current board state.
+     *
+     * <p>This method is pure with respect to game progression: it does not mutate the
+     * {@link Solitaire} instance. It:
+     * <ul>
+     *     <li>Computes legal moves for the current position.</li>
+     *     <li>Filters and formats any persistent guidance that still applies.</li>
+     *     <li>Derives a filtered "recommended moves" list for this turn.</li>
+     *     <li>Combines illegal-move feedback and guidance into the feedback string
+     *         that will be passed into the player.</li>
+     * </ul>
+     */
+    private TurnView buildTurnView(
+            Solitaire solitaire,
+            java.util.Map<String, Guidance> persistentGuidance,
+            int iterations,
+            String illegalFeedback) {
+
+        // Legal moves for the *current* board, before any new command is applied.
+        java.util.List<String> legalMovesAtStart = LegalMovesHelper.listLegalMoves(solitaire);
+
+        java.util.List<String> suggestionLinesForDisplay = new java.util.ArrayList<>();
+        // Fold over existing guidance entries and keep only those that are still
+        // alive and relevant to at least one legal move on this turn.
+        java.util.Iterator<java.util.Map.Entry<String, Guidance>> displayIt =
+                persistentGuidance.entrySet().iterator();
+        while (displayIt.hasNext()) {
+            var entry = displayIt.next();
+            String cmd = entry.getKey();
+            Guidance g = entry.getValue();
+
+            // Expire old guidance only after its TTL.
+            if (!g.stillAlive(iterations)) {
+                displayIt.remove();
+                continue;
+            }
+
+            // Show only when relevant to the current legal move set,
+            // but keep it alive even when temporarily illegal.
+            if (!legalMovesAtStart.contains(cmd)) {
+                continue;
+            }
+
+            if ("turn".equalsIgnoreCase(cmd)) {
+                continue;
+            }
+
+            if ("quit".equalsIgnoreCase(cmd)) {
+                suggestionLinesForDisplay.add("quit (" + g.reason + ")");
+            } else {
+                suggestionLinesForDisplay.add("don't " + cmd + " (" + g.reason + ")");
+            }
+        }
+
+        // If "quit" is legal but we have not yet added any explicit guidance
+        // recommending it (i.e., no persistent entry for "quit"), gently steer
+        // the player away from quitting too early.
+        boolean quitLegal = legalMovesAtStart.stream()
+                .anyMatch(cmd -> "quit".equalsIgnoreCase(cmd));
+        if (quitLegal && !persistentGuidance.containsKey("quit")) {
+            suggestionLinesForDisplay.add("don't quit (keep playing; quit will be suggested only after repeated unproductive stock passes).");
+        }
+
+        String suggestionsForDisplay = "";
+        if (!suggestionLinesForDisplay.isEmpty()) {
+            suggestionsForDisplay = "Guidance for this turn:\n- "
+                    + String.join("\n- ", suggestionLinesForDisplay);
+        }
+
+        // Build a "recommended moves" list for this turn:
+        //  - Start from all legal moves except "quit".
+        //  - Drop any commands (including 'quit', if present) that currently
+        //    have guidance attached, since they are being discouraged.
+        //  - If we have explicit guidance for "quit" (added by
+        //    updateGuidanceAfterCommand after repeated unproductive stock passes),
+        //    re-add "quit" as a recommended move.
+        java.util.List<String> recommendedMovesForThisTurn = new java.util.ArrayList<>();
+        for (String move : legalMovesAtStart) {
+            if (!"quit".equalsIgnoreCase(move)) {
+                recommendedMovesForThisTurn.add(move);
+            }
+        }
+        for (java.util.Map.Entry<String, Guidance> entry : persistentGuidance.entrySet()) {
+            recommendedMovesForThisTurn.remove(entry.getKey());
+        }
+        if (persistentGuidance.containsKey("quit")
+                && legalMovesAtStart.stream().anyMatch(cmd -> "quit".equalsIgnoreCase(cmd))) {
+            recommendedMovesForThisTurn.add("quit");
+        }
+
+        // Build feedback text and the recommended-moves string that will be passed
+        // into the player for this turn.
+        String feedback;
+        if (!illegalFeedback.isBlank() && !suggestionsForDisplay.isBlank()) {
+            feedback = illegalFeedback + "\n\n" + suggestionsForDisplay;
+        } else if (!illegalFeedback.isBlank()) {
+            feedback = illegalFeedback;
+        } else if (!suggestionsForDisplay.isBlank()) {
+            feedback = suggestionsForDisplay;
+        } else {
+            feedback = "";
+        }
+
+        String movesForPrompt;
+        if (!recommendedMovesForThisTurn.isEmpty()) {
+            movesForPrompt = "Recommended moves now:\n- "
+                    + String.join("\n- ", recommendedMovesForThisTurn);
+        } else {
+            movesForPrompt = "";
+        }
+
+        return new TurnView(suggestionsForDisplay, recommendedMovesForThisTurn, feedback, movesForPrompt);
+    }
+
+    /**
+     * Render the current board state to the console, along with guidance and
+     * the "Recommended moves now:" section.
+     *
+     * <p>For AI players this is purely for humans reading the logs; for human
+     * players the guidance also appears as "Feedback:" so they can see the same
+     * information the AIs receive.
+     */
+    private void printTurnView(Solitaire solitaire, boolean aiMode, TurnView view, int iterations) {
+        if (log.isDebugEnabled()) {
+            log.debug("Move {} - current board:\n{}", iterations + 1, stripAnsi(solitaire.toString()));
+        }
+        
+        System.out.println("--------------------------------------------------------------------------------------------------");
+        System.out.println("MOVE " + (iterations + 1));
+        System.out.println(solitaire);
+        if (!view.suggestionsForDisplay.isBlank()) {
+            System.out.println(view.suggestionsForDisplay);
+        }
+        if (!view.recommendedMoves.isEmpty()) {
+            System.out.println("Recommended moves now:");
+            for (String move : view.recommendedMoves) {
+                System.out.println("- " + move);
+            }
+        }
+        if (!view.feedbackForPlayer.isBlank() && !aiMode) {
+            System.out.println("Feedback: " + view.feedbackForPlayer);
+        }
+    }
+
+    /**
+     * Update long-lived guidance entries after a command has been applied.
+     *
+     * <p>This method is responsible for:
+     * <ul>
+     *     <li>Marking commands that are repeated too often as "don't" recommendations.</li>
+     *     <li>Detecting ping-pong between two commands and advising against both.</li>
+     *     <li>Tracking unproductive passes through the stock and suggesting "quit"
+     *         after several such passes.</li>
+     * </ul>
+     */
+    private void updateGuidanceAfterCommand(
+            Solitaire solitaire,
+            String input,
+            int stockBefore,
+            int iterations,
+            PingPongState pingPongState,
+            java.util.Map<String, Guidance> persistentGuidance,
+            StockStats stockStats) {
+
             // Suggestion 1: repeated identical command (same move over and over).
-            if (sameCommandCount >= 4 && !input.equalsIgnoreCase("turn")) {
+            if (pingPongState.sameCommandCount >= 4 && !input.equalsIgnoreCase("turn")) {
                 String reason = "you have chosen this many times without making progress.";
                 Guidance g = persistentGuidance.get(input);
                 if (g == null) {
@@ -219,9 +347,11 @@ public class Game implements CommandLineRunner {
             // Suggestion 1b: ping-pong between two commands (A,B,A,B,...).
             // Use current legal moves to tune TTL: if a move is no longer legal, let it decay faster.
             java.util.List<String> legalMovesForPingPong = LegalMovesHelper.listLegalMoves(solitaire);
-            if (pingPongCount >= 3 && lastCommand != null && secondLastCommand != null) {
+            if (pingPongState.pingPongCount >= 3
+                    && pingPongState.lastCommand != null
+                    && pingPongState.secondLastCommand != null) {
                 String reason = "you are ping-ponging between two moves without improving the board.";
-                for (String cmd : new String[]{ lastCommand, secondLastCommand }) {
+                for (String cmd : new String[]{ pingPongState.lastCommand, pingPongState.secondLastCommand }) {
                     int ttlBoost = legalMovesForPingPong.contains(cmd) ? 4 : 1;
                     Guidance g = persistentGuidance.get(cmd);
                     if (g == null) {
@@ -238,17 +368,17 @@ public class Game implements CommandLineRunner {
                     && stockBefore > 0
                     && stockAfter == 0) {
 
-                if (movesSinceLastStockEmpty == 0) {
-                    stockEmptyStrikes++;
+                if (stockStats.movesSinceLastStockEmpty == 0) {
+                    stockStats.stockEmptyStrikes++;
                 } else {
-                    stockEmptyStrikes = 0;
+                    stockStats.stockEmptyStrikes = 0;
                 }
-                movesSinceLastStockEmpty = 0;
+                stockStats.movesSinceLastStockEmpty = 0;
 
                 // Only start warning to quit after repeated unproductive passes.
-                if (stockEmptyStrikes >= 2) {
+                if (stockStats.stockEmptyStrikes >= 2) {
                     String reason = "you have turned through the entire stockpile "
-                            + stockEmptyStrikes + " times without making any moves.";
+                            + stockStats.stockEmptyStrikes + " times without making any moves.";
                     Guidance g = persistentGuidance.get("quit");
                     if (g == null) {
                         persistentGuidance.put("quit", new Guidance(reason, 1, 16, iterations));
@@ -257,72 +387,170 @@ public class Game implements CommandLineRunner {
                     }
                 }
             }
-
-            // Recalculate legal moves for the *next* turn, after applying the current command.
-            java.util.List<String> legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
-
-            // Build guidance for this turn from persistent guidance that is still relevant.
-            java.util.Iterator<java.util.Map.Entry<String, Guidance>> it = persistentGuidance.entrySet().iterator();
-            while (it.hasNext()) {
-                var entry = it.next();
-                String cmd = entry.getKey();
-                Guidance g = entry.getValue();
-
-                // Expire old guidance only after its TTL.
-                if (!g.stillAlive(iterations)) {
-                    it.remove();
-                    continue;
-                }
-
-                // Show only when relevant to the current legal move set,
-                // but keep it alive even when temporarily illegal.
-                if (!legalMoves.contains(cmd)) {
-                    continue;
-                }
-
-                if ("turn".equalsIgnoreCase(cmd)) {
-                    continue;
-                }
-
-                if ("quit".equalsIgnoreCase(cmd)) {
-                    suggestionLines.add("quit (" + g.reason + ")");
-                } else {
-                    suggestionLines.add("don't " + cmd + " (" + g.reason + ")");
-                }
-            }
-
-            String suggestions = "";
-            if (!suggestionLines.isEmpty()) {
-                suggestions = "Guidance for this turn:\n- " + String.join("\n- ", suggestionLines);
-            }
-
-            // Surface legal moves and guidance to the console so that
-            // AI-driven runs (including tests) are easy to follow.
-            if (!suggestions.isBlank()) {
-                System.out.println(suggestions);
-            }
-            if (!legalMoves.isEmpty()) {
-                System.out.println("Legal moves now:");
-                for (String move : legalMoves) {
-                    System.out.println("- " + move);
-                }
-            }
-
-            // Build feedback for next turn from illegal feedback + suggestions.
-            if (!illegalFeedback.isBlank() && !suggestions.isBlank()) {
-                feedback = illegalFeedback + "\n\n" + suggestions;
-            } else if (!illegalFeedback.isBlank()) {
-                feedback = illegalFeedback;
-            } else if (!suggestions.isBlank()) {
-                feedback = suggestions;
-            } else {
-                feedback = "";
-            }
-        }
-        long durationNanos = System.nanoTime() - startNanos;
-        return new GameResult(won, successfulMoves, durationNanos);
     }
 
+    /**
+     * Track simple repetition and ping-pong (A,B,A,B,...) patterns for commands.
+     *
+     * <p>Returns {@code true} when the ping-pong safety limit is reached and the
+     * caller should force-quit the game for this AI.
+     */
+    private boolean trackPingPongs(
+            String input,
+            boolean aiMode,
+            int maxPingPongRepeats,
+            PingPongState state,
+            Player player) {
+
+        // Increment repetition counters.
+        if (state.lastCommand != null && input.equalsIgnoreCase(state.lastCommand)) {
+            state.sameCommandCount++;
+        } else {
+            state.sameCommandCount = 1;
+        }
+        if (state.secondLastCommand != null
+                && input.equalsIgnoreCase(state.secondLastCommand)
+                && !input.equalsIgnoreCase(state.lastCommand)) {
+            // e.g. history ... A,B and we see A again -> potential ping-pong.
+            state.pingPongCount++;
+        } else if (!input.equalsIgnoreCase(state.lastCommand)) {
+            state.pingPongCount = 1;
+        }
+        state.secondLastCommand = state.lastCommand;
+        state.lastCommand = input;
+
+        if (log.isDebugEnabled()) {
+            log.debug("Received command from {}: {}", player.getClass().getSimpleName(), input);
+        }
+
+        if (aiMode && state.pingPongCount > maxPingPongRepeats) {
+            System.out.println("Ping-pong limit exceeded; forcing quit for "
+                    + player.getClass().getSimpleName() + " after "
+                    + state.pingPongCount + " alternating commands.");
+            if (log.isDebugEnabled()) {
+                log.debug("Ping-pong limit ({}) exceeded, forcing quit for {}",
+                        maxPingPongRepeats, player.getClass().getSimpleName());
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Apply a single command to the {@link Solitaire} game and update counters.
+     *
+     * <p>This method encapsulates all command handling:
+     * <ul>
+     *     <li>{@code quit} — marks the game as finished without touching the board.</li>
+     *     <li>{@code turn} — advances the stock/talon.</li>
+     *     <li>{@code move ...} — attempts a move and records illegal feedback if it fails.</li>
+     *     <li>Any other input — treated as an unknown command and reported as such.</li>
+     * </ul>
+     * It does not update guidance directly; that is handled by
+     * {@link #updateGuidanceAfterCommand(Solitaire, String, int, int, PingPongState, java.util.Map, StockStats)}.
+     */
+    private CommandResult processCommand(
+            Solitaire solitaire,
+            String input,
+            int successfulMoves,
+            int turnsSinceLastMove,
+            StockStats stockStats,
+            java.util.Map<String, Guidance> persistentGuidance,
+            String currentIllegalFeedback,
+            Player player) {
+
+        boolean quitRequested = false;
+        String illegalFeedback = currentIllegalFeedback;
+        int newSuccessfulMoves = successfulMoves;
+        int newTurnsSinceLastMove = turnsSinceLastMove;
+
+        if (input.equalsIgnoreCase("quit")) {
+            illegalFeedback = "";
+            quitRequested = true;
+        } else if (input.equalsIgnoreCase("turn")) {
+            solitaire.turnThree();
+            newSuccessfulMoves++;
+            illegalFeedback = "";
+            newTurnsSinceLastMove++;
+        } else if (input.toLowerCase().startsWith("move")) {
+            String[] parts = input.split("\\s+");
+            if (parts.length == 4) {
+                Solitaire.MoveResult result = solitaire.attemptMove(parts[1], parts[2], parts[3]);
+                if (!result.success) {
+                    String reason = result.message == null ? "Illegal move." : result.message;
+                    illegalFeedback = "Your last command was illegal:\n"
+                            + "- " + input + "\n"
+                            + "- Reason: " + reason + "\n"
+                            + "- Do NOT repeat this exact command.";
+                    System.out.println("Illegal move: " + reason);
+                    if (log.isDebugEnabled()) {
+                        log.debug("Illegal move command from {}: {} ({})",
+                                player.getClass().getSimpleName(), input, reason);
+                    }
+                } else {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Applied move command from {}: {}",
+                                player.getClass().getSimpleName(), input);
+                    }
+                    illegalFeedback = "";
+                    newSuccessfulMoves++;
+                    newTurnsSinceLastMove = 0;
+                    stockStats.movesSinceLastStockEmpty++;
+                    persistentGuidance.remove("quit");
+                    stockStats.stockEmptyStrikes = 0;
+                }
+            } else if (parts.length == 3) {
+                Solitaire.MoveResult result = solitaire.attemptMove(parts[1], null, parts[2]);
+                if (!result.success) {
+                    String reason = result.message == null ? "Illegal move." : result.message;
+                    illegalFeedback = "Your last command was illegal:\n"
+                            + "- " + input + "\n"
+                            + "- Reason: " + reason + "\n"
+                            + "- Do NOT repeat this exact command.";
+                    System.out.println("Illegal move: " + reason);
+                    if (log.isDebugEnabled()) {
+                        log.debug("Illegal move command from {}: {} ({})",
+                                player.getClass().getSimpleName(), input, reason);
+                    }
+                } else {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Applied move command from {}: {}",
+                                player.getClass().getSimpleName(), input);
+                    }
+                    illegalFeedback = "";
+                    newSuccessfulMoves++;
+                    newTurnsSinceLastMove = 0;
+                    stockStats.movesSinceLastStockEmpty++;
+                    persistentGuidance.remove("quit");
+                    stockStats.stockEmptyStrikes = 0;
+                }
+            } else {
+                illegalFeedback = "Usage error:\n"
+                        + "- Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)";
+                System.out.println("Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)");
+                if (log.isDebugEnabled()) {
+                    log.debug("Invalid move format from {}: {}",
+                            player.getClass().getSimpleName(), input);
+                }
+            }
+        } else {
+            illegalFeedback = "Unknown command:\n"
+                    + "- \"" + input + "\" is not recognised.\n"
+                    + "- Use 'turn', 'move FROM TO', or 'quit'.";
+            System.out.println("Unknown command. Use 'turn', 'move FROM TO', or 'quit'.");
+            if (log.isDebugEnabled()) {
+                log.debug("Unknown command from {}: {}",
+                        player.getClass().getSimpleName(), input);
+            }
+        }
+
+        return new CommandResult(quitRequested, illegalFeedback, newSuccessfulMoves, newTurnsSinceLastMove);
+    }
+
+    /**
+     * Persistent guidance entry for a specific command, including why it was added,
+     * how many times it has been reinforced, and how long it should stay alive.
+     */
     private static final class Guidance {
         final String reason;
         int strikes;
@@ -344,6 +572,67 @@ public class Game implements CommandLineRunner {
 
         boolean stillAlive(int iteration) {
             return (iteration - lastSeenIteration) <= ttlTurns;
+        }
+    }
+
+    /**
+     * Immutable snapshot of everything needed to render and drive a single turn.
+     *
+     * <p>It separates "what to show" (board, guidance, recommended moves) from
+     * "how the player is called" (feedback string and moves block).
+     */
+    private static final class TurnView {
+        final String suggestionsForDisplay;
+        final java.util.List<String> recommendedMoves;
+        final String feedbackForPlayer;
+        final String movesForPrompt;
+
+        TurnView(String suggestionsForDisplay,
+                 java.util.List<String> recommendedMoves,
+                 String feedbackForPlayer,
+                 String movesForPrompt) {
+            this.suggestionsForDisplay = suggestionsForDisplay;
+            this.recommendedMoves = recommendedMoves;
+            this.feedbackForPlayer = feedbackForPlayer;
+            this.movesForPrompt = movesForPrompt;
+        }
+    }
+
+    /**
+     * Mutable struct capturing how often we have cycled through the stock without
+     * making progress, so we can suggest quitting when appropriate.
+     */
+    private static final class StockStats {
+        int stockEmptyStrikes = 0;          // full stock passes with zero successful moves
+        int movesSinceLastStockEmpty = 0;   // successful moves since last time STOCK hit 0
+    }
+
+    /**
+     * Mutable struct capturing recent commands so we can detect both simple
+     * repetition and two-move ping-pong orbits.
+     */
+    private static final class PingPongState {
+        String lastCommand = null;
+        String secondLastCommand = null;
+        int sameCommandCount = 0;
+        int pingPongCount = 0;
+    }
+
+    /**
+     * Result of processing a single command, allowing {@link #play()} to update
+     * its local counters without leaking implementation details.
+     */
+    private static final class CommandResult {
+        final boolean quitRequested;
+        final String illegalFeedback;
+        final int successfulMoves;
+        final int turnsSinceLastMove;
+
+        CommandResult(boolean quitRequested, String illegalFeedback, int successfulMoves, int turnsSinceLastMove) {
+            this.quitRequested = quitRequested;
+            this.illegalFeedback = illegalFeedback;
+            this.successfulMoves = successfulMoves;
+            this.turnsSinceLastMove = turnsSinceLastMove;
         }
     }
 

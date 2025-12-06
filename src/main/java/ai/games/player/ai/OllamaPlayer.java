@@ -3,7 +3,6 @@ package ai.games.player.ai;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.Player;
-import ai.games.player.LegalMovesHelper;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -161,20 +160,18 @@ public class OllamaPlayer extends AIPlayer implements Player {
     }
 
     @Override
-    public String nextCommand(Solitaire solitaire, String feedback) {
+    public String nextCommand(Solitaire solitaire, String moves, String feedback) {
         String board = stripAnsi(solitaire.toString());
+        String cleanMoves = stripAnsi(moves);
         String cleanFeedback = stripAnsi(feedback);
 
-        var legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
-        String legalSection = legalMoves.isEmpty()
-                ? ""
-                : "\n\nLegal moves now:\n- " + String.join("\n- ", legalMoves);
-
-        String prompt = (cleanFeedback == null || cleanFeedback.isBlank())
-                ? board + legalSection
-                : board + "\n\n"
-                        + cleanFeedback.trim()
-                        + legalSection;
+        StringBuilder prompt = new StringBuilder(board);
+        if (cleanFeedback != null && !cleanFeedback.isBlank()) {
+            prompt.append("\n\n").append(cleanFeedback.trim());
+        }
+        if (cleanMoves != null && !cleanMoves.isBlank()) {
+            prompt.append("\n\n").append(cleanMoves.trim());
+        }
 
         if (log.isTraceEnabled()) {
             log.trace("Ollama prompt (user): {}", prompt);
@@ -182,7 +179,7 @@ public class OllamaPlayer extends AIPlayer implements Player {
 
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
-                .user(prompt)
+                .user(prompt.toString())
                 .call()
                 .content();
 

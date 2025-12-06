@@ -63,7 +63,7 @@ public class MonteCarloPlayer extends AIPlayer implements Player {
     }
 
     @Override
-    public String nextCommand(Solitaire solitaire, String feedback) {
+    public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
         List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
         if (legal.isEmpty()) {
             return "quit";
