@@ -29,6 +29,12 @@
         <appender-ref ref="CONSOLE"/>
     </logger>
 
+    <!-- Suppress noisy Spring AI retry stacktraces; only log ERROR or above. -->
+    <logger name="org.springframework.ai.retry" level="ERROR" additivity="false">
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
     <root level="INFO">
         <appender-ref ref="FILE"/>
         <appender-ref ref="CONSOLE"/>

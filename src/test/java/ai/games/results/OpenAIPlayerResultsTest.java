@@ -1,32 +1,41 @@
 package ai.games.results;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ai.games.Game;
 import ai.games.Game.GameResult;
 import ai.games.player.Player;
-import ai.games.player.ai.GreedySearchPlayer;
+import ai.games.player.ai.OpenAIPlayer;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Aggregates multiple games for the greedy AI and logs summary stats to help fill the comparison table.
- * Use -Dgames=N to adjust the number of games (default 20).
+ * Batch runner for the OpenAI-backed AI player.
+ *
+ * Requires an OpenAI API key; enable with -Dopenai.tests=true and configure
+ * the key via OPENAI_API_KEY or the openai.apiKey property.
  */
-public class GreedySearchPlayerResultsTest {
-    private static final Logger log = LoggerFactory.getLogger(GreedySearchPlayerResultsTest.class);
+public class OpenAIPlayerResultsTest {
+    private static final Logger log = LoggerFactory.getLogger(OpenAIPlayerResultsTest.class);
     private static final String TABLE_HEADER = "| Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
     private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
     void playMultipleGamesAndReport() {
+        assumeTrue(Boolean.getBoolean("openai.tests"), "Enable with -Dopenai.tests=true (requires OpenAI API key)");
+
         int gamesToPlay = ResultsConfig.GAMES;
-        Stats stats = runGames("Greedy Search", GreedySearchPlayer::new, gamesToPlay);
+        String modelName = System.getProperty("openai.model", "gpt-4o");
+        Stats stats = runGames("OpenAI", OpenAIPlayer::new, gamesToPlay);
+
+        String notes = "OpenAI " + modelName + " via API; see [code](src/main/java/ai/games/player/ai/OpenAIPlayer.java).";
+
         String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
-                "Greedy Search",
-                "Search",
+                "OpenAI",
+                "LLM",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
@@ -35,7 +44,8 @@ public class GreedySearchPlayerResultsTest {
                 stats.totalTimeSeconds(),
                 stats.avgMoves(),
                 stats.bestWinStreak,
-                "Greedy one-step lookahead using heuristic scoring; see [code](src/main/java/ai/games/player/ai/GreedySearchPlayer.java).");
+                notes);
+
         System.out.println(TABLE_HEADER);
         System.out.println(TABLE_DIVIDER);
         System.out.println(summary);
@@ -52,7 +62,6 @@ public class GreedySearchPlayerResultsTest {
                     || gameNumber == games) {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
-            GreedySearchPlayer.resetForNewGame();
             Player ai = playerSupplier.get();
             Game game = new Game(ai);
             GameResult result = game.play();
@@ -86,19 +95,19 @@ public class GreedySearchPlayerResultsTest {
         }
 
         double winPercent() {
-            return (wins * 100.0) / games;
+            return games == 0 ? 0.0 : (wins * 100.0) / games;
         }
 
-        double avgTimeSeconds() {
-            return totalTimeSeconds() / games;
+        double avgMoves() {
+            return games == 0 ? 0.0 : (double) totalMoves / games;
         }
 
         double totalTimeSeconds() {
             return totalTimeNanos / 1_000_000_000.0;
         }
 
-        double avgMoves() {
-            return games == 0 ? 0 : totalMoves / (double) games;
+        double avgTimeSeconds() {
+            return games == 0 ? 0.0 : totalTimeSeconds() / games;
         }
 
         double winPercentConfidenceInterval() {
