@@ -8,7 +8,7 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 ## Test Results
 
-The last test run was performed at Dec 06, 2025 6:40:18 PM AEST.
+The last test run was performed at Dec 06, 2025 11:23:55 PM AEST.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
@@ -18,7 +18,7 @@ The last test run was performed at Dec 06, 2025 6:40:18 PM AEST.
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
 | A* Search                    | Search | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 | A* search guided by a heuristic evaluation; see [code](src/main/java/ai/games/player/ai/AStarPlayer.java). |
-| OpenAI                       | LLM    | 10 | 2 | 20.00% ± 24.79% | 185.071s | 1850.706s | 190.70 | 1 | OpenAI gpt-5-mini via API; see [code](src/main/java/ai/games/player/ai/OpenAIPlayer.java). |
+| OpenAI                       | LLM    | 100 | 13 | 13.00% ± 6.59% | 124.992s | 12499.187s | 168.69 | 2 | OpenAI gpt-5-mini via API; see [code](src/main/java/ai/games/player/ai/OpenAIPlayer.java). |
 | Alibaba                      | LLM    | 10 | 0 | 0.00% ± 0.00% | 235.863s | 2358.627s | 311.60 | 0 | Alibaba qwen3-coder:30b via Ollama; see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java) and [model](https://ollama.com/library/qwen3-coder). |
 
 * **Player** Name of the decision or optimisation method or LLM-backed player being tested.
