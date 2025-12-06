@@ -2,80 +2,138 @@
 hello.py
 ========
 
-A very small, self‑contained “Hello World” example using PyTorch.
+A small, self‑contained PyTorch example that *trains* a tiny model.
 
-The goal of this script is to give you a concrete, working example
-of how to:
+Instead of just doing a fixed calculation like `x * 2`, this script:
 
-* Import PyTorch.
-* Create a tensor (PyTorch’s core data structure).
-* Perform a simple mathematical operation.
-* Inspect and print the results to the terminal.
+* Creates a synthetic training dataset for the function y = 2x + 1.
+* Builds a simple neural network with one linear layer.
+* Trains it using gradient descent to approximate that function.
+* Uses the trained model to predict y for a **new** x value that
+  was not in the original training data.
 
-You can run this file from the project root (after activating your
-virtual environment and installing dependencies) with:
+This is the “training” part you were asking about: we adjust model
+parameters (weight and bias) so that the model generalizes to new
+inputs, not just ones it has already seen.
+
+Run this file from the project root (after activating your virtual
+environment and installing dependencies) with:
 
     python3 hello.py
 """
 
-import torch  # Main PyTorch library providing tensors and operations.
+import torch  # Main PyTorch library providing tensors, layers, and optimizers.
+
+
+def make_training_data() -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Build a tiny synthetic dataset for the function y = 2x + 1.
+
+    We create ten evenly spaced x values between -1 and 1, then
+    compute the corresponding y values using the exact rule.
+
+    Both x and y are returned as 2‑D tensors with shape (N, 1),
+    where N is the number of samples. This shape matches what
+    `nn.Linear` expects: (batch_size, num_features).
+    """
+
+    # Create 10 points between -1.0 and 1.0, inclusive.
+    # `linspace` returns a 1‑D tensor of shape (10,).
+    x = torch.linspace(-1.0, 1.0, steps=10)
+
+    # Rearrange to shape (10, 1) so each row is a single training example.
+    x = x.unsqueeze(1)
+
+    # Our target rule: y = 2x + 1
+    # This gives us the "labels" the model should try to match.
+    y = 2 * x + 1
+
+    return x, y
 
 
 def main() -> None:
     """
-    Entry point for the Hello World demo.
+    Train a simple linear model on y = 2x + 1 and test it.
 
-    Step‑by‑step, this function:
+    High‑level steps:
 
-    1. Builds a small 2x2 tensor of floating‑point numbers.
-    2. Multiplies the tensor by 2, using PyTorch’s element‑wise math.
-    3. Prints the input and the result to the console.
-    4. Shows some basic metadata (device and shape) so you can see
-       how PyTorch represents tensors internally.
+    1. Create training data tensors (inputs x and targets y).
+    2. Define a small model: a single `nn.Linear` layer.
+    3. Choose a loss function (MSE) and optimizer (SGD).
+    4. Run several training epochs to adjust the model’s parameters.
+    5. Use the trained model to predict y for a new x value.
     """
 
-    # Create a 2x2 tensor of floats on the default device (CPU by default).
-    #
-    # In PyTorch, `torch.tensor(...)` is the fundamental way to construct
-    # tensor objects from Python data like lists or tuples.
-    # Here, we create:
-    #
-    #   [[1.0, 2.0],
-    #    [3.0, 4.0]]
-    #
-    # The outer list represents rows; each inner list is a row.
-    x = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    # 1. Build our synthetic training dataset.
+    x_train, y_train = make_training_data()
 
-    # Perform a simple element‑wise operation on the tensor.
+    # 2. Define a model with one learnable weight and one bias.
     #
-    # PyTorch overloads Python’s arithmetic operators. When we write
+    #    nn.Linear(in_features=1, out_features=1)
     #
-    #   y = x * 2
+    # The model computes:
     #
-    # every element in `x` is multiplied by 2, producing a new tensor `y`.
-    # The original tensor `x` is unchanged.
-    y = x * 2
+    #    y_hat = weight * x + bias
+    #
+    # where `weight` and `bias` are parameters stored internally
+    # as tensors that PyTorch will update during training.
+    model = torch.nn.Linear(in_features=1, out_features=1)
 
-    # A simple human‑readable header so you can recognize this script’s output.
-    print("PyTorch Hello World")
-    print("--------------------")
+    # 3. Define a loss function and optimizer.
+    #
+    # We use Mean Squared Error (MSE) because this is a simple
+    # regression problem, and Stochastic Gradient Descent (SGD)
+    # to update the model’s parameters.
+    loss_fn = torch.nn.MSELoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
 
-    # Print the original tensor values.
-    # The `tensor(...)` representation comes from PyTorch and shows:
-    # * The nested numeric values.
-    # * The default dtype (float32) and device (cpu) if they are not obvious.
-    print("Input tensor:")
-    print(x)
+    # 4. Training loop.
+    #
+    # We will do a small number of epochs because the problem
+    # is tiny and easy to fit.
+    num_epochs = 200
 
-    # Print the tensor after our element‑wise multiplication.
-    print("Output tensor (x * 2):")
-    print(y)
+    for epoch in range(num_epochs):
+        # Put the model in training mode (good habit, though it
+        # mainly matters for layers like dropout or batch norm).
+        model.train()
 
-    # For small experiments, it is often useful to know:
-    # * `device`: whether the tensor lives on CPU or GPU.
-    # * `shape`: how many dimensions it has and how large they are.
-    print("Device:", x.device)
-    print("Shape:", x.shape)
+        # Forward pass: compute predictions for all training inputs.
+        y_pred = model(x_train)
+
+        # Compute how far off we are from the true targets.
+        loss = loss_fn(y_pred, y_train)
+
+        # Reset gradients from the previous step.
+        optimizer.zero_grad()
+
+        # Backward pass: compute gradients of loss w.r.t. parameters.
+        loss.backward()
+
+        # Parameter update: move weight and bias a small step in the
+        # direction that reduces the loss.
+        optimizer.step()
+
+    # 5. After training, we can inspect the learned parameters.
+    learned_weight = model.weight.item()
+    learned_bias = model.bias.item()
+
+    # And we can test the model on a new input that it never saw
+    # during training, for example x = 5.0.
+    new_x = torch.tensor([[5.0]])
+    model.eval()  # Switch to evaluation mode (again, a good habit).
+    with torch.no_grad():  # Disable gradient tracking for inference.
+        predicted_y = model(new_x)
+
+    print("PyTorch Training Demo: y = 2x + 1")
+    print("==================================")
+    print("Learned weight (should be near 2):", learned_weight)
+    print("Learned bias   (should be near 1):", learned_bias)
+    print()
+    print("Testing on a NEW x value (not in training data):")
+    print("Input x:", new_x.item())
+    print("Predicted y:", predicted_y.item())
+    print("Exact y (2x + 1):", 2 * new_x.item() + 1)
 
 
 # This conditional ensures that `main()` only runs when this file is
