@@ -37,10 +37,11 @@ public class OllamaPlayerResultsTest {
         assumeTrue(!models.isEmpty(), "Configure at least one model with -Dollama.models=model1,model2 or -Dollama.model=name");
 
         for (String modelName : models) {
-            OllamaModelInfo modelInfo = OllamaModelInfo.byModelName(modelName).orElse(null);
-            String playerLabel = modelInfo != null
+            OllamaModelInfo modelInfo = OllamaModelInfo.byModelNameOrBase(modelName).orElse(null);
+            String providerLabel = modelInfo != null
                     ? modelInfo.getProvider()
-                    : "Ollama";
+                    : OllamaModelInfo.inferProvider(modelName);
+            String playerLabel = providerLabel;
 
             Stats stats = runGames(playerLabel, () -> new OllamaPlayer(modelName), gamesToPlay);
 
@@ -50,9 +51,15 @@ public class OllamaPlayerResultsTest {
                 System.out.println(modelInfo.getPlayerName() + " " + modelInfo.getModelName() + " " + modelInfo.getUrl());
             }
 
-            String notes = modelInfo != null
-                    ? "[`OllamaPlayer`](src/main/java/ai/games/player/ai/OllamaPlayer.java), [" + modelInfo.getProvider() + "'s " + modelInfo.getModelName() + "](" + modelInfo.getUrl() + ")"
-                    : "[`OllamaPlayer`](src/main/java/ai/games/player/ai/OllamaPlayer.java)";
+            String notes;
+            if (modelInfo != null) {
+                notes = providerLabel + " " + modelInfo.getModelName()
+                        + " via Ollama; see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java)"
+                        + " and [model](" + modelInfo.getUrl() + ").";
+            } else {
+                notes = providerLabel + " " + modelName
+                        + " via Ollama; see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java).";
+            }
 
             String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                     playerLabel,
@@ -96,6 +103,8 @@ public class OllamaPlayerResultsTest {
                     || gameNumber == games) {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
+            System.setProperty("game.index", String.valueOf(gameNumber));
+            System.setProperty("game.total", String.valueOf(games));
             Player ai = playerSupplier.get();
             Game game = new Game(ai);
             GameResult result = game.play();

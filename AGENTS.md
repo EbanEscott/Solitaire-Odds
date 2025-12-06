@@ -8,6 +8,7 @@ When asked complete these tasks:
 2. **Gather the Test Results** from the logging info for each test suite.
 3. **Format a Table** using the results and the example table below, including the **AI** column to indicate whether the method is an LLM or a search-based algorithm, and a **Notes** column for clickable links or extra context.
 4. **Paste the Table** into the `cards/README.md` and insert the date/time the tests were run.
+5. **Update the LLM Notes** so that each LLM row follows the pattern “`<Provider> <model> via Ollama; see [code](...) and [model](...)`”, matching the examples below.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|

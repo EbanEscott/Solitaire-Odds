@@ -259,6 +259,9 @@ public class Game implements CommandLineRunner {
         //  - If we have explicit guidance for "quit" (added by
         //    updateGuidanceAfterCommand after repeated unproductive stock passes),
         //    re-add "quit" as a recommended move.
+        //  - Never recommend moving a lone tableau King when there are no
+        //    face-down cards beneath it to reveal; such moves are legal but
+        //    almost always pointless shuffling.
         java.util.List<String> recommendedMovesForThisTurn = new java.util.ArrayList<>();
         for (String move : legalMovesAtStart) {
             if (!"quit".equalsIgnoreCase(move)) {
@@ -272,6 +275,9 @@ public class Game implements CommandLineRunner {
                 && legalMovesAtStart.stream().anyMatch(cmd -> "quit".equalsIgnoreCase(cmd))) {
             recommendedMovesForThisTurn.add("quit");
         }
+
+        // Filter out pointless King shuffles from tableau to tableau.
+        filterPointlessTableauKingMoves(solitaire, recommendedMovesForThisTurn);
 
         // Build feedback text and the recommended-moves string that will be passed
         // into the player for this turn.
@@ -309,9 +315,16 @@ public class Game implements CommandLineRunner {
         if (log.isDebugEnabled()) {
             log.debug("Move {} - current board:\n{}", iterations + 1, stripAnsi(solitaire.toString()));
         }
-        
+
         System.out.println("--------------------------------------------------------------------------------------------------");
-        System.out.println("MOVE " + (iterations + 1));
+        String gameIndex = System.getProperty("game.index");
+        String gameTotal = System.getProperty("game.total");
+        if (gameIndex != null && gameTotal != null) {
+            System.out.println("GAME " + gameIndex + "/" + gameTotal + " MOVE " + (iterations + 1));
+        } else {
+            System.out.println("MOVE " + (iterations + 1));
+        }
+        System.out.println("--------------------------------------------------------------------------------------------------");
         System.out.println(solitaire);
         if (!view.suggestionsForDisplay.isBlank()) {
             System.out.println(view.suggestionsForDisplay);
@@ -563,6 +576,58 @@ public class Game implements CommandLineRunner {
         }
 
         return new CommandResult(quitRequested, illegalFeedback, newSuccessfulMoves, newTurnsSinceLastMove);
+    }
+
+    /**
+     * Remove "pointless" King moves from the recommended list: specifically,
+     * moves that take a single King from one tableau pile to another when
+     * there are no face-down cards beneath it to reveal.
+     *
+     * <p>These moves are still legal and remain in the full legal move list,
+     * but they are almost always just shuffling without progress, so we avoid
+     * recommending them or surfacing them to LLMs.</p>
+     */
+    private void filterPointlessTableauKingMoves(Solitaire solitaire, java.util.List<String> moves) {
+        if (moves.isEmpty()) {
+            return;
+        }
+        java.util.List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
+        java.util.Iterator<String> it = moves.iterator();
+        while (it.hasNext()) {
+            String move = it.next();
+            String trimmed = move.trim();
+            if (!trimmed.toLowerCase().startsWith("move ")) {
+                continue;
+            }
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length != 4) {
+                continue;
+            }
+            String from = parts[1];
+            String card = parts[2];
+            String to = parts[3];
+            if (!from.toUpperCase().startsWith("T") || !to.toUpperCase().startsWith("T")) {
+                // Only consider tableau -> tableau moves here.
+                continue;
+            }
+            if (card.isEmpty() || Character.toUpperCase(card.charAt(0)) != 'K') {
+                continue;
+            }
+            try {
+                int fromIndex = Integer.parseInt(from.substring(1)) - 1;
+                if (fromIndex < 0 || fromIndex >= faceDownCounts.size()) {
+                    continue;
+                }
+                int faceDownUnderFrom = faceDownCounts.get(fromIndex);
+                if (faceDownUnderFrom == 0) {
+                    // No face-down cards under this King in its tableau pile;
+                    // moving it will not reveal anything new, so skip recommending it.
+                    it.remove();
+                }
+            } catch (NumberFormatException ignore) {
+                // Malformed pile index; leave the move untouched.
+            }
+        }
     }
 
     /**
