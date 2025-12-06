@@ -18,6 +18,7 @@ The last test run was performed at Nov 28, 2025 8:27:55 AM AEST.
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
 | A* Search                    | Search | 10000 | 1914 | 19.14% ± 0.77% | 0.194s | 1941.955s | 355.48 | 5 | A* search guided by a heuristic evaluation; see [code](src/main/java/ai/games/player/ai/AStarPlayer.java). |
+| Alibaba                      | LLM    | 10 | 0 | 0.00% ± 0.00% | 235.863s | 2358.627s | 311.60 | 0 | [`OllamaPlayer`](src/main/java/ai/games/player/ai/OllamaPlayer.java), [Alibaba's qwen3-coder:30b](https://ollama.com/library/qwen3-coder) |
 
 * **Player** Name of the decision or optimisation method or LLM-backed player being tested.
 * **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
@@ -87,7 +88,7 @@ Ollama model selection:
   - `gpt-oss:120b`
   - `llama4:scout`
   - `gemma3:27b`
-  - `qwen3:30b`
+  - `qwen3-coder:30b`
   - `mistral:latest`
   - `deepseek-r1:70b`
 
@@ -131,7 +132,7 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks        # enable with -Dopenai.tests=true
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3:30b,mistral:latest,deepseek-r1:70b
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral:latest,deepseek-r1:70b
 ```
 
 Clean:

@@ -28,6 +28,7 @@ public class OpenAIPlayerResultsTest {
         assumeTrue(Boolean.getBoolean("openai.tests"), "Enable with -Dopenai.tests=true (requires OpenAI API key)");
 
         int gamesToPlay = ResultsConfig.GAMES;
+        System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
         String modelName = System.getProperty("openai.model", "gpt-4o");
         Stats stats = runGames("OpenAI", OpenAIPlayer::new, gamesToPlay);
 

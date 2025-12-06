@@ -73,9 +73,14 @@ public class Game implements CommandLineRunner {
         long startNanos = System.nanoTime();
         boolean won = false;
         final int maxPingPongRepeats = 12;
+        final int initialGuidanceTtlTurns = 32;
+        final int maxGuidanceTtlTurns = 100;
         // Cap iterations at ~8× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
         // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
-        final int maxIterations = 10000;
+        //
+        // Tests can further constrain this via the "max.moves.per.game" system property, which is used to
+        // align with ResultsConfig.MAX_MOVES_PER_GAME without introducing a direct dependency on test code.
+        final int maxIterations = Integer.getInteger("max.moves.per.game", 10_000);
 
         while (true) {
             // Build the "view" of this turn (guidance + recommended moves + feedback).
@@ -117,7 +122,8 @@ public class Game implements CommandLineRunner {
             }
 
             // Track simple repetition and ping-pong patterns (A,B,A,B,...).
-            boolean pingPongLimitHit = trackPingPongs(input, aiMode, maxPingPongRepeats, pingPongState, player);
+            boolean pingPongLimitHit = trackPingPongs(
+                    input, aiMode, maxPingPongRepeats, pingPongState, player);
             if (pingPongLimitHit) {
                 feedback = "Ping-pong limit exceeded; forcing quit.";
                 illegalFeedback = "";
@@ -153,8 +159,16 @@ public class Game implements CommandLineRunner {
             boolean quitRequested = commandResult.quitRequested;
 
             // Update long-lived guidance based on this command's effects.
-            updateGuidanceAfterCommand(solitaire, input, stockBefore, iterations,
-                    pingPongState, persistentGuidance, stockStats);
+            updateGuidanceAfterCommand(
+                    solitaire,
+                    input,
+                    stockBefore,
+                    iterations,
+                    pingPongState,
+                    persistentGuidance,
+                    stockStats,
+                    initialGuidanceTtlTurns,
+                    maxGuidanceTtlTurns);
 
             if (aiMode) {
                 System.out.println("AI command: " + input);
@@ -331,16 +345,18 @@ public class Game implements CommandLineRunner {
             int iterations,
             PingPongState pingPongState,
             java.util.Map<String, Guidance> persistentGuidance,
-            StockStats stockStats) {
+            StockStats stockStats,
+            int initialGuidanceTtlTurns,
+            int maxGuidanceTtlTurns) {
 
             // Suggestion 1: repeated identical command (same move over and over).
             if (pingPongState.sameCommandCount >= 4 && !input.equalsIgnoreCase("turn")) {
                 String reason = "you have chosen this many times without making progress.";
                 Guidance g = persistentGuidance.get(input);
                 if (g == null) {
-                    persistentGuidance.put(input, new Guidance(reason, 1, 8, iterations));
+                    persistentGuidance.put(input, new Guidance(reason, 1, initialGuidanceTtlTurns, iterations));
                 } else {
-                    g.refresh(iterations, 3);
+                    g.refresh(iterations, 3, maxGuidanceTtlTurns);
                 }
             }
 
@@ -355,9 +371,11 @@ public class Game implements CommandLineRunner {
                     int ttlBoost = legalMovesForPingPong.contains(cmd) ? 4 : 1;
                     Guidance g = persistentGuidance.get(cmd);
                     if (g == null) {
-                        persistentGuidance.put(cmd, new Guidance(reason, 1, 8, iterations));
+                        // Start with a relatively long time-to-live (TTL) so
+                        // "don't ..." guidance is not forgotten too quickly.
+                        persistentGuidance.put(cmd, new Guidance(reason, 1, initialGuidanceTtlTurns, iterations));
                     } else {
-                        g.refresh(iterations, ttlBoost);
+                        g.refresh(iterations, ttlBoost, maxGuidanceTtlTurns);
                     }
                 }
             }
@@ -381,9 +399,9 @@ public class Game implements CommandLineRunner {
                             + stockStats.stockEmptyStrikes + " times without making any moves.";
                     Guidance g = persistentGuidance.get("quit");
                     if (g == null) {
-                        persistentGuidance.put("quit", new Guidance(reason, 1, 16, iterations));
+                        persistentGuidance.put("quit", new Guidance(reason, 1, initialGuidanceTtlTurns, iterations));
                     } else {
-                        g.refresh(iterations, 6);
+                        g.refresh(iterations, 6, maxGuidanceTtlTurns);
                     }
                 }
             }
@@ -564,9 +582,11 @@ public class Game implements CommandLineRunner {
             this.lastSeenIteration = lastSeenIteration;
         }
 
-        void refresh(int iteration, int ttlBoost) {
+        void refresh(int iteration, int ttlBoost, int maxGuidanceTtlTurns) {
             this.strikes++;
-            this.ttlTurns = Math.min(this.ttlTurns + ttlBoost, 30);
+            // TTL (time-to-live) is counted in turns; each refresh can extend
+            // it, but we cap it so guidance does not linger forever.
+            this.ttlTurns = Math.min(this.ttlTurns + ttlBoost, maxGuidanceTtlTurns);
             this.lastSeenIteration = iteration;
         }
 
