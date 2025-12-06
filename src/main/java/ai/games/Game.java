@@ -16,6 +16,9 @@ import org.springframework.boot.WebApplicationType;
 @SpringBootApplication
 public class Game implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(Game.class);
+    /** When true, emit structured per-move episode logs for training. */
+    private static final boolean EPISODE_LOG_ENABLED = Boolean.getBoolean("log.episodes");
+
     private final Player player;
 
     public Game(Player player) {
@@ -55,6 +58,7 @@ public class Game implements CommandLineRunner {
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
         boolean aiMode = player instanceof AIPlayer;
+        String solverId = player.getClass().getSimpleName();
         // Textual feedback passed into the player for the next decision.
         String feedback = "";
         // "Recommended moves" string passed into the player (LLMs) each turn.
@@ -121,6 +125,12 @@ public class Game implements CommandLineRunner {
                 input = input.substring(2).trim();
             }
 
+            // Log this step for training, if enabled.
+            if (EPISODE_LOG_ENABLED) {
+                java.util.List<String> legalMovesAtStart = LegalMovesHelper.listLegalMoves(solitaire);
+                logEpisodeStep(solitaire, solverId, iterations, legalMovesAtStart, view.recommendedMoves, input, won);
+            }
+
             // Track simple repetition and ping-pong patterns (A,B,A,B,...).
             boolean pingPongLimitHit = trackPingPongs(
                     input, aiMode, maxPingPongRepeats, pingPongState, player);
@@ -179,6 +189,9 @@ public class Game implements CommandLineRunner {
             }
         }
         long durationNanos = System.nanoTime() - startNanos;
+        if (EPISODE_LOG_ENABLED) {
+            logEpisodeSummary(solitaire, solverId, iterations, successfulMoves, won, durationNanos);
+        }
         return new GameResult(won, successfulMoves, durationNanos);
     }
 
@@ -301,6 +314,174 @@ public class Game implements CommandLineRunner {
         }
 
         return new TurnView(suggestionsForDisplay, recommendedMovesForThisTurn, feedback, movesForPrompt);
+    }
+
+    /**
+     * Emit a single structured JSON line describing this move and the current state.
+     *
+     * <p>The line is prefixed with "EPISODE_STEP " so downstream tools can
+     * filter it out of mixed logs easily.</p>
+     */
+    private void logEpisodeStep(
+            Solitaire solitaire,
+            String solverId,
+            int stepIndex,
+            java.util.List<String> legalMoves,
+            java.util.List<String> recommendedMoves,
+            String chosenCommand,
+            boolean won) {
+
+        try {
+            long stateKey = solitaire.getStateKey();
+            java.util.List<java.util.List<Card>> visibleTableau = solitaire.getVisibleTableau();
+            java.util.List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
+            java.util.List<java.util.List<Card>> foundation = solitaire.getFoundation();
+            java.util.List<Card> talon = solitaire.getTalon();
+            java.util.List<Card> stockpile = solitaire.getStockpile();
+
+            String gameIndex = System.getProperty("game.index");
+            String gameTotal = System.getProperty("game.total");
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"type\":\"step\"");
+            if (gameIndex != null) {
+                sb.append(",\"game_index\":").append(gameIndex);
+            }
+            if (gameTotal != null) {
+                sb.append(",\"game_total\":").append(gameTotal);
+            }
+            sb.append(",\"solver\":\"").append(solverId).append("\"");
+            sb.append(",\"step_index\":").append(stepIndex);
+            sb.append(",\"state_key\":").append(stateKey);
+            sb.append(",\"won\":").append(won);
+
+            // Encode visible tableau as short card codes plus face-down counts.
+            sb.append(",\"tableau_visible\":[");
+            for (int i = 0; i < visibleTableau.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('[');
+                java.util.List<Card> pile = visibleTableau.get(i);
+                for (int j = 0; j < pile.size(); j++) {
+                    if (j > 0) {
+                        sb.append(',');
+                    }
+                    sb.append('"').append(pile.get(j).shortName()).append('"');
+                }
+                sb.append(']');
+            }
+            sb.append(']');
+
+            sb.append(",\"tableau_face_down\":[");
+            for (int i = 0; i < faceDownCounts.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(faceDownCounts.get(i));
+            }
+            sb.append(']');
+
+            // Foundation piles: full piles as short codes.
+            sb.append(",\"foundation\":[");
+            for (int i = 0; i < foundation.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('[');
+                java.util.List<Card> pile = foundation.get(i);
+                for (int j = 0; j < pile.size(); j++) {
+                    if (j > 0) {
+                        sb.append(',');
+                    }
+                    sb.append('"').append(pile.get(j).shortName()).append('"');
+                }
+                sb.append(']');
+            }
+            sb.append(']');
+
+            // Talon (waste) cards, short codes, in order.
+            sb.append(",\"talon\":[");
+            for (int i = 0; i < talon.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('"').append(talon.get(i).shortName()).append('"');
+            }
+            sb.append(']');
+
+            // Stockpile size (we do not expose hidden order by default to the model).
+            sb.append(",\"stock_size\":").append(stockpile.size());
+
+            // Legal moves at start of turn.
+            sb.append(",\"legal_moves\":[");
+            for (int i = 0; i < legalMoves.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('"').append(legalMoves.get(i)).append('"');
+            }
+            sb.append(']');
+
+            // Recommended moves for this turn (after guidance filters).
+            sb.append(",\"recommended_moves\":[");
+            for (int i = 0; i < recommendedMoves.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('"').append(recommendedMoves.get(i)).append('"');
+            }
+            sb.append(']');
+
+            // Command actually chosen and applied.
+            sb.append(",\"chosen_command\":\"").append(chosenCommand).append('"');
+            sb.append('}');
+
+            log.info("EPISODE_STEP {}", sb);
+        } catch (Exception e) {
+            // Logging must never interfere with gameplay.
+            if (log.isDebugEnabled()) {
+                log.debug("Failed to log episode step", e);
+            }
+        }
+    }
+
+    /**
+     * Emit a single structured JSON line summarising the whole game.
+     */
+    private void logEpisodeSummary(
+            Solitaire solitaire,
+            String solverId,
+            int iterations,
+            int successfulMoves,
+            boolean won,
+            long durationNanos) {
+
+        try {
+            String gameIndex = System.getProperty("game.index");
+            String gameTotal = System.getProperty("game.total");
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"type\":\"summary\"");
+            if (gameIndex != null) {
+                sb.append(",\"game_index\":").append(gameIndex);
+            }
+            if (gameTotal != null) {
+                sb.append(",\"game_total\":").append(gameTotal);
+            }
+            sb.append(",\"solver\":\"").append(solverId).append("\"");
+            sb.append(",\"iterations\":").append(iterations);
+            sb.append(",\"successful_moves\":").append(successfulMoves);
+            sb.append(",\"won\":").append(won);
+            sb.append(",\"duration_nanos\":").append(durationNanos);
+            sb.append('}');
+
+            log.info("EPISODE_SUMMARY {}", sb);
+        } catch (Exception e) {
+            if (log.isDebugEnabled()) {
+                log.debug("Failed to log episode summary", e);
+            }
+        }
     }
 
     /**
