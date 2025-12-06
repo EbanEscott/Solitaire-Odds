@@ -35,7 +35,7 @@ public class OllamaPlayer extends AIPlayer implements Player {
 
     private final ChatClient chatClient;
 
-    private static final String SYSTEM_PROMPT = """
+    static final String SYSTEM_PROMPT = """
             Developer: # Role and Objective
             - You are an expert Klondike Solitaire player. Your role is to select and output exactly one legal move from the current board configuration.
             - When a "Legal moves now:" list is provided to you, treat it as the complete set of allowed moves for this turn.

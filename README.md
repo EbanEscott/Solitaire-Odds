@@ -47,6 +47,7 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
   - `AIPlayer` base class
   - `LegalMovesHelper`
 - `src/main/java/ai/games/player/ai/` — AI players (all `@Profile`-gated):
+  - `OpenAIPlayer` (`ai-openai`)
   - `RuleBasedHeuristicsPlayer` (`ai-rule`)
   - `GreedySearchPlayer` (`ai-greedy`)
   - `BeamSearchPlayer` (`ai-beam`)
@@ -72,9 +73,10 @@ AI profiles:
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-hill          # hill-climbing search (state-hash driven)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule          # rule-based heuristics
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # greedy search
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-mcts          # Monte Carlo (MCTS-style) search
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar         # A* search
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-openai        # OpenAI via API (requires OPENAI_API_KEY or openai.apiKey)
 ```
 
 Ollama model selection:
@@ -88,6 +90,18 @@ Ollama model selection:
   - `qwen3:30b`
   - `mistral:latest`
   - `deepseek-r1:70b`
+
+OpenAI setup:
+- Add an OpenAI-compatible API key via either:
+  - Spring property: `-Dopenai.apiKey=sk-...` (or in `application.properties`), or
+  - Environment variable: `OPENAI_API_KEY=sk-...`.
+- Configure the OpenAI chat model with `openai.model` (default is `gpt-4o`). Recommended models (see your OpenAI rate limit page for exact TPM/RPM):
+  - `gpt-5.1`, `gpt-5-mini`, `gpt-5-nano`
+  - `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`
+  - `o3`, `o4-mini`
+  - `gpt-4o`, `gpt-4o-realtime-preview`
+- Run the OpenAI-backed player with:  
+  `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-openai`
 
 ## Build & Test
 Build:
@@ -115,6 +129,7 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.MonteCarloPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks        # enable with -Dopenai.tests=true
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks    # enable with -Dollama.tests=true
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3:30b,mistral:latest,deepseek-r1:70b
 ```

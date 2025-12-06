@@ -26,6 +26,7 @@ dependencyManagement {
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
+    implementation 'org.springframework.ai:spring-ai-openai'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }

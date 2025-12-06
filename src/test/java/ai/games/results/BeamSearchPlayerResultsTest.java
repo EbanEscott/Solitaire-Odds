@@ -2,12 +2,10 @@ package ai.games.results;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.games.game.Card;
-import ai.games.game.Deck;
-import ai.games.game.Solitaire;
+import ai.games.Game;
+import ai.games.Game.GameResult;
 import ai.games.player.Player;
 import ai.games.player.ai.BeamSearchPlayer;
-import java.util.List;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -26,7 +24,7 @@ public class BeamSearchPlayerResultsTest {
     void playMultipleGamesAndReport() {
         int gamesToPlay = ResultsConfig.GAMES;
         Supplier<Player> supplier = () -> new BeamSearchPlayer();
-        Stats stats = runGames("Beam Search", supplier, gamesToPlay, ResultsConfig.MAX_MOVES_PER_GAME);
+        Stats stats = runGames("Beam Search", supplier, gamesToPlay);
         String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                 "Beam Search",
                 "Search",
@@ -46,7 +44,7 @@ public class BeamSearchPlayerResultsTest {
         assertTrue(stats.games == gamesToPlay);
     }
 
-    private Stats runGames(String playerName, Supplier<Player> playerSupplier, int games, int maxMovesPerGame) {
+    private Stats runGames(String playerName, Supplier<Player> playerSupplier, int games) {
         Stats stats = new Stats(games);
         for (int i = 0; i < games; i++) {
             int gameNumber = i + 1;
@@ -56,52 +54,11 @@ public class BeamSearchPlayerResultsTest {
                 System.out.printf("[%s] Running game %d/%d%n", playerName, gameNumber, games);
             }
             Player ai = playerSupplier.get();
-            Solitaire solitaire = new Solitaire(new Deck());
-            long start = System.nanoTime();
-            int moves = 0;
-            boolean won = false;
-            for (int step = 0; step < maxMovesPerGame; step++) {
-                String command = ai.nextCommand(solitaire, "");
-                if (command == null || "quit".equalsIgnoreCase(command.trim())) {
-                    break;
-                }
-                if (applyCommand(solitaire, command)) {
-                    moves++;
-                }
-                if (isWon(solitaire)) {
-                    won = true;
-                    break;
-                }
-            }
-            long duration = System.nanoTime() - start;
-            stats.recordGame(won, moves, duration);
+            Game game = new Game(ai);
+            GameResult result = game.play();
+            stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
         }
         return stats;
-    }
-
-    private boolean applyCommand(Solitaire solitaire, String command) {
-        String trimmed = command.trim();
-        if ("turn".equalsIgnoreCase(trimmed)) {
-            solitaire.turnThree();
-            return true;
-        }
-        String[] parts = trimmed.split("\\s+");
-        if ("move".equalsIgnoreCase(parts[0])) {
-            if (parts.length == 4) {
-                return solitaire.moveCard(parts[1], parts[2], parts[3]);
-            } else if (parts.length == 3) {
-                return solitaire.moveCard(parts[1], null, parts[2]);
-            }
-        }
-        return false;
-    }
-
-    private boolean isWon(Solitaire solitaire) {
-        int total = 0;
-        for (List<Card> pile : solitaire.getFoundation()) {
-            total += pile.size();
-        }
-        return total == 52;
     }
 
     private static class Stats {

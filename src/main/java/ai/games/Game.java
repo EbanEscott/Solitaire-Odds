@@ -94,7 +94,11 @@ public class Game implements CommandLineRunner {
                 }
                 break;
             }
+            // Normalise basic formatting artefacts (e.g., LLM copying bullet "- turn").
             input = input.trim();
+            if (input.startsWith("- ")) {
+                input = input.substring(2).trim();
+            }
             // Track simple repetition and ping-pong patterns (A,B,A,B,...).
             if (lastCommand != null && input.equalsIgnoreCase(lastCommand)) {
                 sameCommandCount++;
