@@ -100,7 +100,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
     private static final int SCORE_TALON_TO_TABLEAU = 2;
 
     @Override
-    public String nextCommand(Solitaire solitaire, String feedback) {
+    public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
         long currentKey = solitaire.getStateKey();
 
         // Learn the transition from the previous state and command, if any.

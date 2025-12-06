@@ -27,7 +27,7 @@ class HillClimberPlayerTest {
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
 
         for (int i = 0; i < 10 && FoundationCountHelper.totalFoundation(solitaire) < 52; i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             applyCommand(solitaire, command);
         }
 
@@ -42,7 +42,7 @@ class HillClimberPlayerTest {
 
         int steps = 0;
         while (!isTerminal(solitaire) && steps < MAX_TEST_STEPS) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             assertNotNull(command, "Hill climber should always return a command until game exits");
             if ("quit".equalsIgnoreCase(command.trim())) {
                 break;
@@ -61,7 +61,7 @@ class HillClimberPlayerTest {
 
         Set<String> uniqueCommands = new HashSet<>();
         for (int i = 0; i < 50 && !isTerminal(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             assertNotNull(command, "Hill climber should provide commands for exploration");
             uniqueCommands.add(command.trim().toLowerCase());
             if ("quit".equalsIgnoreCase(command)) {

@@ -27,7 +27,7 @@ class BeamSearchPlayerTest {
         int startFoundation = totalFoundation(solitaire);
 
         for (int i = 0; i < 10 && totalFoundation(solitaire) < 52; i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             applyCommand(solitaire, command);
         }
 
@@ -42,7 +42,7 @@ class BeamSearchPlayerTest {
 
         int steps = 0;
         while (!isWon(solitaire) && steps < MAX_TEST_STEPS) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             if (command == null || "quit".equalsIgnoreCase(command.trim())) {
                 break;
             }
@@ -137,4 +137,3 @@ class BeamSearchPlayerTest {
         return solitaire;
     }
 }
-

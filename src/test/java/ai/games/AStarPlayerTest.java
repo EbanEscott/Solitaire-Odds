@@ -24,7 +24,7 @@ class AStarPlayerTest {
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
 
         for (int i = 0; i < 10 && FoundationCountHelper.totalFoundation(solitaire) < 52; i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             applyCommand(solitaire, command);
         }
 
@@ -39,7 +39,7 @@ class AStarPlayerTest {
 
         int steps = 0;
         while (!isTerminal(solitaire) && steps < MAX_TEST_STEPS) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             assertNotNull(command, "A* player should always return a command until game exits");
             if ("quit".equalsIgnoreCase(command.trim())) {
                 break;
@@ -76,4 +76,3 @@ class AStarPlayerTest {
         }
     }
 }
-

@@ -42,7 +42,7 @@ class RuleBasedHeuristicsPlayerTest {
 
         // Allow several moves to reach completion.
         for (int i = 0; i < MAX_TEST_STEPS && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             applyCommand(solitaire, command);
         }
 
@@ -52,7 +52,7 @@ class RuleBasedHeuristicsPlayerTest {
     private void runSingleMoveCompletion(Solitaire solitaire, Player ai) {
         // Allow a few iterations in case AI chooses a turn first; but this scenario needs one move.
         for (int i = 0; i < 5 && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "");
+            String command = ai.nextCommand(solitaire, "", "");
             applyCommand(solitaire, command);
         }
     }

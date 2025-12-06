@@ -59,7 +59,7 @@ public class HillClimberPlayer extends AIPlayer implements Player {
     }
 
     @Override
-    public String nextCommand(Solitaire solitaire, String feedback) {
+    public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
         stepsTaken++;
         if (stepsTaken > MAX_STEPS_PER_GAME) {
             return "quit";
@@ -236,4 +236,3 @@ public class HillClimberPlayer extends AIPlayer implements Player {
         return score;
     }
 }
-

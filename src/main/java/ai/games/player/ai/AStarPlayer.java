@@ -54,7 +54,7 @@ public class AStarPlayer extends AIPlayer implements Player {
     private static final java.util.Deque<Long> recentStates = new java.util.ArrayDeque<>();
 
     @Override
-    public String nextCommand(Solitaire solitaire, String feedback) {
+    public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
         List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
         if (legal.isEmpty()) {
             return "quit";
