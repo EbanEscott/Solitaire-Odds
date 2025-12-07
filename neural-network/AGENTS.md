@@ -1,14 +1,17 @@
 The goal of this experiment is to create a solitaire model that is trained on game states. We want to evetually use this model in *AlphaSolitaire*.
 
-Here is a concise, direct introduction and architectural summary suitable for design docs, technical papers, or engineering briefs.
+## Agent guidance (neural-network module)
 
-Python code in this `solitaire` directory should:
+Python code in this `neural-network` directory should:
 
-- Keep modules importable from the project root using `-m` or direct `python` invocations.
+- Keep modules importable from the project root using `python -m src.<module>` or direct `python` invocations.
 - Prefer relative imports within the `src` package once introduced.
 - Avoid adding heavy dependencies beyond those listed in `requirements.txt` without discussion.
+- Keep training scripts, services, and notebooks focused on the Solitaire modeling experiment (no unrelated utilities).
 
 ---
+
+Here is a concise, direct introduction and architectural summary suitable for design docs, technical papers, or engineering briefs.
 
 # **AlphaSolitaire: Introduction**
 

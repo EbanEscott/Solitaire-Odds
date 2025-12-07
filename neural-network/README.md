@@ -1,6 +1,6 @@
-# Solitaire PyTorch Hello World
+# Neural Network
 
-This folder contains a minimal PyTorch "Hello World" script for the solitaire project.
+This directory contains the Python modeling stack for AlphaSolitaire. It turns logged Solitaire games from the Java engine into datasets, trains policy–value neural networks, and exposes an HTTP service that the `AlphaSolitairePlayer` in the engine can call to evaluate game states and choose moves.
 
 ## Prerequisites
 
