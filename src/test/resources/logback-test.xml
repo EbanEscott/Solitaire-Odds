@@ -29,7 +29,7 @@
     </appender>
 
     <!-- Game logs: INFO+ to file, WARN+ (after filtering) to console. -->
-    <logger name="ai.games" level="DEBUG" additivity="false">
+    <logger name="ai.games" level="INFO" additivity="false">
         <appender-ref ref="FILE"/>
         <appender-ref ref="CONSOLE"/>
     </logger>
