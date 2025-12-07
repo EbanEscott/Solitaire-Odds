@@ -9,7 +9,7 @@ This folder contains a minimal PyTorch "Hello World" script for the solitaire pr
 
 ## Setup
 
-From the repository root (`/Users/ebo/Code/solitaire`):
+From the Python project root (`/Users/ebo/Code/solitaire/solitaire`):
 
 ```bash
 # (Optional but recommended) Create and activate a virtual environment
@@ -22,7 +22,7 @@ pip install -r requirements.txt
 
 ## Run the Hello World script
 
-From the same repository root (and with the virtual environment activated, if you created one):
+From the same project root (and with the virtual environment activated, if you created one):
 
 ```bash
 python3 hello.py
@@ -35,7 +35,7 @@ You should see the input tensor, the output tensor (`x * 2`), and some basic ten
 Once you have Solitaire games logged from the Java engine (for example at `/Users/ebo/Code/cards/logs/game.log` with `-Dlog.episodes=true` enabled), you can load them and run the minimal training stub:
 
 ```bash
-cd /Users/ebo/Code/solitaire
+cd /Users/ebo/Code/solitaire/solitaire
 source .venv/bin/activate
 python3 train_stub.py /Users/ebo/Code/cards/logs/game.log
 ```
@@ -50,7 +50,7 @@ This will:
 To train a joint policy–value model with a validation split:
 
 ```bash
-cd /Users/ebo/Code/solitaire
+cd /Users/ebo/Code/solitaire/solitaire
 source .venv/bin/activate
 python3 train_policy_value.py /Users/ebo/Code/cards/logs/game.log
 ```
@@ -65,7 +65,7 @@ This will:
 For integration with the Java engine (an `AlphaSolitairePlayer` that calls into Python), run the HTTP service:
 
 ```bash
-cd /Users/ebo/Code/solitaire
+cd /Users/ebo/Code/solitaire/solitaire
 source .venv/bin/activate
 python3 service.py --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
 ```

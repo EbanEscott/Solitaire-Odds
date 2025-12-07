@@ -20,8 +20,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
 
-from dataset import SolitaireStateDataset
-from model import PolicyValueNet
+from src.dataset import SolitaireStateDataset
+from src.model import PolicyValueNet
 
 
 def main(argv: List[str]) -> None:
