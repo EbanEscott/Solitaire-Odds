@@ -1,0 +1,11 @@
+# MacOS
+.DS_Store
+
+# Workspace / editor
+*.code-workspace
+.vscode/
+
+# Logs and temp at root
+logs/
+tmp/
+
