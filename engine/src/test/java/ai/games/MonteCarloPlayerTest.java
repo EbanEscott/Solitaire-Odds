@@ -1,0 +1,80 @@
+package ai.games;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import ai.games.game.Deck;
+import ai.games.game.Solitaire;
+import ai.games.player.Player;
+import ai.games.player.ai.MonteCarloPlayer;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Basic behaviour tests for {@link MonteCarloPlayer}:
+ * - improves simple nearly-won setups
+ * - does not loop indefinitely on random games.
+ */
+class MonteCarloPlayerTest {
+
+    private static final int MAX_TEST_STEPS = 2000;
+
+    @Test
+    void monteCarloAdvancesOnSimpleNearlyWonGame() {
+        Solitaire solitaire = GreedySearchPlayerTestHelper.seedNearlyWonGameVariant();
+        Player ai = new MonteCarloPlayer(123L);
+
+        int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
+
+        for (int i = 0; i < 10 && FoundationCountHelper.totalFoundation(solitaire) < 52; i++) {
+            String command = ai.nextCommand(solitaire, "", "");
+            applyCommand(solitaire, command);
+        }
+
+        int endFoundation = FoundationCountHelper.totalFoundation(solitaire);
+        assertTrue(endFoundation > startFoundation, "Monte Carlo should improve foundation count on simple setup");
+    }
+
+    @Test
+    void monteCarloDoesNotLoopForeverOnRandomGame() {
+        Solitaire solitaire = new Solitaire(new Deck());
+        Player ai = new MonteCarloPlayer(98765L);
+
+        int steps = 0;
+        while (!isTerminal(solitaire) && steps < MAX_TEST_STEPS) {
+            String command = ai.nextCommand(solitaire, "", "");
+            assertNotNull(command, "Monte Carlo player should always return a command until game exits");
+            if ("quit".equalsIgnoreCase(command.trim())) {
+                break;
+            }
+            applyCommand(solitaire, command);
+            steps++;
+        }
+
+        assertTrue(steps < MAX_TEST_STEPS, "Monte Carlo player should not run indefinitely on a random game");
+    }
+
+    private boolean isTerminal(Solitaire solitaire) {
+        return FoundationCountHelper.totalFoundation(solitaire) == 52
+                || (solitaire.getStockpile().isEmpty()
+                && solitaire.getTalon().isEmpty());
+    }
+
+    private void applyCommand(Solitaire solitaire, String command) {
+        if (command == null) {
+            return;
+        }
+        String trimmed = command.trim();
+        if (trimmed.equalsIgnoreCase("turn")) {
+            solitaire.turnThree();
+            return;
+        }
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
+            if (parts.length == 4) {
+                solitaire.moveCard(parts[1], parts[2], parts[3]);
+            } else {
+                solitaire.moveCard(parts[1], null, parts[2]);
+            }
+        }
+    }
+}
