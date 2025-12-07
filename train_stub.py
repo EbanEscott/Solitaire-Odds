@@ -20,7 +20,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from dataset import SolitaireStateDataset
+from src.dataset import SolitaireStateDataset
+
 
 
 class SimplePolicyNet(nn.Module):
@@ -90,4 +91,3 @@ def main(args: list[str]) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-

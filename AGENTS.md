@@ -2,6 +2,12 @@ The goal of this experiment is to create a solitaire model that is trained on ga
 
 Here is a concise, direct introduction and architectural summary suitable for design docs, technical papers, or engineering briefs.
 
+Python code in this `solitaire` directory should:
+
+- Keep modules importable from the project root using `-m` or direct `python` invocations.
+- Prefer relative imports within the `src` package once introduced.
+- Avoid adding heavy dependencies beyond those listed in `requirements.txt` without discussion.
+
 ---
 
 # **AlphaSolitaire: Introduction**
