@@ -5,9 +5,9 @@
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <!-- Only emit WARN and above to the console during tests. -->
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+        <!-- <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
             <level>WARN</level>
-        </filter>
+        </filter> -->
         <encoder>
             <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{36} - %msg%n</pattern>
         </encoder>
@@ -29,7 +29,7 @@
     </appender>
 
     <!-- Game logs: INFO+ to file, WARN+ (after filtering) to console. -->
-    <logger name="ai.games" level="INFO" additivity="false">
+    <logger name="ai.games" level="DEBUG" additivity="false">
         <appender-ref ref="FILE"/>
         <appender-ref ref="CONSOLE"/>
     </logger>
