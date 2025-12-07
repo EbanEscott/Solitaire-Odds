@@ -65,7 +65,7 @@ A Spring Boot command-line Solitaire (Klondike-style) app under the `ai.games` p
   - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
-## Running (from `cards/`)
+## Running (from `engine/`)
 Exactly one player profile must be active. The default profile is `ai-human` (set in `src/main/resources/application.properties`).
 
 Human CLI (default):
