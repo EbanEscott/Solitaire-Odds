@@ -96,8 +96,8 @@ public class Game implements CommandLineRunner {
             printTurnView(solitaire, aiMode, view, iterations);
             if (isWon(solitaire)) {
                 won = true;
-                System.out.println("🎉🤗🎉 Congrats, you moved every card to the foundations! 🎉🤗🎉");
                 if (log.isDebugEnabled()) {
+                    log.debug("🎉🤗🎉 Congrats, you moved every card to the foundations! 🎉🤗🎉");
                     log.debug("Game won by {}", player.getClass().getSimpleName());
                 }
                 break;
@@ -105,16 +105,17 @@ public class Game implements CommandLineRunner {
 
             // If this is a human player, prompt on the console.
             if (!aiMode) {
-                System.out.print("Enter command (turn | move FROM TO | quit): ");
+                if (log.isDebugEnabled()) {
+                    log.debug("Enter command (turn | move FROM TO | quit): ");
+                }
             }
 
             // Ask the player (AI or human) for the next command using the
             // recommended moves and feedback we just prepared.
             String input = player.nextCommand(solitaire, moves, feedback);
             if (input == null) {
-                System.out.println("Input closed. Exiting.");
                 if (log.isDebugEnabled()) {
-                    log.debug("Input closed for player {}", player.getClass().getSimpleName());
+                    log.debug("Input closed. Exiting for player {}", player.getClass().getSimpleName());
                 }
                 break;
             }
@@ -143,10 +144,11 @@ public class Game implements CommandLineRunner {
             // Update iteration count and enforce a hard safety cap.
             iterations++;
             if (iterations > maxIterations) {
-                System.out.println("Maximum iteration limit reached (" + maxIterations
-                        + "); stopping game loop for " + player.getClass().getSimpleName() + ".");
                 if (log.isDebugEnabled()) {
-                    log.debug("Max iterations ({}) reached, stopping game loop to avoid runaway execution.", maxIterations);
+                    log.debug(
+                            "Maximum iteration limit reached ({}); stopping game loop for {} to avoid runaway execution.",
+                            maxIterations,
+                            player.getClass().getSimpleName());
                 }
                 break;
             }
@@ -181,7 +183,9 @@ public class Game implements CommandLineRunner {
                     maxGuidanceTtlTurns);
 
             if (aiMode) {
-                System.out.println("AI command: " + input);
+                if (log.isDebugEnabled()) {
+                    log.debug("AI command: {}", input);
+                }
             }
 
             if (quitRequested) {
@@ -437,7 +441,9 @@ public class Game implements CommandLineRunner {
             sb.append(",\"chosen_command\":\"").append(chosenCommand).append('"');
             sb.append('}');
 
-            log.info("EPISODE_STEP {}", sb);
+            if (log.isInfoEnabled()) {
+                log.info("EPISODE_STEP {}", sb);
+            }
         } catch (Exception e) {
             // Logging must never interfere with gameplay.
             if (log.isDebugEnabled()) {
@@ -476,7 +482,9 @@ public class Game implements CommandLineRunner {
             sb.append(",\"duration_nanos\":").append(durationNanos);
             sb.append('}');
 
-            log.info("EPISODE_SUMMARY {}", sb);
+            if (log.isInfoEnabled()) {
+                log.info("EPISODE_SUMMARY {}", sb);
+            }
         } catch (Exception e) {
             if (log.isDebugEnabled()) {
                 log.debug("Failed to log episode summary", e);
@@ -493,31 +501,39 @@ public class Game implements CommandLineRunner {
      * information the AIs receive.
      */
     private void printTurnView(Solitaire solitaire, boolean aiMode, TurnView view, int iterations) {
-        if (log.isDebugEnabled()) {
-            log.debug("Move {} - current board:\n{}", iterations + 1, stripAnsi(solitaire.toString()));
-        }
-
-        System.out.println("--------------------------------------------------------------------------------------------------");
         String gameIndex = System.getProperty("game.index");
         String gameTotal = System.getProperty("game.total");
-        if (gameIndex != null && gameTotal != null) {
-            System.out.println("GAME " + gameIndex + "/" + gameTotal + " MOVE " + (iterations + 1));
-        } else {
-            System.out.println("MOVE " + (iterations + 1));
-        }
-        System.out.println("--------------------------------------------------------------------------------------------------");
-        System.out.println(solitaire);
-        if (!view.suggestionsForDisplay.isBlank()) {
-            System.out.println(view.suggestionsForDisplay);
-        }
-        if (!view.recommendedMoves.isEmpty()) {
-            System.out.println("Recommended moves now:");
-            for (String move : view.recommendedMoves) {
-                System.out.println("- " + move);
+        if (log.isDebugEnabled()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("--------------------------------------------------------------------------------------------------\n");
+            if (gameIndex != null && gameTotal != null) {
+                sb.append("GAME ")
+                        .append(gameIndex)
+                        .append("/")
+                        .append(gameTotal)
+                        .append(" MOVE ")
+                        .append(iterations + 1)
+                        .append('\n');
+            } else {
+                sb.append("MOVE ")
+                        .append(iterations + 1)
+                        .append('\n');
             }
-        }
-        if (!view.feedbackForPlayer.isBlank() && !aiMode) {
-            System.out.println("Feedback: " + view.feedbackForPlayer);
+            sb.append("--------------------------------------------------------------------------------------------------\n");
+            sb.append(stripAnsi(solitaire.toString())).append('\n');
+            if (!view.suggestionsForDisplay.isBlank()) {
+                sb.append(view.suggestionsForDisplay).append('\n');
+            }
+            if (!view.recommendedMoves.isEmpty()) {
+                sb.append("Recommended moves now:\n");
+                for (String move : view.recommendedMoves) {
+                    sb.append("- ").append(move).append('\n');
+                }
+            }
+            if (!view.feedbackForPlayer.isBlank() && !aiMode) {
+                sb.append("Feedback: ").append(view.feedbackForPlayer).append('\n');
+            }
+            log.debug("{}", sb);
         }
     }
 
@@ -636,12 +652,12 @@ public class Game implements CommandLineRunner {
         }
 
         if (aiMode && state.pingPongCount > maxPingPongRepeats) {
-            System.out.println("Ping-pong limit exceeded; forcing quit for "
-                    + player.getClass().getSimpleName() + " after "
-                    + state.pingPongCount + " alternating commands.");
             if (log.isDebugEnabled()) {
-                log.debug("Ping-pong limit ({}) exceeded, forcing quit for {}",
-                        maxPingPongRepeats, player.getClass().getSimpleName());
+                log.debug(
+                        "Ping-pong limit exceeded; forcing quit for {} after {} alternating commands (limit {}).",
+                        player.getClass().getSimpleName(),
+                        state.pingPongCount,
+                        maxPingPongRepeats);
             }
             return true;
         }
@@ -694,7 +710,6 @@ public class Game implements CommandLineRunner {
                             + "- " + input + "\n"
                             + "- Reason: " + reason + "\n"
                             + "- Do NOT repeat this exact command.";
-                    System.out.println("Illegal move: " + reason);
                     if (log.isDebugEnabled()) {
                         log.debug("Illegal move command from {}: {} ({})",
                                 player.getClass().getSimpleName(), input, reason);
@@ -719,7 +734,6 @@ public class Game implements CommandLineRunner {
                             + "- " + input + "\n"
                             + "- Reason: " + reason + "\n"
                             + "- Do NOT repeat this exact command.";
-                    System.out.println("Illegal move: " + reason);
                     if (log.isDebugEnabled()) {
                         log.debug("Illegal move command from {}: {} ({})",
                                 player.getClass().getSimpleName(), input, reason);
@@ -739,7 +753,6 @@ public class Game implements CommandLineRunner {
             } else {
                 illegalFeedback = "Usage error:\n"
                         + "- Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)";
-                System.out.println("Usage: move FROM [CARD] TO (e.g., move W T1 or move T7 Q♣ F1)");
                 if (log.isDebugEnabled()) {
                     log.debug("Invalid move format from {}: {}",
                             player.getClass().getSimpleName(), input);
@@ -749,7 +762,6 @@ public class Game implements CommandLineRunner {
             illegalFeedback = "Unknown command:\n"
                     + "- \"" + input + "\" is not recognised.\n"
                     + "- Use 'turn', 'move FROM TO', or 'quit'.";
-            System.out.println("Unknown command. Use 'turn', 'move FROM TO', or 'quit'.");
             if (log.isDebugEnabled()) {
                 log.debug("Unknown command from {}: {}",
                         player.getClass().getSimpleName(), input);
