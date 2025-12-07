@@ -44,3 +44,58 @@ This will:
 - Build a `SolitaireStateDataset` from the log file.
 - Print the state dimension and action-space size.
 - Run a small MLP over a few batches to verify shapes and loss behave sensibly.
+
+## Train a policy–value network
+
+To train a joint policy–value model with a validation split:
+
+```bash
+cd /Users/ebo/Code/solitaire
+source .venv/bin/activate
+python3 train_policy_value.py /Users/ebo/Code/cards/logs/game.log
+```
+
+This will:
+- Build train/validation splits from the logged games.
+- Train a `PolicyValueNet` to imitate the logged moves and predict win probability.
+- Save a checkpoint to `checkpoints/policy_value_latest.pt`.
+
+## Run the AlphaSolitaire model service
+
+For integration with the Java engine (an `AlphaSolitairePlayer` that calls into Python), run the HTTP service:
+
+```bash
+cd /Users/ebo/Code/solitaire
+source .venv/bin/activate
+python3 service.py --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
+```
+
+The service exposes a single endpoint:
+
+- `POST /evaluate` with JSON body:
+
+  ```json
+  {
+    "tableau_visible": [["3♦","4♠"], ["(etc)"]],
+    "tableau_face_down": [3, 0, 0, 0, 0, 0, 0],
+    "foundation": [["A♣"], [], [], []],
+    "talon": ["7♣"],
+    "stock_size": 24,
+    "legal_moves": ["turn", "move W T1", "move T1 4♠ F1"]
+  }
+  ```
+
+- The response JSON contains:
+
+  ```json
+  {
+    "chosen_command": "move T1 4♠ F1",
+    "win_probability": 0.73,
+    "legal_moves": [
+      {"command": "move T1 4♠ F1", "probability": 0.73},
+      {"command": "turn", "probability": 0.20}
+    ]
+  }
+  ```
+
+On the Java side, an `AlphaSolitairePlayer` can mirror the existing logging structure to build this JSON, POST it to `/evaluate`, and use `chosen_command` as its move.
