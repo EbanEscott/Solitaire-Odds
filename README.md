@@ -9,7 +9,7 @@ This folder contains a minimal PyTorch "Hello World" script for the solitaire pr
 
 ## Setup
 
-From the Python project root (`/Users/ebo/Code/solitaire/solitaire`):
+From the Python project root (`/Users/ebo/Code/solitaire/neural-network`):
 
 ```bash
 # (Optional but recommended) Create and activate a virtual environment
@@ -25,19 +25,19 @@ pip install -r requirements.txt
 From the same project root (and with the virtual environment activated, if you created one):
 
 ```bash
-python3 hello.py
+python -m src.hello
 ```
 
-You should see the input tensor, the output tensor (`x * 2`), and some basic tensor metadata printed to the console.
+You should see a small training run for y = 2x + 1 and a prediction for a new x value.
 
 ## Use Java logs and run the training stub
 
-Once you have Solitaire games logged from the Java engine (for example at `/Users/ebo/Code/cards/logs/game.log` with `-Dlog.episodes=true` enabled), you can load them and run the minimal training stub:
+Once you have Solitaire games logged from the Java engine (for example at `/Users/ebo/Code/solitaire/engine/logs/game.log` with `-Dlog.episodes=true` enabled), you can load them and run the minimal training stub module:
 
 ```bash
-cd /Users/ebo/Code/solitaire/solitaire
+cd /Users/ebo/Code/solitaire/neural-network
 source .venv/bin/activate
-python3 train_stub.py /Users/ebo/Code/cards/logs/game.log
+python -m src.train_stub /Users/ebo/Code/solitaire/engine/logs/game.log
 ```
 
 This will:
@@ -50,9 +50,9 @@ This will:
 To train a joint policy–value model with a validation split:
 
 ```bash
-cd /Users/ebo/Code/solitaire/solitaire
+cd /Users/ebo/Code/solitaire/neural-network
 source .venv/bin/activate
-python3 train_policy_value.py /Users/ebo/Code/cards/logs/game.log
+python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/game.log
 ```
 
 This will:
@@ -62,12 +62,12 @@ This will:
 
 ## Run the AlphaSolitaire model service
 
-For integration with the Java engine (an `AlphaSolitairePlayer` that calls into Python), run the HTTP service:
+For integration with the Java engine (an `AlphaSolitairePlayer` that calls into Python), run the HTTP service module:
 
 ```bash
-cd /Users/ebo/Code/solitaire/solitaire
+cd /Users/ebo/Code/solitaire/neural-network
 source .venv/bin/activate
-python3 service.py --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
+python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
 ```
 
 The service exposes a single endpoint:

@@ -70,7 +70,7 @@ Create a Solitaire policy–value model trained directly on game states, suitabl
 
 We will follow **Option 2 / Option 3**:
 
-- Treat the existing Java engine in `/Users/ebo/Code/cards/src/main/java/ai/games` as the **authoritative Solitaire simulator and evaluation harness**.
+- Treat the existing Java engine in `/Users/ebo/Code/solitaire/engine/src/main/java/ai/games` as the **authoritative Solitaire simulator and evaluation harness**.
 - Use this Python repo (`/Users/ebo/Code/solitaire`) as the **modeling stack** (state encoding, PyTorch networks, training, analysis).
 - Start by generating data from the Java engine via logging, and only consider a pure-Python environment later if needed for research convenience.
 
@@ -85,7 +85,7 @@ We will follow **Option 2 / Option 3**:
    - Extend or configure the Java engine to log full game episodes using existing loggers:
      - Per-step fields: raw game state, list of legal moves, chosen move (from a baseline solver), step index.
      - Per-episode fields: deal seed, outcome (win/loss/stuck), total moves, solver identity.
-   - Choose a stable on-disk format (e.g., JSONL or compact binary) and output location (e.g., `logs/solitaire_episodes/` under the cards repo).
+   - Choose a stable on-disk format (e.g., JSONL or compact binary) and output location (e.g., `logs/solitaire_episodes/` under the engine repo).
    - Add a simple CLI or test harness in the Java project to generate batches of episodes on demand.
 
 3. **Python Data Pipeline for Logged Game States**

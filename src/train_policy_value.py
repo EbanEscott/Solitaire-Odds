@@ -1,13 +1,9 @@
 """
 Train a policy–value network on Solitaire logs from the Java engine.
 
-Usage (from repo root):
+Run from the project root as:
 
-    python3 train_policy_value.py /Users/ebo/Code/cards/logs/game.log
-
-You can also pass multiple log files:
-
-    python3 train_policy_value.py /path/to/log1.log /path/to/log2.log
+    python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/game.log
 """
 
 from __future__ import annotations
@@ -20,13 +16,19 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
 
-from src.dataset import SolitaireStateDataset
-from src.model import PolicyValueNet
+from .dataset import SolitaireStateDataset
+from .model import PolicyValueNet
 
 
-def main(argv: List[str]) -> None:
+def main(argv: List[str] | None = None) -> None:
+    if argv is None:
+        argv = sys.argv[1:]
+
     if not argv:
-        print("Usage: python3 train_policy_value.py /path/to/game.log [more_logs.log ...]")
+        print(
+            "Usage: python -m src.train_policy_value "
+            "/path/to/game.log [more_logs.log ...]"
+        )
         raise SystemExit(1)
 
     log_paths = [Path(p) for p in argv]
@@ -40,13 +42,11 @@ def main(argv: List[str]) -> None:
         print("Dataset is empty; ensure the Java engine was run with -Dlog.episodes=true.")
         raise SystemExit(1)
 
-    # Train/validation split (e.g., 90% / 10%).
     val_size = max(1, int(0.1 * len(dataset)))
     train_size = len(dataset) - val_size
     generator = torch.Generator().manual_seed(42)
     train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=generator)
 
-    # Peek at one sample for dimensions.
     sample_state, sample_policy, _ = dataset[0]
     state_dim = sample_state.shape[0]
     num_actions = sample_policy.shape[0]
@@ -80,7 +80,6 @@ def main(argv: List[str]) -> None:
 
         for states, policies, values in train_loader:
             states = states.to(device)
-            # For the policy, use the one-hot target's argmax as class index.
             target_actions = policies.argmax(dim=-1).to(device)
             target_values = values.to(device)
 
@@ -94,7 +93,6 @@ def main(argv: List[str]) -> None:
             loss.backward()
             optimizer.step()
 
-            # Metrics.
             with torch.no_grad():
                 pred_actions = logits.argmax(dim=-1)
                 policy_correct = (pred_actions == target_actions).sum().item()
@@ -115,7 +113,6 @@ def main(argv: List[str]) -> None:
         train_policy_acc = total_correct_policy / total_examples
         train_value_acc = total_correct_value / total_examples
 
-        # Validation.
         model.eval()
         val_policy_loss = 0.0
         val_value_loss = 0.0
@@ -161,7 +158,6 @@ def main(argv: List[str]) -> None:
             f"val_acc(p={val_policy_acc:.3f}, v={val_value_acc:.3f})"
         )
 
-    # Optionally save the final model parameters.
     out_dir = Path("checkpoints")
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / "policy_value_latest.pt"
@@ -178,4 +174,5 @@ def main(argv: List[str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()
+
