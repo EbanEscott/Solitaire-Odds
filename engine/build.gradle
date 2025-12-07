@@ -1,0 +1,59 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.7'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'ai.games'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.ai:spring-ai-bom:1.1.0"
+    }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
+    implementation 'org.springframework.ai:spring-ai-openai'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.withType(Test).configureEach {
+    testLogging {
+        events "passed", "skipped", "failed"
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        showStandardStreams = true
+    }
+    systemProperties System.getProperties()
+    jvmArgs += ['-Djava.locale.providers=JRE,SPI']
+    afterSuite { desc, result ->
+        if (!desc.parent) {
+            println "Test summary: ${result.resultType} - total: ${result.testCount}, passed: ${result.successfulTestCount}, failed: ${result.failedTestCount}, skipped: ${result.skippedTestCount}"
+        }
+    }
+}
+
+tasks.named('bootRun') {
+    standardInput = System.in
+    systemProperties System.getProperties()
+    jvmArgs += ['-Djava.locale.providers=JRE,SPI']
+}
