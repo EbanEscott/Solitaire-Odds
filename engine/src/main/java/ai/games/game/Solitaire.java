@@ -9,7 +9,6 @@ import java.util.Objects;
  * Minimal model of a Solitaire/Klondike layout: tableau, foundation, stockpile, and talon.
  */
 public class Solitaire {
-    private static final int CELL_WIDTH = 8;
     private static final long[] STATE_ZOBRIST = initStateZobrist();
 
     // Tableau: seven piles where most play occurs.
@@ -322,184 +321,7 @@ public class Solitaire {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        int tableauCellWidth = computeTableauCellWidth();
-        String tableauBorder = buildBorder(tableau.size(), "  ", tableauCellWidth);
-        sb.append("-".repeat(tableauBorder.length())).append('\n');
-        appendFoundationSection(sb);
-        appendTableauSection(sb, tableauCellWidth);
-        appendStockAndTalon(sb);
-        return sb.toString();
-    }
-
-    private void appendFoundationSection(StringBuilder sb) {
-        sb.append("FOUNDATION\n");
-        List<String> labels = new ArrayList<>();
-        List<String> values = new ArrayList<>();
-        for (int i = 0; i < foundation.size(); i++) {
-            labels.add("F" + (i + 1));
-            List<Card> pile = foundation.get(i);
-            values.add(pile.isEmpty() ? "--" : pile.get(pile.size() - 1).toString());
-        }
-        int width = Math.max(CELL_WIDTH, Math.max(maxVisibleLength(labels), maxVisibleLength(values)));
-        appendBoxRow(sb, labels, values, "    ", width);
-        sb.append('\n');
-    }
-
-    private void appendTableauSection(StringBuilder sb, int cellWidth) {
-        sb.append("TABLEAU\n");
-        TableauDisplay display = buildTableauDisplay();
-        int width = Math.max(cellWidth, Math.max(maxVisibleLength(display.labels),
-                maxVisibleLengthColumns(display.columns)));
-
-        String indent = "  ";
-        String border = buildBorder(display.labels.size(), indent, width);
-        sb.append(border).append('\n');
-        sb.append(buildRow(display.labels, indent, width)).append('\n');
-
-        int maxRows = 0;
-        for (List<String> col : display.columns) {
-            maxRows = Math.max(maxRows, col.size());
-        }
-        for (int row = 0; row < maxRows; row++) {
-            List<String> rowCells = new ArrayList<>();
-            for (List<String> col : display.columns) {
-                rowCells.add(row < col.size() ? col.get(row) : "");
-            }
-            sb.append(buildRow(rowCells, indent, width)).append('\n');
-        }
-        sb.append(border).append('\n');
-    }
-
-    private void appendCardsInline(StringBuilder sb, List<Card> pile) {
-        for (int i = 0; i < pile.size(); i++) {
-            sb.append(pile.get(i));
-            if (i < pile.size() - 1) {
-                sb.append(' ');
-            }
-        }
-    }
-
-    private void appendBoxRow(StringBuilder sb, List<String> labels, List<String> contents, String indent, int width) {
-        String top = buildBorder(labels.size(), indent, width);
-        String labelLine = buildRow(labels, indent, width);
-        String contentLine = buildRow(contents, indent, width);
-        sb.append(top).append('\n').append(labelLine).append('\n').append(contentLine).append('\n').append(top);
-    }
-
-    private String buildBorder(int count, String indent, int cellWidth) {
-        StringBuilder line = new StringBuilder(indent);
-        for (int i = 0; i < count; i++) {
-            line.append("+").append("-".repeat(cellWidth + 2)).append("+");
-            if (i < count - 1) {
-                line.append("  ");
-            }
-        }
-        return line.toString();
-    }
-
-    private String buildRow(List<String> cells, String indent, int cellWidth) {
-        StringBuilder line = new StringBuilder(indent);
-        for (int i = 0; i < cells.size(); i++) {
-            String content = cells.get(i);
-            line.append("| ").append(padCell(content, cellWidth)).append(" |");
-            if (i < cells.size() - 1) {
-                line.append("  ");
-            }
-        }
-        return line.toString();
-    }
-
-    private String padCell(String value, int width) {
-        int visible = visibleLength(value);
-        if (visible >= width) {
-            return value;
-        }
-        int totalPad = width - visible;
-        int left = totalPad / 2;
-        int right = totalPad - left;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < left; i++) {
-            sb.append(' ');
-        }
-        sb.append(value);
-        for (int i = 0; i < right; i++) {
-            sb.append(' ');
-        }
-        return sb.toString();
-    }
-
-    private int visibleLength(String value) {
-        // Strip ANSI color codes when calculating padding.
-        String stripped = value.replaceAll("\\u001B\\[[;\\d]*m", "");
-        return stripped.length();
-    }
-
-    private int maxVisibleLength(List<String> items) {
-        int max = 0;
-        for (String item : items) {
-            max = Math.max(max, visibleLength(item));
-        }
-        return max;
-    }
-
-    private int maxVisibleLengthColumns(List<List<String>> columns) {
-        int max = 0;
-        for (List<String> col : columns) {
-            for (String item : col) {
-                max = Math.max(max, visibleLength(item));
-            }
-        }
-        return max;
-    }
-
-    private int computeTableauCellWidth() {
-        TableauDisplay display = buildTableauDisplay();
-        int maxContent = Math.max(maxVisibleLength(display.labels), maxVisibleLengthColumns(display.columns));
-        return Math.max(CELL_WIDTH, maxContent);
-    }
-
-    private void appendStockAndTalon(StringBuilder sb) {
-        sb.append("STOCKPILE & TALON\n");
-        List<String> labels = new ArrayList<>();
-        List<String> values = new ArrayList<>();
-
-        labels.add("STOCK");
-        labels.add("TALON");
-
-        values.add(stockpile.isEmpty() ? "empty" : stockpile.size() + " down");
-        if (talon.isEmpty()) {
-            values.add("--");
-        } else {
-            Card top = talon.get(talon.size() - 1);
-            values.add(top + " (" + talon.size() + ")");
-        }
-
-        int width = Math.max(CELL_WIDTH, Math.max(maxVisibleLength(labels), maxVisibleLength(values)));
-        appendBoxRow(sb, labels, values, "      ", width);
-    }
-
-    private TableauDisplay buildTableauDisplay() {
-        List<String> labels = new ArrayList<>();
-        List<List<String>> columns = new ArrayList<>();
-        for (int i = 0; i < tableau.size(); i++) {
-            List<Card> pile = tableau.get(i);
-            int faceUp = tableauFaceUp.get(i);
-            int faceDown = Math.max(0, pile.size() - faceUp);
-            labels.add("T" + (i + 1) + " [" + faceDown + "]");
-
-            List<String> col = new ArrayList<>();
-            if (pile.isEmpty()) {
-                col.add("(empty)");
-            } else {
-                int start = Math.max(0, pile.size() - faceUp);
-                for (int j = start; j < pile.size(); j++) {
-                    col.add(pile.get(j).toString());
-                }
-            }
-            columns.add(col);
-        }
-        return new TableauDisplay(labels, columns);
+        return new BoardFormatter(this).format();
     }
 
     private List<Card> resolvePile(String code) {
@@ -547,15 +369,6 @@ public class Solitaire {
         } catch (NumberFormatException e) {
             return -1;
         }
-    }
-
-    private void decrementFaceUp(int fromIndex, List<Card> fromPile) {
-        int current = tableauFaceUp.get(fromIndex);
-        current = Math.max(0, current - 1);
-        if (current == 0 && !fromPile.isEmpty()) {
-            current = 1; // flip next card
-        }
-        tableauFaceUp.set(fromIndex, current);
     }
 
     /**
@@ -618,16 +431,6 @@ public class Solitaire {
 
         public static MoveResult failure(String message) {
             return new MoveResult(false, message);
-        }
-    }
-
-    private static class TableauDisplay {
-        final List<String> labels;
-        final List<List<String>> columns;
-
-        TableauDisplay(List<String> labels, List<List<String>> columns) {
-            this.labels = labels;
-            this.columns = columns;
         }
     }
 

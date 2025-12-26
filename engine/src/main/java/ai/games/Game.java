@@ -503,36 +503,47 @@ public class Game implements CommandLineRunner {
     private void printTurnView(Solitaire solitaire, boolean aiMode, TurnView view, int iterations) {
         String gameIndex = System.getProperty("game.index");
         String gameTotal = System.getProperty("game.total");
-        if (log.isDebugEnabled()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("--------------------------------------------------------------------------------------------------\n");
-            if (gameIndex != null && gameTotal != null) {
-                sb.append("GAME ")
-                        .append(gameIndex)
-                        .append("/")
-                        .append(gameTotal)
-                        .append(" MOVE ")
-                        .append(iterations + 1)
-                        .append('\n');
-            } else {
-                sb.append("MOVE ")
-                        .append(iterations + 1)
-                        .append('\n');
-            }
-            sb.append("--------------------------------------------------------------------------------------------------\n");
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n--------------------------------------------------------------------------------------------------\n");
+        if (gameIndex != null && gameTotal != null) {
+            sb.append("GAME ")
+                    .append(gameIndex)
+                    .append("/")
+                    .append(gameTotal)
+                    .append(" MOVE ")
+                    .append(iterations + 1)
+                    .append('\n');
+        } else {
+            sb.append("MOVE ")
+                    .append(iterations + 1)
+                    .append('\n');
+        }
+        
+        // Add board (with or without colour based on aiMode)
+        if (!aiMode) {
+            sb.append(solitaire.toString()).append('\n');
+        } else {
             sb.append(stripAnsi(solitaire.toString())).append('\n');
-            if (!view.suggestionsForDisplay.isBlank()) {
-                sb.append(view.suggestionsForDisplay).append('\n');
+        }
+        
+        // Common guidance and recommendations for both human and AI players
+        if (!view.suggestionsForDisplay.isBlank()) {
+            sb.append(view.suggestionsForDisplay).append('\n');
+        }
+        if (!view.recommendedMoves.isEmpty()) {
+            sb.append("Recommended moves now:\n");
+            for (String move : view.recommendedMoves) {
+                sb.append("- ").append(move).append('\n');
             }
-            if (!view.recommendedMoves.isEmpty()) {
-                sb.append("Recommended moves now:\n");
-                for (String move : view.recommendedMoves) {
-                    sb.append("- ").append(move).append('\n');
-                }
-            }
-            if (!view.feedbackForPlayer.isBlank() && !aiMode) {
-                sb.append("Feedback: ").append(view.feedbackForPlayer).append('\n');
-            }
+        }
+        if (!view.feedbackForPlayer.isBlank()) {
+            sb.append("Feedback: ").append(view.feedbackForPlayer).append('\n');
+        }
+        
+        // Log based on player type
+        if (!aiMode) {
+            log.info("{}", sb);
+        } else if (log.isDebugEnabled()) {
             log.debug("{}", sb);
         }
     }
