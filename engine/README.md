@@ -31,11 +31,11 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 - Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
 ## Running (from `engine/`)
-Exactly one player profile must be active. The default profile is `ai-human` (set in `src/main/resources/application.properties`).
+Exactly one player profile must be active. Profiles available: `ai-human` (CLI human player), `ai-beam`, `ai-hill`, `ai-rule`, `ai-greedy`, `ai-mcts`, `ai-astar`, `ai-ollama`, and `ai-openai`.
 
-Human CLI (default):
+Human CLI:
 ```
-./gradlew bootRun
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human
 ```
 
 AI profiles:
