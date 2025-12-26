@@ -1,6 +1,6 @@
 # Solitaire Odds
 
-Have you ever wondered what the odds of winnng a game of Solitaire is? This project was built to demonstrate how AI (GPT-5.1-Codex-Max on Medium) and Human (Eban Escott on Coffee) can vibe to find the probability of winning a Solitaire game.
+Have you ever wondered what the odds of winnng a game of Solitaire are? This project was built to demonstrate how an AI and Human can vibe to find the probability of winning a Solitaire game.
 
 A well-shuffled 52-card deck has *52! permutations (about 8.1 × 10^67)*, so many that it dwarfs the *roughly 10^20 grains of sand on Earth*. In other words, almost every Solitaire deal you have ever seen is effectively a one-off in cosmic terms. Even at *one deal per second*, brute-forcing every deck order would take *around 2.6 × 10^60 years*, a timespan so huge the age of the universe does not even register on the same scale.
 
@@ -48,11 +48,13 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
   - **Hill-climbing Search**: Local search that walks the state space, accepting only moves that improve a heuristic value (with restarts).
   - **Beam Search**: Multi-step search that keeps only the best `k` states at each depth to control branching.
   - **Monte Carlo Search**: Runs many random playouts from each state to estimate which moves lead to more wins.
-  - **A* Search**: Treats Solitaire as a shortest-path problem and uses an admissible-ish heuristic to guide exploration toward winning states.
+  - **A\* Search**: Treats Solitaire as a shortest-path problem and uses an admissible-ish heuristic to guide exploration toward winning states.
 
-- **LLM-backed players** — Use language models to propose or score moves:
+- **LLM-backed players** — Use language models to propose moves:
   - **OpenAI**: Sends the current state and move options to an OpenAI chat model (e.g., `gpt-5-mini`) over HTTP and executes the model’s chosen move.
   - **Alibaba (Ollama)**: Uses the `qwen3-coder:30b` model via a local Ollama server; the engine prompts the model with a structured description of the board and legal moves and follows its recommendation.
+
+> LLM-backed players performed very poorly because they do not keep any internal state of the game play. It was not until the prompts were significantly refined that they began to win any games. At that point, it felt like the prompts were encoding game rules rather than relying on the model's reasoning.
 
 - **Neural MCTS player (AlphaSolitaire)** — Hybrid search + learned evaluation:
   - **AlphaSolitaire (MCTS + NN)**: Uses Monte Carlo Tree Search guided by a neural policy–value network trained in the `neural-network` module. The Java engine calls the Python service to evaluate states and choose statistically strong moves.
