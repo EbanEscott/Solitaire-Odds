@@ -111,6 +111,12 @@ AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-
 ./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks -Dalphasolitaire.tests=true   # requires Python AlphaSolitaire model service
 ```
 
+Game tree analysis (exhaustive exploration of state spaces; see `src/test/java/ai/games/analysis/README.md`):
+```
+./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_100Games_Quick"      # Quick: ~2-3 min
+./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_1000Games"           # Full: ~30-40 min
+```
+
 Clean:
 ```
 ./gradlew clean
