@@ -2,6 +2,7 @@
 <configuration>
     <property name="LOG_DIR" value="logs"/>
     <property name="LOG_FILE" value="${LOG_DIR}/game.log"/>
+    <property name="EPISODE_LOG_FILE" value="${LOG_DIR}/episode.log"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <!-- Only emit WARN and above to the console during tests. -->
@@ -27,6 +28,26 @@
             <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
+
+    <appender name="EPISODE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${EPISODE_LOG_FILE}</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/episode.%i.log</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>5</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>10MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder>
+            <pattern>%msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Episode logs: INFO+ to separate file, no console output. -->
+    <logger name="ai.games.EpisodeLogger" level="INFO" additivity="false">
+        <appender-ref ref="EPISODE_FILE"/>
+    </logger>
 
     <!-- Game logs: INFO+ to file, WARN+ (after filtering) to console. -->
     <logger name="ai.games" level="INFO" additivity="false">

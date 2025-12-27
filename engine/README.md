@@ -130,6 +130,32 @@ Performance benchmarks (500 games each; slow):
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
 ```
 
+#### Generating Training Data (Episode Logging)
+
+To generate clean episode logs for the neural network training pipeline, run any results test with `-Dlog.episodes=true`. Episodes are written as JSON lines to `logs/episode.log` (separate from debug logs in `game.log`):
+
+```bash
+# Generate episodes from A* player (100 games)
+./gradlew test --tests ai.games.results.AStarPlayerResultsTest -Dlog.episodes=true
+
+# Generate episodes from Greedy player
+./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest -Dlog.episodes=true
+
+# Generate episodes from Rule-based player
+./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest -Dlog.episodes=true
+
+# Generate episodes from any player and verify the output
+./gradlew test --tests "ai.games.results.**" -Dlog.episodes=true
+wc -l logs/episode.log
+head -1 logs/episode.log
+```
+
+Each episode log line contains:
+- `EPISODE_STEP`: per-move state, legal/recommended moves, chosen action
+- `EPISODE_SUMMARY`: end-of-game statistics (win/loss, move count, duration)
+
+These logs are consumed by the Python neural network training pipeline in `../neural-network`.
+
 LLM player benchmarks (enable with flags):
 ```
 ./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks -Dopenai.tests=true
