@@ -38,6 +38,11 @@ Human CLI:
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human
 ```
 
+Human CLI with training mode (undo enabled):
+```
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true
+```
+
 AI profiles:
 ```
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-beam          # beam search (fixed-depth, fixed-width)
@@ -124,6 +129,7 @@ java -cp src/main/java ai.games.Game
 ## Gameplay commands (CLI)
 - `turn` — flip up to three cards from stock to talon.
 - `move FROM TO` — e.g., `move W T3`, `move T7 F1`, `move T6 T1`.
+- `undo` — revert the last move or turn (training mode only; replay from start without that action).
 - `quit` — exit.
 
 Pile codes:
@@ -143,4 +149,4 @@ Pile codes:
 
 ## Notes
 - ANSI suit symbols are used (hearts/diamonds in red).
-- Tableau display shows face-up top rows with face-down counts next to headers.+
+- Tableau display shows face-up top rows with face-down counts next to headers.

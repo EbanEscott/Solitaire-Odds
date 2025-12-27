@@ -1,5 +1,6 @@
 package ai.games;
 
+import ai.games.config.TrainingModeProperties;
 import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
@@ -12,6 +13,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.WebApplicationType;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @SpringBootApplication
 public class Game implements CommandLineRunner {
@@ -19,10 +21,21 @@ public class Game implements CommandLineRunner {
     /** When true, emit structured per-move episode logs for training. */
     private static final boolean EPISODE_LOG_ENABLED = Boolean.getBoolean("log.episodes");
 
-    private final Player player;
+    private Player player;
+    private TrainingModeProperties trainingMode;
+
+    public Game() {
+        // Default constructor for Spring
+    }
 
     public Game(Player player) {
+        this(player, new TrainingModeProperties());
+    }
+
+    @Autowired
+    public Game(Player player, TrainingModeProperties trainingMode) {
         this.player = player;
+        this.trainingMode = trainingMode;
     }
 
     public static void main(String[] args) {
@@ -706,8 +719,40 @@ public class Game implements CommandLineRunner {
         if (input.equalsIgnoreCase("quit")) {
             illegalFeedback = "";
             quitRequested = true;
+        } else if (input.equalsIgnoreCase("undo")) {
+            if (!trainingMode.isMode()) {
+                illegalFeedback = "Undo is only available in training mode.\n"
+                        + "- Start with: ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true";
+                if (log.isDebugEnabled()) {
+                    log.debug("Undo command attempted outside training mode");
+                }
+            } else if (!solitaire.canUndo()) {
+                illegalFeedback = "Nothing to undo (no moves or turns yet).\n"
+                        + "- You need to execute at least one move or turn before you can undo.";
+                if (log.isDebugEnabled()) {
+                    log.debug("Undo command with empty move history");
+                }
+            } else {
+                boolean undoSucceeded = solitaire.undoLastMove();
+                if (!undoSucceeded) {
+                    illegalFeedback = "Undo failed unexpectedly.\n"
+                            + "- Please try again.";
+                    if (log.isDebugEnabled()) {
+                        log.debug("Undo failed for unknown reason");
+                    }
+                } else {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Applied undo command from {}", player.getClass().getSimpleName());
+                    }
+                    illegalFeedback = "";
+                    // Undo doesn't affect successful move count (we're exploring alternative paths).
+                    // However, it does decrement the turn count if undoing a turn, or reset state.
+                    // For simplicity, we keep stats as-is; the user is learning.
+                }
+            }
         } else if (input.equalsIgnoreCase("turn")) {
             solitaire.turnThree();
+            solitaire.recordAction(Solitaire.Action.turn());
             newSuccessfulMoves++;
             illegalFeedback = "";
             newTurnsSinceLastMove++;
@@ -772,7 +817,8 @@ public class Game implements CommandLineRunner {
         } else {
             illegalFeedback = "Unknown command:\n"
                     + "- \"" + input + "\" is not recognised.\n"
-                    + "- Use 'turn', 'move FROM TO', or 'quit'.";
+                    + "- Use 'turn', 'move FROM TO', 'undo', or 'quit'.\n"
+                    + (trainingMode.isMode() ? "- 'undo' available in training mode to explore alternative paths.\n" : "");
             if (log.isDebugEnabled()) {
                 log.debug("Unknown command from {}: {}",
                         player.getClass().getSimpleName(), input);
