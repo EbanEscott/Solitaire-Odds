@@ -1,4 +1,4 @@
-package ai.games;
+package ai.games.unit.helpers;
 
 import ai.games.game.Card;
 import ai.games.game.Rank;
@@ -15,55 +15,55 @@ import java.util.Set;
 /**
  * Reflection helpers for seeding Solitaire with deterministic states in tests.
  */
-final class SolitaireTestHelper {
+public final class SolitaireTestHelper {
     private SolitaireTestHelper() {
     }
 
-    static List<Card> pile(Card... cards) {
+    public static List<Card> pile(Card... cards) {
         return new ArrayList<>(Arrays.asList(cards));
     }
 
-    static List<Card> emptyPile() {
+    public static List<Card> emptyPile() {
         return new ArrayList<>();
     }
 
-    static void setTableau(Solitaire solitaire, List<List<Card>> tableauPiles, List<Integer> faceUpCounts) {
+    public static void setTableau(Solitaire solitaire, List<List<Card>> tableauPiles, List<Integer> faceUpCounts) {
         setListField(solitaire, "tableau", tableauPiles);
         setListField(solitaire, "tableauFaceUp", faceUpCounts);
     }
 
-    static void setFoundation(Solitaire solitaire, List<List<Card>> foundationPiles) {
+    public static void setFoundation(Solitaire solitaire, List<List<Card>> foundationPiles) {
         setListField(solitaire, "foundation", foundationPiles);
     }
 
-    static void setTalon(Solitaire solitaire, List<Card> talon) {
+    public static void setTalon(Solitaire solitaire, List<Card> talon) {
         setListField(solitaire, "talon", talon);
     }
 
-    static void setStockpile(Solitaire solitaire, List<Card> stockpile) {
+    public static void setStockpile(Solitaire solitaire, List<Card> stockpile) {
         setListField(solitaire, "stockpile", stockpile);
     }
 
-    static int getTableauFaceUpCount(Solitaire solitaire, int index) {
+    public static int getTableauFaceUpCount(Solitaire solitaire, int index) {
         return getIntField(solitaire, "tableauFaceUp", index);
     }
 
-    static List<Card> getTableauPile(Solitaire solitaire, int index) {
+    public static List<Card> getTableauPile(Solitaire solitaire, int index) {
         return getNestedListField(solitaire, "tableau", index);
     }
 
-    static List<Card> getTalon(Solitaire solitaire) {
+    public static List<Card> getTalon(Solitaire solitaire) {
         return getListField(solitaire, "talon");
     }
 
-    static List<Card> getStockpile(Solitaire solitaire) {
+    public static List<Card> getStockpile(Solitaire solitaire) {
         return getListField(solitaire, "stockpile");
     }
 
     /**
      * Returns a fresh list containing one card of every rank/suit combination.
      */
-    static List<Card> fullDeck() {
+    public static List<Card> fullDeck() {
         List<Card> deck = new ArrayList<>();
         for (Suit suit : Suit.values()) {
             for (Rank rank : Rank.values()) {
@@ -76,7 +76,7 @@ final class SolitaireTestHelper {
     /**
      * Removes and returns the first card in {@code deck} matching the given rank/suit.
      */
-    static Card takeCard(List<Card> deck, Rank rank, Suit suit) {
+    public static Card takeCard(List<Card> deck, Rank rank, Suit suit) {
         for (int i = 0; i < deck.size(); i++) {
             Card c = deck.get(i);
             if (c.getRank() == rank && c.getSuit() == suit) {
@@ -92,7 +92,7 @@ final class SolitaireTestHelper {
      * across tableau, foundation, stockpile, and talon. Intended for seeded test
      * positions to avoid illegal duplicate/missing card setups.
      */
-    static void assertFullDeckState(Solitaire solitaire) {
+    public static void assertFullDeckState(Solitaire solitaire) {
         int total = 0;
         Set<Card> unique = new HashSet<>();
 

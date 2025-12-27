@@ -1,28 +1,28 @@
-package ai.games;
+package ai.games.unit.helpers;
 
 import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
+import ai.games.unit.helpers.SolitaireTestHelper;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Small reusable helpers derived from {@link ai.games.GreedySearchPlayerTest}
- * to seed test boards for other AI players.
+ * Reusable helpers to seed deterministic test game states for AI player testing.
  */
-final class GreedySearchPlayerTestHelper {
-    private GreedySearchPlayerTestHelper() {
+public final class TestGameStateBuilder {
+    private TestGameStateBuilder() {
     }
 
     /**
      * Nearly-won layout similar to the greedy tests: one final card on tableau
      * with the remainder distributed across foundations.
      */
-    static Solitaire seedNearlyWonGameVariant() {
+    public static Solitaire seedNearlyWonGameVariant() {
         Solitaire solitaire = new Solitaire(new Deck());
 
         List<Card> deck = SolitaireTestHelper.fullDeck();

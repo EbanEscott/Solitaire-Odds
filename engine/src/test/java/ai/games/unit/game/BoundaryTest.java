@@ -1,14 +1,13 @@
-package ai.games;
+package ai.games.unit.game;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Rank;
 import ai.games.game.Suit;
 import ai.games.game.Solitaire;
+import ai.games.unit.helpers.SolitaireTestHelper;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;

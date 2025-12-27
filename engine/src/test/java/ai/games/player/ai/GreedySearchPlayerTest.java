@@ -1,7 +1,7 @@
-package ai.games;
+package ai.games.player.ai;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Card;
 import ai.games.game.Deck;
@@ -11,6 +11,7 @@ import ai.games.game.Suit;
 import ai.games.player.Player;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.ai.GreedySearchPlayer;
+import ai.games.unit.helpers.SolitaireTestHelper;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;

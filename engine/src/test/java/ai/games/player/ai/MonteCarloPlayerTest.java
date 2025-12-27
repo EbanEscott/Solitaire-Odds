@@ -1,25 +1,28 @@
-package ai.games;
+package ai.games.player.ai;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
-import ai.games.player.ai.AStarPlayer;
+import ai.games.player.ai.MonteCarloPlayer;
+import ai.games.unit.helpers.FoundationCountHelper;
+import ai.games.unit.helpers.TestGameStateBuilder;
 import org.junit.jupiter.api.Test;
 
 /**
- * Basic behaviour tests for {@link AStarPlayer}.
+ * Basic behaviour tests for {@link MonteCarloPlayer}:
+ * - improves simple nearly-won setups
+ * - does not loop indefinitely on random games.
  */
-class AStarPlayerTest {
+class MonteCarloPlayerTest {
 
     private static final int MAX_TEST_STEPS = 2000;
 
     @Test
-    void aStarImprovesNearlyWonGame() {
-        Solitaire solitaire = GreedySearchPlayerTestHelper.seedNearlyWonGameVariant();
-        Player ai = new AStarPlayer();
+    void monteCarloAdvancesOnSimpleNearlyWonGame() {
+        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Player ai = new MonteCarloPlayer(123L);
 
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
 
@@ -29,18 +32,18 @@ class AStarPlayerTest {
         }
 
         int endFoundation = FoundationCountHelper.totalFoundation(solitaire);
-        assertTrue(endFoundation > startFoundation, "A* should improve foundation count on simple setup");
+        assertTrue(endFoundation > startFoundation, "Monte Carlo should improve foundation count on simple setup");
     }
 
     @Test
-    void aStarDoesNotLoopForeverOnRandomGame() {
+    void monteCarloDoesNotLoopForeverOnRandomGame() {
         Solitaire solitaire = new Solitaire(new Deck());
-        Player ai = new AStarPlayer();
+        Player ai = new MonteCarloPlayer(98765L);
 
         int steps = 0;
         while (!isTerminal(solitaire) && steps < MAX_TEST_STEPS) {
             String command = ai.nextCommand(solitaire, "", "");
-            assertNotNull(command, "A* player should always return a command until game exits");
+            assertNotNull(command, "Monte Carlo player should always return a command until game exits");
             if ("quit".equalsIgnoreCase(command.trim())) {
                 break;
             }
@@ -48,7 +51,7 @@ class AStarPlayerTest {
             steps++;
         }
 
-        assertTrue(steps < MAX_TEST_STEPS, "A* player should not run indefinitely on a random game");
+        assertTrue(steps < MAX_TEST_STEPS, "Monte Carlo player should not run indefinitely on a random game");
     }
 
     private boolean isTerminal(Solitaire solitaire) {

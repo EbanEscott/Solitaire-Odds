@@ -1,13 +1,13 @@
-package ai.games;
+package ai.games.unit.helpers;
 
 import ai.games.game.Solitaire;
 import java.util.List;
 
-final class FoundationCountHelper {
+public final class FoundationCountHelper {
     private FoundationCountHelper() {
     }
 
-    static int totalFoundation(Solitaire solitaire) {
+    public static int totalFoundation(Solitaire solitaire) {
         int total = 0;
         List<List<ai.games.game.Card>> foundation = solitaire.getFoundation();
         for (List<ai.games.game.Card> pile : foundation) {
