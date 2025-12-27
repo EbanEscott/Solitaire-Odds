@@ -53,6 +53,13 @@ public class Solitaire {
     
     /** Talon: revealed cards from the stockpile during play. */
     private final List<Card> talon = new ArrayList<>();
+    
+    /** Action history for replay and undo operations (training mode). */
+    private final List<Action> moveHistory = new ArrayList<>();
+    
+    /** Original deck order captured at game start for deterministic replay during undo. */
+    private final List<Card> originalDeckOrder = new ArrayList<>();
+
 
     /**
      * Constructs a new Solitaire game with a shuffled deck.
@@ -69,6 +76,8 @@ public class Solitaire {
      */
     public Solitaire(Deck deck) {
         Objects.requireNonNull(deck, "deck");
+        // Capture the original deck order for deterministic replay during undo.
+        originalDeckOrder.addAll(deck.asUnmodifiableList());
         initializeFoundation();
         dealTableau(deck);
         moveRemainingToStockpile(deck);
@@ -348,6 +357,10 @@ public class Solitaire {
         if (toType == 'T' && toIndex >= 0 && toIndex < tableauFaceUp.size()) {
             tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + movedCount);
         }
+        
+        // Record the move for undo functionality (training mode).
+        recordAction(Action.move(from, moving.shortName(), to));
+        
         return MoveResult.success("Moved " + moving.shortName() + " from " + fromNormalized + " to " + toNormalized + ".");
     }
 
@@ -716,4 +729,141 @@ public class Solitaire {
         int index = (slotIndex * 64 + ordinal) % (STATE_ZOBRIST.length - 1);
         return STATE_ZOBRIST[index];
     }
+
+    /**
+     * Records a single action (move or turn) for replay and undo operations (training mode).
+     * <p>
+     * Stores either a card move (with source, card code, and destination) or a turn action
+     * to enable move history replay. When undoing, the game is reconstructed from the start
+     * by replaying all actions except the last.
+     *
+     * @param type the action type: "move" for card moves, "turn" for stock turns
+     * @param from the source pile code for moves ('T1'–'T7', 'F1'–'F4', 'W', 'S'); null for turns
+     * @param cardCode the compact card code for moves ('R♠', 'A♥', etc.); null for turns
+     * @param to the destination pile code for moves; null for turns
+     * @since 1.1
+     */
+    public record Action(String type, String from, String cardCode, String to) {
+        /**
+         * Constructs an Action record.
+         * @param type action type ("move" or "turn")
+         * @param from source pile code (for moves) or null
+         * @param cardCode moving card code (for moves) or null
+         * @param to destination pile code (for moves) or null
+         */
+        public Action {
+            Objects.requireNonNull(type, "type");
+            if (!"move".equals(type) && !"turn".equals(type)) {
+                throw new IllegalArgumentException("Invalid action type: " + type);
+            }
+        }
+
+        /**
+         * Creates a move action.
+         * @param from source pile code
+         * @param cardCode moving card code
+         * @param to destination pile code
+         * @return a new move action
+         */
+        public static Action move(String from, String cardCode, String to) {
+            return new Action("move", from, cardCode, to);
+        }
+
+        /**
+         * Creates a turn action.
+         * @return a new turn action
+         */
+        public static Action turn() {
+            return new Action("turn", null, null, null);
+        }
+    }
+
+    /**
+     * Records an action for later replay (training mode).
+     * <p>
+     * Called after each successful move or turn. If undo is needed, the game replays from the start
+     * excluding the last action in the history.
+     *
+     * @param action the action to record
+     */
+    public void recordAction(Action action) {
+        moveHistory.add(action);
+    }
+
+
+    /**
+     * Undoes the last move or turn by replaying the entire game history minus the final action.
+     * <p>
+     * Implementation (Option B – Move History Replay):
+     * <ol>
+     *   <li>Clear all piles and reset to initial deal state.</li>
+     *   <li>Replay all actions in moveHistory except the last one.</li>
+     *   <li>Remove the last action from the history.</li>
+     * </ol>
+     * This approach trades memory efficiency for simplicity and correctness; a future
+     * hybrid approach (Option C) could add a limited state stack for recent moves.
+     *
+     * @return true if undo succeeded, false if no moves to undo
+     * @throws IllegalStateException if replay encounters an invalid move (should not occur
+     *         if moveHistory is correctly maintained)
+     */
+    public boolean undoLastMove() {
+        if (moveHistory.isEmpty()) {
+            return false;
+        }
+
+        // Create a deck with the exact same card order captured at game start.
+        Deck replayDeck = new Deck(originalDeckOrder);
+        
+        // Record all but the last action.
+        List<Action> replayActions = new ArrayList<>(moveHistory);
+        replayActions.remove(replayActions.size() - 1);
+
+        // Reset to initial state.
+        tableau.clear();
+        tableauFaceUp.clear();
+        foundation.clear();
+        stockpile.clear();
+        talon.clear();
+
+        // Re-deal from scratch using the original deck order.
+        initializeFoundation();
+        dealTableau(replayDeck);
+        moveRemainingToStockpile(replayDeck);
+
+        // Replay all non-undone actions.
+        for (Action action : replayActions) {
+            if ("move".equals(action.type())) {
+                MoveResult result = attemptMove(action.from(), action.cardCode(), action.to());
+                if (!result.success) {
+                    throw new IllegalStateException("Action replay failed: " + result.message);
+                }
+            } else if ("turn".equals(action.type())) {
+                turnThree();
+            }
+        }
+
+        // Remove the last action from history.
+        moveHistory.remove(moveHistory.size() - 1);
+        return true;
+    }
+
+    /**
+     * Checks if undo is currently possible.
+     *
+     * @return true if there is at least one move to undo, false otherwise
+     */
+    public boolean canUndo() {
+        return !moveHistory.isEmpty();
+    }
+
+    /**
+     * Returns the number of moves in the current history.
+     *
+     * @return the size of moveHistory
+     */
+    public int getMoveHistorySize() {
+        return moveHistory.size();
+    }
 }
+

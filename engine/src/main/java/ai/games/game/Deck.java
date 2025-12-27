@@ -23,6 +23,18 @@ public class Deck {
     }
 
     /**
+     * Constructs a new Deck initialized with a specific card order.
+     * <p>
+     * Used for deterministic replay during undo operations. The provided cards are copied
+     * into the deck without shuffling, preserving their exact order.
+     *
+     * @param cardOrder the specific order of cards to initialize the deck with; must not be null
+     */
+    public Deck(List<Card> cardOrder) {
+        cards.addAll(cardOrder);
+    }
+
+    /**
      * Shuffles the cards in the deck using a pseudo-random permutation.
      * <p>
      * This method is called automatically during {@link #reset()}, but can be invoked
