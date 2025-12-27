@@ -1,4 +1,4 @@
-package ai.games;
+package ai.games.unit.game;
 
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;

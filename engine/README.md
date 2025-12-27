@@ -11,6 +11,8 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
   - If Gradle 9.x was cached: `rm -rf ~/.gradle/wrapper/dists/gradle-9.1.0-bin`
 
 ## Layout
+
+### Source Code
 - `src/main/java/ai/games/Game` — Spring Boot entry, constructor-injected `Player`.
 - `src/main/java/ai/games/game/` — core model: `Solitaire`, `Deck`, `Card`, `Rank`, `Suit`.
 - `src/main/java/ai/games/player/` — player base types:
@@ -18,17 +20,24 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
   - `AIPlayer` base class
   - `LegalMovesHelper`
 - `src/main/java/ai/games/player/ai/` — AI players (all `@Profile`-gated):
-  - `OpenAIPlayer` (`ai-openai`)
-  - `RuleBasedHeuristicsPlayer` (`ai-rule`)
-  - `GreedySearchPlayer` (`ai-greedy`)
-  - `BeamSearchPlayer` (`ai-beam`)
-  - `HillClimberPlayer` (`ai-hill`)
-  - `MonteCarloPlayer` (`ai-mcts`)
-  - `AStarPlayer` (`ai-astar`)
-  - `OllamaPlayer` (`ai-ollama`)
-- `src/test/java/ai/games/` — JUnit 5 tests with seeded states:
-  - `LegalMovesTest`, `IllegalMovesTest`, `BoundaryTest`, `SolitaireTestHelper`, AI player tests.
-- Build files: `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
+  - Search: `RuleBasedHeuristicsPlayer`, `GreedySearchPlayer`, `BeamSearchPlayer`, `HillClimberPlayer`, `MonteCarloPlayer`, `AStarPlayer`
+  - Neural: `alpha/AlphaSolitairePlayer` (policy-value network)
+  - LLM: `OpenAIPlayer`, `OllamaPlayer`
+
+### Tests (JUnit 5)
+Organized hierarchically in `src/test/java/ai/games/`:
+- **`unit/`** — Unit tests for game logic
+  - `game/` — Legal moves, illegal move rejection, visibility, boundaries
+  - `training/` — Undo functionality and move history
+  - `helpers/` — Shared test utilities
+- **`player/ai/`** — AI player functional tests (one per player implementation)
+- **`results/`** — Performance benchmarks and win-rate sweeps
+- **`analysis/`** — Advanced analysis tools (game tree exploration, state space analysis)
+
+See `src/test/java/ai/games/README.md` and `src/test/java/ai/games/AGENTS.md` for detailed test and player documentation.
+
+### Build Files
+`build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
 ## Running (from `engine/`)
 Exactly one player profile must be active. Profiles available: `ai-human` (CLI human player), `ai-beam`, `ai-hill`, `ai-rule`, `ai-greedy`, `ai-mcts`, `ai-astar`, `ai-ollama`, and `ai-openai`.
@@ -80,41 +89,67 @@ OpenAI setup:
   `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-openai`
 
 ## Build & Test
+
 Build:
 ```
 ./gradlew build
 ```
 
-Tests:
+### Running Tests
+
+All tests:
 ```
 ./gradlew test
 ```
-(Tests seed deterministic board states to verify legal/illegal moves, tableau flipping, foundation progression, and deck integrity.)
 
-Single test / class:
+#### By Category
+
+Unit tests (game logic and training):
 ```
-./gradlew test --tests ai.games.LegalMovesTest
-./gradlew test --tests ai.games.LegalMovesTest.aceMovesToEmptyFoundation
+./gradlew test --tests "ai.games.unit.**"
+./gradlew test --tests "ai.games.unit.game.**"                         # Legal/illegal moves, visibility, boundaries
+./gradlew test --tests "ai.games.unit.training.**"                     # Undo and move history
 ```
 
-AI result sweeps (game counts set in `ResultsConfig`, default 500; use `--rerun-tasks` to force execution):
+AI player functional tests:
 ```
+./gradlew test --tests "ai.games.player.ai.**"
+./gradlew test --tests "ai.games.player.ai.GreedySearchPlayerTest"
+./gradlew test --tests "ai.games.player.ai.MonteCarloPlayerTest"
+./gradlew test --tests "ai.games.player.ai.AlphaSolitairePlayerTest"   # requires Python service
+```
+
+Performance benchmarks (500 games each; slow):
+```
+./gradlew test --tests "ai.games.results.**"
 ./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.BeamSearchPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.MonteCarloPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
-./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks           # enable with -Dopenai.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks           # enable with -Dollama.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b
-./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks -Dalphasolitaire.tests=true   # requires Python AlphaSolitaire model service
 ```
 
-Game tree analysis (exhaustive exploration of state spaces; see `src/test/java/ai/games/analysis/README.md`):
+LLM player benchmarks (enable with flags):
 ```
-./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_100Games_Quick"      # Quick: ~2-3 min
-./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_1000Games"           # Full: ~30-40 min
+./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks -Dopenai.tests=true
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true \
+  -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b
+./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks -Dalphasolitaire.tests=true
+```
+
+Game tree analysis (state space exploration):
+```
+./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_100Games_Quick"      # ~2-3 min
+./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_1000Games"           # ~30-40 min
+```
+
+#### Single Test / Method
+
+```
+./gradlew test --tests ai.games.unit.game.LegalMovesTest
+./gradlew test --tests ai.games.unit.game.LegalMovesTest.aceMovesToEmptyFoundation
 ```
 
 Clean:
