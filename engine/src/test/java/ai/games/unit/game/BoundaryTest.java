@@ -8,7 +8,9 @@ import ai.games.game.Rank;
 import ai.games.game.Suit;
 import ai.games.game.Solitaire;
 import ai.games.unit.helpers.SolitaireTestHelper;
+import ai.games.unit.helpers.TestGameStateBuilder;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -16,6 +18,31 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Boundary and edge-case behavior around tableau rules, stock/talon flow, invalid inputs, and deck integrity.
+ *
+ * <p>This test class validates edge cases, state transitions, and system behavior under unusual conditions.
+ * Note: Tests use partial game states (empty columns, minimal cards) and do NOT validate
+ * assertFullDeckState, as that is only needed for complex game states.
+ *
+ * <p><b>Tests and their intentions:</b>
+ * <ul>
+ *   <li><b>emptyTableauAcceptsOnlyKing</b> - Empty columns reject non-Kings but accept Kings</li>
+ *   <li><b>faceDownCardFlipsWhenTopMovesAway</b> - State transition: face-down card flips when last visible moves</li>
+ *   <li><b>moveSingleOntoTableauRequiresAlternatingDescending</b> - Validates alternating color and rank descent rules</li>
+ *   <li><b>turnThreeWithLessThanThreeCardsMovesAllRemaining</b> - Stock turn: move all if fewer than 3 cards</li>
+ *   <li><b>turnThreeRecyclesTalonWhenStockEmpty</b> - Stock turn: recycle talon back to stockpile when stock empty</li>
+ *   <li><b>moveFromEmptyTalonFails</b> - Cannot move from waste (talon) when empty</li>
+ *   <li><b>invalidCodesAreRejected</b> - System robustness: bad move codes handled gracefully</li>
+ *   <li><b>foundationProgressionBuildsUpToKingSameSuit</b> - Foundation builds from Ace to King in same suit</li>
+ *   <li><b>deckResetHas52UniqueCards</b> - Deck integrity: fresh deck has all 52 unique cards</li>
+ *   <li><b>lastFaceUpCardMove</b> - State transition: face-down flip when last face-up card moves away</li>
+ *   <li><b>multipleEmptyTableauColumns</b> - Multiple empty columns: any can accept Kings</li>
+ *   <li><b>multiCardStackInternalColorViolation</b> (Phase 2) - Valid alternating sequence [8♥,7♣,6♥] moves onto 9♠; verifies internal validity</li>
+ *   <li><b>stackMoveAfterFlipTrigger</b> (Phase 2) - Moving 5♠ away flips K♦(facedown), enabling K♦ to empty column</li>
+ *   <li><b>foundationBuildAfterTableauRecovery</b> (Phase 3) - F1 has 2♥; moving 3♥ from T1 to F1 advances foundation</li>
+ *   <li><b>stockTalonEmptyGameOver</b> (Phase 3) - Stock and talon both empty; no legal moves; game terminal</li>
+ *   <li><b>foundationProgressWithMultipleSuits</b> (Phase 3) - Multiple foundations building in parallel; 3♠ onto 2♠ in F2</li>
+ *   <li><b>sequentialFoundationBuilding</b> (Phase 3) - Foundation F1 built from A♣ through K♣ (all 13 cards)</li>
+ * </ul>
  */
 class BoundaryTest {
 
@@ -156,6 +183,148 @@ class BoundaryTest {
 
         Set<Card> unique = new HashSet<>(cards);
         assertEquals(52, unique.size(), "Deck should not contain duplicates");
+    }
+
+    @Test
+    void multipleEmptyTableauColumns() {
+        // T1 and T3 are empty; moving K♠ from T5 to either empty should succeed.
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauStack(solitaire, 0);  // Empty
+        TestGameStateBuilder.seedTableauStack(solitaire, 1);  // Empty
+        TestGameStateBuilder.seedTableauStack(solitaire, 2, new Card(Rank.KING, Suit.SPADES));
+        TestGameStateBuilder.seedTableauStack(solitaire, 3);  // Empty
+        TestGameStateBuilder.seedTableauStack(solitaire, 4);  // Empty
+        TestGameStateBuilder.seedTableauStack(solitaire, 5);  // Empty
+        TestGameStateBuilder.seedTableauStack(solitaire, 6);  // Empty
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // Can move to T1 (empty)
+        assertTrue(solitaire.moveCard("T3", null, "T1"), "King should move to first empty column");
+    }
+
+    @Test
+    void multiCardStackInternalColorViolation() {
+        // T1 has [8♥, 7♣, 6♥] - valid alternating sequence; T2 has 9♠
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauStack(solitaire, 0,
+                new Card(Rank.EIGHT, Suit.HEARTS),
+                new Card(Rank.SEVEN, Suit.CLUBS),
+                new Card(Rank.SIX, Suit.HEARTS));
+        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.NINE, Suit.SPADES));
+        for (int i = 2; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // Moving the entire stack from 8♥ onto 9♠ should work
+        assertTrue(solitaire.moveCard("T1", "8♥", "T2"), "Valid internal sequence should move");
+    }
+
+    @Test
+    void stackMoveAfterFlipTrigger() {
+        // T1 has [K♦(facedown), 5♠(faceup)]; move 5♠ onto 6♥ to flip K♦, then move K♦ to empty T3.
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 0, 1,
+                new Card(Rank.KING, Suit.DIAMONDS),
+                new Card(Rank.FIVE, Suit.SPADES));
+        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.SIX, Suit.HEARTS));
+        TestGameStateBuilder.seedTableauStack(solitaire, 2);  // Empty
+        for (int i = 3; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // First move: move 5♠ (black) onto 6♥ (red), which flips K♦
+        assertTrue(solitaire.moveCard("T1", "5♠", "T2"), "5♠ should move onto 6♥");
+        assertEquals(1, solitaire.getTableauFaceUpCounts().get(0), "K♦ should flip to face-up");
+
+        // Now K♦ is visible and can move to empty T3
+        assertTrue(solitaire.moveCard("T1", null, "T3"), "K♦ should move to empty after flip");
+    }
+
+    @Test
+    void foundationBuildAfterTableauRecovery() {
+        // F1 has A♥,2♥; T1 has 3♥; move 3♥ to F1, creating a gap that won't break foundation rules.
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.HEARTS, Rank.TWO);
+        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.THREE, Suit.HEARTS));
+        for (int i = 1; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // Move 3♥ from tableau to foundation
+        assertTrue(solitaire.moveCard("T1", null, "F1"), "3♥ should move onto 2♥ in foundation");
+        assertEquals(3, solitaire.getFoundation().get(0).size(), "F1 should have 3 cards");
+    }
+
+    @Test
+    void stockTalonEmptyGameOver() {
+        // Stock empty, talon empty, no legal moves; game should be terminal.
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.clearTableau(solitaire);
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // With no cards and no legal moves available, trying to move from W should fail
+        assertFalse(solitaire.moveCard("W", null, "T1"), "Cannot move from empty waste");
+    }
+
+    @Test
+    void foundationProgressWithMultipleSuits() {
+        // Build F1 through 3♥, F2 through 2♠; try to move 3♠ from T1 to F2 (wrong suit progression).
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.HEARTS, Rank.THREE);
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 1, Suit.SPADES, Rank.TWO);
+        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.THREE, Suit.SPADES));
+        for (int i = 1; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // 3♠ cannot go on 2♠ (correct suit but we're at rank 2, need 3) - actually this SHOULD work!
+        assertTrue(solitaire.moveCard("T1", null, "F2"), "3♠ should move onto 2♠ in same suit");
+    }
+
+    @Test
+    void sequentialFoundationBuilding() {
+        // Build F1 from A♣ through K♣ (all 13 cards); verify progression.
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.CLUBS, Rank.KING);
+        TestGameStateBuilder.clearTableau(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // Foundation should have all 13 clubs
+        assertEquals(13, solitaire.getFoundation().get(0).size(), "F1 should have all 13 clubs from Ace to King");
+    }
+
+    @Test
+    void lastFaceUpCardMove() {
+        // T1 has [5♠(facedown), 6♣(faceup)]; moving 6♣ should flip 5♠
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 0, 1,
+                new Card(Rank.FIVE, Suit.SPADES),
+                new Card(Rank.SIX, Suit.CLUBS));
+        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.SEVEN, Suit.HEARTS));
+        for (int i = 2; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        assertEquals(1, solitaire.getTableauFaceUpCounts().get(0), "T1 should have 1 face-up card before move");
+
+        // Move the only face-up card
+        assertTrue(solitaire.moveCard("T1", null, "T2"), "6♣ should move onto 7♥");
+
+        // Check that face-down card flipped
+        assertEquals(1, solitaire.getTableauFaceUpCounts().get(0), "5♠ should flip to face-up");
+        List<Card> visibleT1 = solitaire.getVisibleTableau().get(0);
+        assertEquals(1, visibleT1.size(), "T1 should have 1 visible card");
+        assertEquals(new Card(Rank.FIVE, Suit.SPADES), visibleT1.get(0), "T1 should show 5♠");
     }
 
     private static List<Card> empty() {

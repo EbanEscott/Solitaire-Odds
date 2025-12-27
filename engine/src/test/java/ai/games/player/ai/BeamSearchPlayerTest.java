@@ -8,7 +8,6 @@ import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
 import ai.games.player.Player;
-import ai.games.player.ai.BeamSearchPlayer;
 import ai.games.unit.helpers.SolitaireTestHelper;
 import java.util.ArrayList;
 import java.util.Arrays;
