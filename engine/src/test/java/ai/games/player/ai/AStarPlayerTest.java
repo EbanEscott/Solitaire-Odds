@@ -1,13 +1,10 @@
 package ai.games.player.ai;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
-import ai.games.player.ai.AStarPlayer;
 import ai.games.unit.helpers.FoundationCountHelper;
 import ai.games.unit.helpers.TestGameStateBuilder;
 import org.junit.jupiter.api.Test;

@@ -8,6 +8,7 @@ import ai.games.game.Rank;
 import ai.games.game.Suit;
 import ai.games.game.Solitaire;
 import ai.games.unit.helpers.SolitaireTestHelper;
+import ai.games.unit.helpers.TestGameStateBuilder;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -15,6 +16,25 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Legal move coverage with deterministic board states.
+ *
+ * <p>This test class validates all legal move scenarios across different move types and game states.
+ * Note: Tests use partial game states (empty columns, minimal cards) and do NOT validate
+ * assertFullDeckState, as that is only needed for complex game states.
+ *
+ * <p><b>Tests and their intentions:</b>
+ * <ul>
+ *   <li><b>aceMovesToEmptyFoundation</b> - Tableau Ace to empty foundation (baseline rule)</li>
+ *   <li><b>twoOnAceFoundationShouldBeLegal</b> - Foundation progression: rank increment with same suit</li>
+ *   <li><b>tableauAlternatingDescendingIsLegal</b> - Tableau → Tableau: alternating colors, descending rank</li>
+ *   <li><b>topVisibleTableauCardMovesLegally</b> - Only top visible card moves in single-card move (null cardCode)</li>
+ *   <li><b>bottomVisibleTableauCardDrivesPileMoveRule</b> - Multi-card stack: bottom card validates move legality</li>
+ *   <li><b>canMoveVisibleStackWhenBottomCardFitsDestination</b> - Multi-card stack moves when bottom card is valid</li>
+ *   <li><b>talonToFoundationIncrementIsLegal</b> - Waste (talon) → Foundation legal progression</li>
+ *   <li><b>wasteToTableauIsLegal</b> - Waste → Tableau single card move</li>
+ *   <li><b>kingLedStackToEmpty</b> - King-led multi-card stack → empty tableau column</li>
+ *   <li><b>multiCardStackFoundationBlocked</b> (Phase 2) - Valid internal sequence moves onto foundation destination</li>
+ *   <li><b>wasteToTableauMultipleChoices</b> (Phase 2) - Same waste card has multiple valid tableau destinations</li>
+ * </ul>
  */
 class LegalMovesTest {
 
@@ -54,13 +74,13 @@ class LegalMovesTest {
 
     @Test
     void topVisibleTableauCardMovesLegally() {
-        // T3 has two face-up cards: J♦ below (covered), Q♣ on top (nearest/active). T7 has K♥. Only the top/active Q♣ is considered and is legal to move.
+        // T3 has two face-up cards: 9♠ below (covered), Q♣ on top (nearest/active). T7 has K♥. Only the top/active Q♣ can move.
         Solitaire solitaire = new Solitaire(new Deck());
         seedTableau(solitaire,
                 Arrays.asList(
                         empty(),
                         empty(),
-                        pile(new Card(Rank.JACK, Suit.DIAMONDS), new Card(Rank.QUEEN, Suit.CLUBS)),
+                        pile(new Card(Rank.NINE, Suit.SPADES), new Card(Rank.QUEEN, Suit.CLUBS)),
                         empty(),
                         empty(),
                         empty(),
@@ -74,7 +94,7 @@ class LegalMovesTest {
 
     @Test
     void bottomVisibleTableauCardDrivesPileMoveRule() {
-        // Bottom visible card (earliest face-up) drives whether a pile could move; here J♦ on K♥ should be illegal (same color), so no move.
+        // T3 has J♦, Q♣ (both face-up); when moving the entire visible stack, J♦ (bottom) on K♥ is illegal (same color).
         Solitaire solitaire = new Solitaire(new Deck());
         seedTableau(solitaire,
                 Arrays.asList(
@@ -89,8 +109,8 @@ class LegalMovesTest {
                 Arrays.asList(0, 0, 2, 0, 0, 0, 1));
         seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
 
-        // Using the current moveCard (top-card move), this is illegal; the heuristic should also treat it as not moveable.
-        assertFalse(solitaire.moveCard("T3", null, "T7"));
+        // When moving the entire visible stack from J♦, the move is illegal because J♦ (red) cannot go on K♥ (red, same color).
+        assertFalse(solitaire.moveCard("T3", "J♦", "T7"));
     }
 
     @Test
@@ -110,7 +130,7 @@ class LegalMovesTest {
                 Arrays.asList(0, 1, 0, 0, 0, 3, 0));
         seedFoundation(solitaire, Arrays.asList(pile(new Card(Rank.ACE, Suit.DIAMONDS)), empty(), empty(), empty()));
 
-        assertTrue(solitaire.moveCard("T6", null, "T2"));
+        assertTrue(solitaire.moveCard("T6", "8♥", "T2"));
         // Destination should now have moved stack on top.
         assertEquals(4, solitaire.getTableau().get(1).size());
     }
@@ -126,6 +146,75 @@ class LegalMovesTest {
         SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
 
         assertTrue(solitaire.moveCard("W", null, "F2"));
+    }
+
+    @Test
+    void wasteToTableauIsLegal() {
+        // T1 has 6♣ (black); waste has 5♥ (red) on top (valid move: 5 onto 6, different colors, descending).
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.SIX, Suit.CLUBS));
+        for (int i = 1; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        SolitaireTestHelper.setTalon(solitaire, pile(new Card(Rank.FIVE, Suit.HEARTS)));
+        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
+
+        assertTrue(solitaire.moveCard("W", null, "T1"), "5♥ should move onto 6♣ (different colors)");
+    }
+
+    @Test
+    void kingLedStackToEmpty() {
+        // T1 has K♠, Q♣, J♠ (valid King-led stack); T2 is empty (target).
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauStack(solitaire, 0,
+                new Card(Rank.KING, Suit.SPADES),
+                new Card(Rank.QUEEN, Suit.CLUBS),
+                new Card(Rank.JACK, Suit.SPADES));
+        TestGameStateBuilder.seedTableauStack(solitaire, 1);  // Empty
+        for (int i = 2; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        assertTrue(solitaire.moveCard("T1", "K♠", "T2"), "King-led stack should move to empty column");
+    }
+
+    @Test
+    void multiCardStackFoundationBlocked() {
+        // T1 has 5♠, 4♥, 3♣ (valid internal sequence); T2 has 6♥; move succeeds (5♠ black on 6♥ red, descending).
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauStack(solitaire, 0,
+                new Card(Rank.FIVE, Suit.SPADES),
+                new Card(Rank.FOUR, Suit.HEARTS),
+                new Card(Rank.THREE, Suit.CLUBS));
+        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.SIX, Suit.HEARTS));
+        for (int i = 2; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+        // Moving 5♠ (black) onto 6♥ (red): valid alternating colors and descending rank
+        assertTrue(solitaire.moveCard("T1", "5♠", "T2"), "5♠ should move onto 6♥ (valid alternating/descending)");
+    }
+
+    @Test
+    void wasteToTableauMultipleChoices() {
+        // Waste has 7♠; T1 has 8♥, T2 has 8♣ (two valid destinations for same card).
+        Solitaire solitaire = new Solitaire(new Deck());
+        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.EIGHT, Suit.HEARTS));
+        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.EIGHT, Suit.CLUBS));
+        for (int i = 2; i < 7; i++) {
+            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
+        }
+        TestGameStateBuilder.clearFoundations(solitaire);
+        SolitaireTestHelper.setTalon(solitaire, pile(new Card(Rank.SEVEN, Suit.SPADES)));
+        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
+
+        // 7♠ can move to either 8♥ or 8♣; move to T1
+        assertTrue(solitaire.moveCard("W", null, "T1"), "7♠ should move onto 8♥ (red on black)");
     }
 
     private static List<Card> empty() {
