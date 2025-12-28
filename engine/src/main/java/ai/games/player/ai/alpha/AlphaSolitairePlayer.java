@@ -36,7 +36,7 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
      * small because each simulation may trigger an HTTP call into the Python
      * policy–value service.
      */
-    private static final int DEFAULT_MCTS_SIMULATIONS = 32;
+    private static final int DEFAULT_MCTS_SIMULATIONS = 256;
 
     /**
      * Maximum depth (number of moves) for a single MCTS simulation path.

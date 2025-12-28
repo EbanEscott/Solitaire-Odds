@@ -3,16 +3,19 @@ Minimal training stub for AlphaSolitaire experiments.
 
 This module can be run as:
 
-    python -m src.train_stub /path/to/game.log
+    python -m src.train_stub /path/to/episode.log
+    python -m src.train_stub /path/to/episode*.log
+    python -m src.train_stub /path/to/episode.1.log /path/to/episode.2.log ...
 
 It:
-  - Loads Solitaire episodes from a Java log file.
+  - Loads Solitaire episodes from one or more Java log files (supports glob patterns).
   - Builds a `SolitaireStateDataset`.
   - Runs a tiny neural network over a few batches to sanity-check shapes.
 """
 
 from __future__ import annotations
 
+import glob
 import sys
 from pathlib import Path
 
@@ -44,15 +47,30 @@ def main(argv: list[str] | None = None) -> None:
         argv = sys.argv[1:]
 
     if not argv:
-        print("Usage: python -m src.train_stub /path/to/game.log")
+        print("Usage: python -m src.train_stub /path/to/episode.log [/path/to/episode.2.log ...]")
+        print("       python -m src.train_stub /path/to/episode*.log")
         raise SystemExit(1)
 
-    log_path = Path(argv[0])
-    if not log_path.exists():
-        print(f"Log file not found: {log_path}")
+    # Expand glob patterns and collect all log files
+    log_paths = []
+    for pattern in argv:
+        expanded = glob.glob(pattern)
+        if expanded:
+            log_paths.extend(sorted(expanded))
+        else:
+            # If no glob match, treat as direct path
+            log_paths.append(pattern)
+
+    if not log_paths:
+        print(f"Error: no log files found matching: {argv}")
         raise SystemExit(1)
 
-    dataset = SolitaireStateDataset([log_path])
+    print(f"Loading {len(log_paths)} file(s)...")
+    for p in log_paths:
+        print(f"  - {p}")
+
+    print("Parsing episodes...")
+    dataset = SolitaireStateDataset([Path(p) for p in log_paths])
     if len(dataset) == 0:
         print("Dataset is empty; check that the Java engine was run with -Dlog.episodes=true.")
         raise SystemExit(1)
@@ -62,7 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     input_dim = sample_state.shape[0]
     num_actions = sample_policy.shape[0]
 
-    print(f"Loaded {len(dataset)} samples from {log_path}")
+    print(f"Loaded {len(dataset)} samples ({input_dim}D state, {num_actions} actions)")
     print(f"State dim: {input_dim}, action space size: {num_actions}")
 
     model = SimplePolicyNet(input_dim=input_dim, num_actions=num_actions)
@@ -72,7 +90,10 @@ def main(argv: list[str] | None = None) -> None:
     loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
     model.train()
+    print(f"Running sanity check over {len(loader)} batches...")
     for step, (states, policies, _values) in enumerate(loader):
+        if step % max(1, len(loader) // 10) == 0:
+            print(f"  Step {step:04d} / {len(loader):04d}")
         # For now, use the one-hot policy's argmax as a class label.
         target_indices = policies.argmax(dim=-1)
 

@@ -24,42 +24,55 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
   - Neural: `alpha/AlphaSolitairePlayer` (policy-value network)
   - LLM: `OpenAIPlayer`, `OllamaPlayer`
 
-### Tests (JUnit 5)
-Organized hierarchically in `src/test/java/ai/games/`:
-- **`unit/`** — Unit tests for game logic
-  - `game/` — Legal moves, illegal move rejection, visibility, boundaries
-  - `training/` — Undo functionality and move history
-  - `helpers/` — Shared test utilities
-- **`player/ai/`** — AI player functional tests (one per player implementation)
-- **`results/`** — Performance benchmarks and win-rate sweeps
-- **`analysis/`** — Advanced analysis tools (game tree exploration, state space analysis)
-
-See `src/test/java/ai/games/README.md` and `src/test/java/ai/games/AGENTS.md` for detailed test and player documentation.
-
 ### Build Files
 `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
 ## Running (from `engine/`)
-Exactly one player profile must be active. Profiles available: `ai-human` (CLI human player), `ai-beam`, `ai-hill`, `ai-rule`, `ai-greedy`, `ai-mcts`, `ai-astar`, `ai-ollama`, and `ai-openai`.
 
-Human CLI:
-```
+Exactly one player profile must be active at a time. Run with `-Dspring.profiles.active=<profile>`.
+
+### Quick Start
+
+**Human player (CLI):**
+```bash
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human
 ```
 
-Human CLI with training mode (undo enabled):
-```
+**Human player with training mode** (undo enabled):
+```bash
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true
 ```
 
-AI profiles:
+### Player Profiles
+
+#### Search-based Players
+
+All search players use deterministic game-tree exploration with various strategies.
+
+```bash
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule          # Rule-based heuristics (deterministic rules)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # Greedy search (one-step lookahead)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-hill          # Hill-climbing search (state-hash driven)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-beam          # Beam search (fixed-depth, fixed-width)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-mcts          # Monte Carlo Tree Search (MCTS)
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar         # A* search (heuristic-guided tree exploration)
 ```
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-beam          # beam search (fixed-depth, fixed-width)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-hill          # hill-climbing search (state-hash driven)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule          # rule-based heuristics
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # greedy search
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-mcts          # Monte Carlo (MCTS-style) search
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar         # A* search
+
+#### Neural Network Players
+
+AlphaSolitaire combines Monte Carlo Tree Search with a learned policy-value network:
+
+```bash
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-alpha-solitaire  # MCTS + neural network (requires Python service)
+```
+
+See `../neural-network/README.md` for setup and training details.
+
+#### LLM Players
+
+Large language model-backed players via remote APIs or local inference:
+
+```bash
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-openai        # OpenAI via API (requires OPENAI_API_KEY or openai.apiKey)
 ```
@@ -128,6 +141,22 @@ Performance benchmarks (500 games each; slow):
 ./gradlew test --tests ai.games.results.HillClimberPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.MonteCarloPlayerResultsTest --console=plain --rerun-tasks
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest --console=plain --rerun-tasks
+./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks
+```
+
+LLM player benchmarks (enable with flags):
+```
+./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks -Dopenai.tests=true
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true \
+  -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b
+./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks -Dalphasolitaire.tests=true
+```
+
+Game tree analysis (state space exploration):
+```
+./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_100Games_Quick"      # ~2-3 min
+./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_1000Games"           # ~30-40 min
 ```
 
 #### Generating Training Data (Episode Logging)
@@ -155,21 +184,6 @@ Each episode log line contains:
 - `EPISODE_SUMMARY`: end-of-game statistics (win/loss, move count, duration)
 
 These logs are consumed by the Python neural network training pipeline in `../neural-network`.
-
-LLM player benchmarks (enable with flags):
-```
-./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks -Dopenai.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true \
-  -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b
-./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks -Dalphasolitaire.tests=true
-```
-
-Game tree analysis (state space exploration):
-```
-./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_100Games_Quick"      # ~2-3 min
-./gradlew test --tests "ai.games.analysis.GameTreeAnalysisTest.testExhaustiveGameTreeAnalysis_1000Games"           # ~30-40 min
-```
 
 #### Single Test / Method
 

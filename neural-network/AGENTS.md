@@ -17,41 +17,71 @@ For the high-level AlphaSolitaire architecture and integration plan, see:
 
 ## Next session: TODO checklist
 
-Context: the current AlphaSolitaire player ran 100 games, capped at 1000 moves per game, and achieved a 0% win rate. The next working session should focus on improving the neural network training and validating the MCTS loop.
+**Progress Update (Dec 27, 2025):**
+
+### ✅ Completed
+1. **Review current training setup** — Examined training infrastructure and identified encoding matches
+2. **Regenerate training data** — Generated 44k+ samples from A* player, separated episode.log from game.log
+3. **Debug and strengthen neural training** — Trained policy-value network: policy acc 75%, value acc 99%
+
+### 🔄 In Progress: Step 4 - Investigate MCTS Behaviour
+
+**Current AlphaSolitaire Results (10 games):**
+- Win rate: **0% (0/10)**
+- Average moves: **1000** (all games hit the move cap)
+- Policy accuracy on A* moves: **75%** (model learned 3/4 of moves)
+- Value prediction: **99%** (excellent at predicting win/loss)
+
+**Observation:** Despite strong policy and value accuracy on the training data, AlphaSolitaire achieves 0% wins with:
+- 32 MCTS simulations per move
+- 12-move max depth per simulation
+- 1.5 PUCT exploration constant
+
+**Hypothesis:** The policy guidance may not be sharp enough to reduce the search space effectively, or MCTS parameters need tuning.
+
+**Action Items for Step 4:**
+- Add detailed MCTS logging to record:
+  - Simulation count per move
+  - Visit distribution over actions (top-3 moves and their visit counts)
+  - Root value estimate and chosen move quality metrics
+  - Number of times search hits max depth or gets stuck
+- Run with increased simulation budget (e.g., 100+ sims vs 32)
+- Analyze logs to understand if the problem is:
+  - Policy distribution too flat (all moves equally likely)
+  - Value estimates not informative (too close to 0.5)
+  - Search getting trapped in loops
 
 When you next pick this up:
 
-1. **Review current training setup**
-   - Inspect `src/train_policy_value.py` and any existing checkpoints in `checkpoints/`.
-   - Confirm how many episodes and which logs were used to train the current model.
-   - Check that the action-space encoding and state encoding still match the Java engine.
+1. **Review current training setup** ✅
+   - Examined training infrastructure: 290-dim state, dynamic action space from logs
+   - Confirmed encoding matches Java engine
 
-2. **Regenerate or expand training data**
-   - Use the Java engine to log a fresh batch of episodes (tune seeds and baseline players if needed).
-   - Verify that logs are being written where the Python data pipeline expects them.
+2. **Regenerate or expand training data** ✅
+   - Refactored episode logging (new `EpisodeLogger.java`)
+   - Generated 3,664 episode steps (44,238 samples) from 10 A* games
+   - Updated `engine/README.md` with episode generation instructions
 
-3. **Debug and strengthen neural training**
-   - Re-run training with more data and/or tweaked hyperparameters (learning rate, epochs, model size).
-   - Track basic metrics: training/validation loss, policy accuracy, and calibration of the value head.
-   - Save a new checkpoint and note its config (hyperparameters, data size).
+3. **Debug and strengthen neural training** ✅
+   - Trained on 44k samples: policy acc 75%, value acc 99%
+   - Model converges smoothly (no overfitting)
+   - Checkpoint saved and verified with `train_stub.py`
+   - Updated `neural-network/README.md` with training output and metric explanations
 
-4. **Investigate MCTS behaviour**
-   - Add logging around the MCTS loop to record:
-     - Number of simulations per move.
-     - Distribution of visit counts over actions.
-     - Value estimates for chosen vs rejected moves.
-   - Confirm that the search respects the 1000-move cap and terminates sensibly when stuck.
+4. **Investigate MCTS behaviour** (IN PROGRESS)
+   - Evaluated AlphaSolitaire: 0% win rate (0/10), avg 1000 moves (move cap hit)
+   - Policy accuracy on test data: 75% (learned 3/4 of A* moves)
+   - Value prediction accuracy: 99% (excellent win/loss classification)
+   - Next: Add MCTS logging to diagnose search quality (visit distributions, depth analysis)
+   - Try: Increase simulation budget and tune PUCT constant
+   - Analyze: Whether policy priors are sharp enough or search is getting trapped
 
-5. **Re-run evaluation of AlphaSolitaire**
-   - Run a controlled 100–500 game evaluation using the updated model and MCTS.
-   - Record win rate, average moves, and any failure modes (e.g., loops, repeated states).
-   - Capture key findings in `engine/src/main/java/ai/games/player/ai/alpha/README.md` or a short notes file.
+5. **Re-run evaluation of AlphaSolitaire** (TODO)
+   - Run 100–500 game evaluation with diagnostic MCTS logs
+   - Record win rate, move distribution, and failure modes
+   - Update `engine/src/main/java/ai/games/player/ai/alpha/README.md` with findings
 
-6. **Self-Play Training Loop**
-   - Implement an RL training script that:
-     - Runs many self-play games using MCTS + current network.
-     - Records (state, improved policy from MCTS, final outcome) tuples.
-     - Periodically updates the network on this data.
-   - Add mechanisms for:
-     - Checkpointing models.
-     - Evaluating new models against older versions or baselines.
+6. **Self-Play Training Loop** (TODO)
+   - Implement RL loop: MCTS selection → self-play → network update
+   - Add checkpointing and model comparison
+   - Close the loop for continuous improvement
