@@ -12,41 +12,87 @@ from .state_encoding import encode_state
 
 @dataclass
 class SampleIndex:
+    """Index into a (episode, step) pair for efficient dataset sampling."""
     episode_idx: int
     step_idx: int
 
 
 class SolitaireStateDataset(Dataset):
+    """
+    PyTorch Dataset for Solitaire game episodes.
+
+    Loads episodes from one or more JSON log files produced by the Java engine
+    (with -Dlog.episodes=true enabled). Each episode contains multiple steps,
+    and each step is a separate training sample (state, policy label, value label).
+
+    Memory model:
+    - All episodes are loaded into memory at initialization (one-time cost).
+    - Individual samples are encoded to tensors on-demand via __getitem__.
+    - Supports efficient batching via DataLoader.
+
+    Attributes:
+        _episodes: List of Episode objects parsed from log files.
+        _indices: Pre-computed mapping of sample index → (episode_idx, step_idx).
+        action_space: ActionSpace mapping move commands to indices.
+    """
+
     def __init__(self, log_paths: Sequence[str | Path]) -> None:
         super().__init__()
         self._episodes: List[Episode] = []
 
-        for path in log_paths:
+        # Load all episodes from log files
+        for i, path in enumerate(log_paths, 1):
+            print(f"  [{i}/{len(log_paths)}] Loading {Path(path).name}...", flush=True)
             episodes = load_episodes_from_log(path)
             self._episodes.extend(episodes)
+            print(f"    → {len(episodes)} episode(s), {sum(len(e.steps) for e in episodes)} step(s)", flush=True)
 
+        print(f"Total: {len(self._episodes)} episode(s) loaded", flush=True)
+
+        # Build action space from all loaded episodes
+        print("Building action space...", flush=True)
         self.action_space: ActionSpace = ActionSpace.from_episodes(self._episodes)
+        print(f"  → {self.action_space.size} unique actions", flush=True)
 
+        # Pre-compute (episode_idx, step_idx) mapping for fast O(1) sample lookup
+        print("Indexing samples...", flush=True)
         self._indices: List[SampleIndex] = []
         for epi_idx, episode in enumerate(self._episodes):
             for step_idx, _ in enumerate(episode.steps):
                 self._indices.append(SampleIndex(episode_idx=epi_idx, step_idx=step_idx))
+        print(f"  → {len(self._indices)} sample(s) indexed", flush=True)
 
     def __len__(self) -> int:  # type: ignore[override]
+        """Return total number of training samples (across all steps in all episodes)."""
         return len(self._indices)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:  # type: ignore[override]
+        """
+        Get a single training sample.
+
+        Args:
+            idx: Index into the flattened sample space.
+
+        Returns:
+            (state_tensor, policy_label_tensor, value_label_tensor) where:
+            - state_tensor: (296,) float tensor of encoded game state
+            - policy_label_tensor: (num_actions,) one-hot tensor (1.0 at chosen action, 0.0 elsewhere)
+            - value_label_tensor: scalar tensor (1.0 if episode won, 0.0 if lost)
+        """
         ref = self._indices[idx]
         episode = self._episodes[ref.episode_idx]
         step = episode.steps[ref.step_idx]
 
+        # Encode the game state to a feature vector
         state = encode_state(step)
 
+        # Create one-hot policy label from the chosen command
         action_idx = encode_action(self.action_space, step.chosen_command)
         policy = torch.zeros(self.action_space.size, dtype=torch.float32)
         if 0 <= action_idx < self.action_space.size:
             policy[action_idx] = 1.0
 
+        # Create binary value label: 1.0 if episode won, 0.0 otherwise
         won = False
         if episode.summary is not None:
             won = episode.summary.won

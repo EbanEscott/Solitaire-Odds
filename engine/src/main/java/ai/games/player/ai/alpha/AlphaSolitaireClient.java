@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -36,6 +37,12 @@ public class AlphaSolitaireClient {
             if (log.isDebugEnabled()) {
                 log.debug("Calling AlphaSolitaire service at {} with {} legal moves",
                         evaluateUri, request.getLegalMoves().size());
+                // DEBUG: Log the talon size and stock size to detect if state is changing
+                log.debug("  State: talon_size={}, stock_size={}, tableau_visible_count={}, legal_moves={}",
+                        request.getTalon().size(),
+                        request.getStockSize(),
+                        request.getTableauVisible().stream().mapToInt(List::size).sum(),
+                        request.getLegalMoves());
             }
 
             byte[] body = OBJECT_MAPPER.writeValueAsBytes(request);

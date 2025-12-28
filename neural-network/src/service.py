@@ -64,6 +64,13 @@ def _pick_action_and_scores(
     step = EpisodeStep(raw_step)
 
     state = encode_state(step).to(bundle.device).unsqueeze(0)
+    
+    # DEBUG: Print the state tensor to detect if it's always the same
+    state_checksum = state.sum().item()
+    print(
+        f"[service] state_checksum={state_checksum:.6f} (talon={step.talon}, stock_size={step.stock_size})",
+        flush=True,
+    )
 
     with torch.no_grad():
         logits, value_logits = bundle.model(state)

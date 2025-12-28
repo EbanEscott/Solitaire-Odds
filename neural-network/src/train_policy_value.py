@@ -3,7 +3,14 @@ Train a policy–value network on Solitaire logs from the Java engine.
 
 Run from the project root as:
 
-    python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/game.log
+    # Single file
+    python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/episode.log
+    
+    # Multiple files
+    python -m src.train_policy_value logs/episode.1.log logs/episode.2.log logs/episode.3.log
+    
+    # Glob pattern (quote to prevent shell expansion)
+    python -m src.train_policy_value "logs/episode*.log"
 """
 
 from __future__ import annotations
@@ -20,6 +27,36 @@ from .dataset import SolitaireStateDataset
 from .model import PolicyValueNet
 
 
+def _resolve_log_paths(argv: List[str]) -> List[Path]:
+    """
+    Resolve arguments to a list of log file paths.
+    
+    Handles:
+    - Explicit file paths: /path/to/file.log
+    - Glob patterns: /path/to/episode*.log
+    """
+    resolved = []
+    
+    for arg in argv:
+        p = Path(arg)
+        
+        # If it's a glob pattern (contains * or ?), expand it
+        if '*' in arg or '?' in arg:
+            parent = p.parent
+            pattern = p.name
+            matches = sorted(parent.glob(pattern))
+            if not matches:
+                print(f"Warning: glob pattern '{arg}' matched no files")
+            resolved.extend(matches)
+        elif p.exists():
+            resolved.append(p)
+        else:
+            print(f"Error: file or pattern not found: {arg}")
+            raise SystemExit(1)
+    
+    return resolved
+
+
 def main(argv: List[str] | None = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
@@ -27,15 +64,18 @@ def main(argv: List[str] | None = None) -> None:
     if not argv:
         print(
             "Usage: python -m src.train_policy_value "
-            "/path/to/game.log [more_logs.log ...]"
+            "/path/to/episode.log [more_logs.log ...]\n"
+            "\n"
+            "Supports glob patterns:\n"
+            "  python -m src.train_policy_value 'logs/episode*.log'"
         )
         raise SystemExit(1)
 
-    log_paths = [Path(p) for p in argv]
-    for p in log_paths:
-        if not p.exists():
-            print(f"Log file not found: {p}")
-            raise SystemExit(1)
+    log_paths = _resolve_log_paths(argv)
+    
+    if not log_paths:
+        print("Error: no valid log files found")
+        raise SystemExit(1)
 
     dataset = SolitaireStateDataset(log_paths)
     if len(dataset) == 0:
@@ -78,7 +118,9 @@ def main(argv: List[str] | None = None) -> None:
         total_correct_value = 0
         total_examples = 0
 
-        for states, policies, values in train_loader:
+        for batch_idx, (states, policies, values) in enumerate(train_loader):
+            if batch_idx % max(1, len(train_loader) // 10) == 0:
+                print(f"  Epoch {epoch}/{num_epochs} - Batch {batch_idx:04d}/{len(train_loader):04d}")
             states = states.to(device)
             target_actions = policies.argmax(dim=-1).to(device)
             target_values = values.to(device)
