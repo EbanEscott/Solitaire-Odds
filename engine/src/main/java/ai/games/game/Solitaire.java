@@ -20,13 +20,20 @@ import java.util.Objects;
  *   <li><strong>Foundation (F1–F4):</strong> Four piles, one per suit, built from Ace to King.</li>
  *   <li><strong>Stockpile (S):</strong> Remaining undealt cards (face-down). When empty,
  *       the talon can be recycled back.</li>
- *   <li><strong>Talon (W):</strong> Cards revealed from the stockpile during \"turn three\" operations.</li>
+ *   <li><strong>Talon (W):</strong> Cards revealed from the stockpile during \"turn three\" operations.
+ *       Per Klondike Turn-3 rules: three cards are drawn and placed face-up into the talon.
+ *       All three cards are strategically visible to the player, but only the top card is legally
+ *       playable to the foundations or tableau at any given time. Use {@link #getTalon()} to inspect
+ *       all cards in the talon (important for AI planning), and {@link LegalMovesHelper} enforces
+ *       that only the top card can actually be moved.</li>
  * </ul>
  * <p>
  * <strong>Card Visibility:</strong>
  * Hidden cards in the tableau are not exposed to AI players or move validation checks.
  * Use {@link #getVisibleTableau()} for AI decision-making and {@link #getTableauFaceDownCounts()}
- * to know how many cards are hidden in each pile.
+ * to know how many cards are hidden in each pile. The talon, by contrast, is fully visible (all
+ * cards dealt face-up per Klondike rules), and AI players have full access to all three cards via
+ * {@link #getTalon()} for strategic planning, even though only the top card is playable.
  * <p>
  * <strong>Move Validation:</strong>
  * All moves are validated against Solitaire rules:

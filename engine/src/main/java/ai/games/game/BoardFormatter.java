@@ -12,6 +12,14 @@ import java.util.List;
  * <p>
  * All length calculations account for ANSI colour escape sequences, ensuring proper alignment
  * regardless of whether colour codes are present in the output.
+ * <p>
+ * <strong>TODO: Full Talon Display:</strong>
+ * The talon section currently displays only the top card plus a count (e.g., "Q♣ (3)") to avoid
+ * cluttering the console. Per official Klondike rules, all three drawn cards are face-up and
+ * visible to the player. Consider implementing a new gameplay command (e.g., `show talon` or `show W`)
+ * that displays the full sequence of talon cards to improve player awareness. This would be especially
+ * useful during debugging and AI analysis, as the underlying {@link Solitaire#getTalon()} method
+ * already provides full access to all cards.
  */
 public class BoardFormatter {
     /** Default cell width (in characters) used when content is narrower than this value. */
