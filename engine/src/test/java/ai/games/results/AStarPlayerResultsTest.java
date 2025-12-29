@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.games.Game;
 import ai.games.Game.GameResult;
 import ai.games.player.Player;
-import ai.games.player.ai.AStarPlayer;
+import ai.games.player.ai.astar.AStarPlayer;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
