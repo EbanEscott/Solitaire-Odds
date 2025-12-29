@@ -34,10 +34,6 @@ class EpisodeStep:
         return list(self.raw.get("legal_moves", []))
 
     @property
-    def recommended_moves(self) -> List[str]:
-        return list(self.raw.get("recommended_moves", []))
-
-    @property
     def tableau_visible(self) -> List[List[str]]:
         return list(self.raw.get("tableau_visible", []))
 
@@ -56,6 +52,22 @@ class EpisodeStep:
     @property
     def stock_size(self) -> int:
         return int(self.raw.get("stock_size", 0))
+
+    @property
+    def foundation_move(self) -> bool:
+        return bool(self.raw.get("foundation_move", False))
+
+    @property
+    def revealed_facedown(self) -> bool:
+        return bool(self.raw.get("revealed_facedown", False))
+
+    @property
+    def talon_move(self) -> bool:
+        return bool(self.raw.get("talon_move", False))
+
+    @property
+    def is_cascading_move(self) -> bool:
+        return bool(self.raw.get("is_cascading_move", False))
 
 
 @dataclass

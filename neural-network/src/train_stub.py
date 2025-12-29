@@ -76,9 +76,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(1)
 
     # Peek at a single sample to determine dimensions.
-    sample_state, sample_policy, _ = dataset[0]
-    input_dim = sample_state.shape[0]
-    num_actions = sample_policy.shape[0]
+    sample = dataset[0]
+    input_dim = sample['state'].shape[0]
+    num_actions = sample['policy'].shape[0]
 
     print(f"Loaded {len(dataset)} samples ({input_dim}D state, {num_actions} actions)")
     print(f"State dim: {input_dim}, action space size: {num_actions}")
@@ -91,9 +91,14 @@ def main(argv: list[str] | None = None) -> None:
 
     model.train()
     print(f"Running sanity check over {len(loader)} batches...")
-    for step, (states, policies, _values) in enumerate(loader):
+    for step, batch in enumerate(loader):
         if step % max(1, len(loader) // 10) == 0:
             print(f"  Step {step:04d} / {len(loader):04d}")
+        
+        # Extract tensors from batch dict
+        states = batch['state']
+        policies = batch['policy']
+        
         # For now, use the one-hot policy's argmax as a class label.
         target_indices = policies.argmax(dim=-1)
 

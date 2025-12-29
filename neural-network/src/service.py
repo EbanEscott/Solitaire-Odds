@@ -73,7 +73,9 @@ def _pick_action_and_scores(
     )
 
     with torch.no_grad():
-        logits, value_logits = bundle.model(state)
+        outputs = bundle.model(state)
+        logits = outputs['policy']
+        value_logits = outputs['value']
         probs = torch.softmax(logits[0], dim=-1)
         win_prob = torch.sigmoid(value_logits[0, 0]).item()
 

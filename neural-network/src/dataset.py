@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import List, Sequence, Tuple, Dict, Any
 
 import torch
 from torch.utils.data import Dataset
@@ -66,18 +66,22 @@ class SolitaireStateDataset(Dataset):
         """Return total number of training samples (across all steps in all episodes)."""
         return len(self._indices)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:  # type: ignore[override]
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:  # type: ignore[override]
         """
-        Get a single training sample.
+        Get a single training sample with all targets.
 
         Args:
             idx: Index into the flattened sample space.
 
         Returns:
-            (state_tensor, policy_label_tensor, value_label_tensor) where:
-            - state_tensor: (296,) float tensor of encoded game state
-            - policy_label_tensor: (num_actions,) one-hot tensor (1.0 at chosen action, 0.0 elsewhere)
-            - value_label_tensor: scalar tensor (1.0 if episode won, 0.0 if lost)
+            Dict with keys:
+            - 'state': (296,) float tensor of encoded game state
+            - 'policy': (num_actions,) one-hot tensor (1.0 at chosen action, 0.0 elsewhere)
+            - 'value': scalar tensor (1.0 if episode won, 0.0 if lost)
+            - 'foundation_move': scalar tensor (1.0 or 0.0)
+            - 'revealed_facedown': scalar tensor (1.0 or 0.0)
+            - 'talon_move': scalar tensor (1.0 or 0.0)
+            - 'is_cascading_move': scalar tensor (1.0 or 0.0)
         """
         ref = self._indices[idx]
         episode = self._episodes[ref.episode_idx]
@@ -98,7 +102,21 @@ class SolitaireStateDataset(Dataset):
             won = episode.summary.won
         value = torch.tensor(1.0 if won else 0.0, dtype=torch.float32)
 
-        return state, policy, value
+        # Extract Tier 1 metrics (convert booleans to float tensors)
+        foundation_move = torch.tensor(1.0 if step.foundation_move else 0.0, dtype=torch.float32)
+        revealed_facedown = torch.tensor(1.0 if step.revealed_facedown else 0.0, dtype=torch.float32)
+        talon_move = torch.tensor(1.0 if step.talon_move else 0.0, dtype=torch.float32)
+        is_cascading_move = torch.tensor(1.0 if step.is_cascading_move else 0.0, dtype=torch.float32)
+
+        return {
+            'state': state,
+            'policy': policy,
+            'value': value,
+            'foundation_move': foundation_move,
+            'revealed_facedown': revealed_facedown,
+            'talon_move': talon_move,
+            'is_cascading_move': is_cascading_move,
+        }
 
 
 def build_dataset_from_logs(log_dir: str | Path, pattern: str = "*.log") -> SolitaireStateDataset:

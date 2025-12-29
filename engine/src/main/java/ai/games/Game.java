@@ -137,11 +137,9 @@ public class Game implements CommandLineRunner {
                 input = input.substring(2).trim();
             }
 
-            // Log this step for training, if enabled.
-            if (EpisodeLogger.isEnabled()) {
-                java.util.List<String> legalMovesAtStart = LegalMovesHelper.listLegalMoves(solitaire);
-                EpisodeLogger.logStep(solitaire, solverId, iterations, legalMovesAtStart, view.recommendedMoves, input, won);
-            }
+            // Log this step for training, if enabled (requires state capture before move execution).
+            java.util.List<String> legalMovesAtStart = LegalMovesHelper.listLegalMoves(solitaire);
+            Solitaire stateBefore = EpisodeLogger.isEnabled() ? solitaire.copy() : null;
 
             // Track simple repetition and ping-pong patterns (A,B,A,B,...).
             boolean pingPongLimitHit = trackPingPongs(
@@ -175,6 +173,11 @@ public class Game implements CommandLineRunner {
                     persistentGuidance,
                     illegalFeedback,
                     player);
+
+            // Log this step for training after move execution (now we have before/after states).
+            if (EpisodeLogger.isEnabled() && stateBefore != null) {
+                EpisodeLogger.logStep(stateBefore, solitaire, solverId, iterations, legalMovesAtStart, input, won);
+            }
 
             illegalFeedback = commandResult.illegalFeedback;
             successfulMoves = commandResult.successfulMoves;
