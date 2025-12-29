@@ -68,6 +68,24 @@ public class Game implements CommandLineRunner {
         // Each play() call starts from a fresh, shuffled deck.
         Deck deck = new Deck();
         Solitaire solitaire = new Solitaire(deck);
+        return play(solitaire);
+    }
+
+    /**
+     * Overloaded game loop that accepts a seeded {@link Solitaire} state.
+     *
+     * <p>This is useful for:
+     * <ul>
+     *     <li>Training data generation with deterministic endgame positions.</li>
+     *     <li>Integration tests that require specific board states.</li>
+     *     <li>Self-play scenarios where game states are manually constructed.</li>
+     * </ul>
+     *
+     * @param solitaire the seeded Solitaire game state to use
+     * @return summary of whether the player won, how many successful moves
+     *         were applied, and how long the game took.
+     */
+    public GameResult play(Solitaire solitaire) {
         boolean aiMode = player instanceof AIPlayer;
         String solverId = player.getClass().getSimpleName();
         // Textual feedback passed into the player for the next decision.
