@@ -96,45 +96,18 @@ class SolitaireStateDataset(Dataset):
         if 0 <= action_idx < self.action_space.size:
             policy[action_idx] = 1.0
 
-        # Create value label based on game progress heuristic.
-        # Combines two key indicators:
-        # 1. Foundation progress: (cards_in_foundation / 52) × 0.4
-        # 2. Facedown revelation: (facedown_revealed / initial_facedown) × 0.6
+        # Create value label from the actual game outcome (oracle label).
+        # Every step in a game is labeled with the final outcome:
+        # - 1.0 if the game was won
+        # - 0.0 if the game was lost (or quit due to deadlock/timeout)
         #
-        # Expert insight: Revealing all facedown cards is the strongest predictor of win,
-        # so we weight it more heavily (60%) than foundation progress (40%).
-        #
-        # This heuristic applies to ALL games (winning and losing):
-        # - Good moves that made progress are rewarded (high value)
-        # - Moves made in stuck positions get low value
-        # - The network learns to recognize "promising states" regardless of final outcome
-        # This preserves 100% of the training data while giving meaningful per-step signals.
+        # This is the ground truth: whether the sequence of moves led to victory.
+        # The value head learns to distinguish winning states from losing states.
+        # States that appear in both winning and losing games will have different labels,
+        # forcing the network to learn the features that actually matter for winnability.
         
-        foundation = step.foundation  # List of 4 lists (one per suit)
-        num_foundation_cards = sum(len(suit_cards) for suit_cards in foundation)
-        foundation_progress = num_foundation_cards / 52.0
-        
-        # Calculate facedown progress: how many have been revealed since start of episode
-        current_facedown = step.tableau_face_down  # List of counts per column
-        num_current_facedown = sum(current_facedown)
-        
-        # Get initial facedown count from first step of episode
-        initial_step = episode.steps[0]
-        initial_facedown = initial_step.tableau_face_down
-        num_initial_facedown = sum(initial_facedown)
-        
-        # Avoid division by zero (though Solitaire starts with 20 facedown cards)
-        facedown_progress = 0.0
-        if num_initial_facedown > 0:
-            num_revealed = num_initial_facedown - num_current_facedown
-            facedown_progress = num_revealed / num_initial_facedown
-        
-        # Combined value: weight facedown revelation (0.6) more than foundation (0.4)
-        # This applies to all games—even a losing game gets high value if it made good progress
-        value = torch.tensor(
-            (foundation_progress * 0.4) + (facedown_progress * 0.6),
-            dtype=torch.float32
-        )
+        game_won = episode.summary.won if episode.summary else False
+        value = torch.tensor(1.0 if game_won else 0.0, dtype=torch.float32)
 
         # Extract Tier 1 metrics (convert booleans to float tensors)
         foundation_move = torch.tensor(1.0 if step.foundation_move else 0.0, dtype=torch.float32)

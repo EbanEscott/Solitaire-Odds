@@ -45,8 +45,7 @@ public class EpisodeLogger {
             String solverId,
             int stepIndex,
             List<String> legalMoves,
-            String chosenCommand,
-            boolean won) {
+            String chosenCommand) {
 
         try {
             long stateKey = stateAfter.getStateKey();
@@ -76,7 +75,6 @@ public class EpisodeLogger {
             sb.append(",\"solver\":\"").append(solverId).append("\"");
             sb.append(",\"step_index\":").append(stepIndex);
             sb.append(",\"state_key\":").append(stateKey);
-            sb.append(",\"won\":").append(won);
 
             // Encode visible tableau as short card codes plus face-down counts.
             sb.append(",\"tableau_visible\":[");
