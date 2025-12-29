@@ -27,24 +27,40 @@ public class EpisodeLogger {
      * Emit a single structured JSON line describing this move and the current state.
      *
      * <p>The line is prefixed with "EPISODE_STEP " so downstream tools can
-     * filter it out of mixed logs easily.</p>
+     * filter it out of mixed logs easily.
+     *
+     * <p><strong>Tier 1 Move Quality Metrics:</strong>
+     * Computes the following boolean signals about move quality based on before/after state:
+     * <ul>
+     *   <li><strong>foundation_move:</strong> True if the move placed a card on a foundation pile.</li>
+     *   <li><strong>revealed_facedown:</strong> True if the move revealed a face-down card from the tableau.</li>
+     *   <li><strong>talon_move:</strong> True if the move took a card from the talon/waste pile.</li>
+     *   <li><strong>is_cascading_move:</strong> True if the move took a card from a foundation pile (enabling cascades).</li>
+     * </ul>
+     * These metrics provide direct signals about move quality without depending on LLM-specific filters.
      */
     public static void logStep(
-            Solitaire solitaire,
+            Solitaire stateBefore,
+            Solitaire stateAfter,
             String solverId,
             int stepIndex,
             List<String> legalMoves,
-            List<String> recommendedMoves,
             String chosenCommand,
             boolean won) {
 
         try {
-            long stateKey = solitaire.getStateKey();
-            List<List<Card>> visibleTableau = solitaire.getVisibleTableau();
-            List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
-            List<List<Card>> foundation = solitaire.getFoundation();
-            List<Card> talon = solitaire.getTalon();
-            List<Card> stockpile = solitaire.getStockpile();
+            long stateKey = stateAfter.getStateKey();
+            List<List<Card>> visibleTableau = stateAfter.getVisibleTableau();
+            List<Integer> faceDownCounts = stateAfter.getTableauFaceDownCounts();
+            List<List<Card>> foundation = stateAfter.getFoundation();
+            List<Card> talon = stateAfter.getTalon();
+            List<Card> stockpile = stateAfter.getStockpile();
+
+            // Compute Tier 1 metrics by comparing before/after states
+            boolean foundationMove = computeFoundationMove(stateBefore, stateAfter);
+            boolean revealedFacedown = computeRevealedFacedown(stateBefore, stateAfter);
+            boolean talonMove = chosenCommand != null && chosenCommand.contains("move W");
+            boolean isCascadingMove = chosenCommand != null && chosenCommand.startsWith("move F");
 
             String gameIndex = System.getProperty("game.index");
             String gameTotal = System.getProperty("game.total");
@@ -130,18 +146,14 @@ public class EpisodeLogger {
             }
             sb.append(']');
 
-            // Recommended moves for this turn (after guidance filters).
-            sb.append(",\"recommended_moves\":[");
-            for (int i = 0; i < recommendedMoves.size(); i++) {
-                if (i > 0) {
-                    sb.append(',');
-                }
-                sb.append('"').append(recommendedMoves.get(i)).append('"');
-            }
-            sb.append(']');
-
             // Command actually chosen and applied.
             sb.append(",\"chosen_command\":\"").append(chosenCommand).append('"');
+
+            // Tier 1 move quality metrics.
+            sb.append(",\"foundation_move\":").append(foundationMove);
+            sb.append(",\"revealed_facedown\":").append(revealedFacedown);
+            sb.append(",\"talon_move\":").append(talonMove);
+            sb.append(",\"is_cascading_move\":").append(isCascadingMove);
             sb.append('}');
 
             if (log.isInfoEnabled()) {
@@ -153,6 +165,34 @@ public class EpisodeLogger {
                 log.debug("Failed to log episode step", e);
             }
         }
+    }
+
+    /**
+     * Compute whether the move placed a card on a foundation pile.
+     * Compares the total foundation card count before and after the move.
+     */
+    private static boolean computeFoundationMove(Solitaire stateBefore, Solitaire stateAfter) {
+        int cardsBefore = stateBefore.getFoundation().stream()
+            .mapToInt(List::size)
+            .sum();
+        int cardsAfter = stateAfter.getFoundation().stream()
+            .mapToInt(List::size)
+            .sum();
+        return cardsAfter > cardsBefore;
+    }
+
+    /**
+     * Compute whether the move revealed a face-down card from the tableau.
+     * Compares the total face-down card count before and after the move.
+     */
+    private static boolean computeRevealedFacedown(Solitaire stateBefore, Solitaire stateAfter) {
+        int faceDownBefore = stateBefore.getTableauFaceDownCounts().stream()
+            .mapToInt(Integer::intValue)
+            .sum();
+        int faceDownAfter = stateAfter.getTableauFaceDownCounts().stream()
+            .mapToInt(Integer::intValue)
+            .sum();
+        return faceDownAfter < faceDownBefore;
     }
 
     /**

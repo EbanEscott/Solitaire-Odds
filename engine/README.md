@@ -164,7 +164,7 @@ Game tree analysis (state space exploration):
 To generate clean episode logs for the neural network training pipeline, run any results test with `-Dlog.episodes=true`. Episodes are written as JSON lines to `logs/episode.log` (separate from debug logs in `game.log`):
 
 ```bash
-# Generate episodes from A* player (100 games)
+# Generate episodes from A* player
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest -Dlog.episodes=true
 
 # Generate episodes from Greedy player
