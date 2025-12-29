@@ -41,10 +41,10 @@ def main(argv: List[str]) -> None:
         raise SystemExit(1)
 
     # Train/validation split (e.g., 90% / 10%).
-    val_size = max(1, int(0.1 * len(dataset)))
-    train_size = len(dataset) - val_size
+    validation_size = max(1, int(0.1 * len(dataset)))
+    train_size = len(dataset) - validation_size
     generator = torch.Generator().manual_seed(42)
-    train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=generator)
+    train_ds, validation_ds = random_split(dataset, [train_size, validation_size], generator=generator)
 
     # Peek at one sample for dimensions.
     sample_state, sample_policy, _ = dataset[0]
@@ -61,12 +61,12 @@ def main(argv: List[str]) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)
+    validation_loader = DataLoader(validation_ds, batch_size=64, shuffle=False)
 
     num_epochs = 5
 
     print(
-        f"Training on {len(train_ds)} samples, validating on {len(val_ds)} samples "
+        f"Training on {len(train_ds)} samples, validating on {len(validation_ds)} samples "
         f"(state_dim={state_dim}, num_actions={num_actions}, device={device})"
     )
 
@@ -112,19 +112,19 @@ def main(argv: List[str]) -> None:
 
         avg_policy_loss = total_policy_loss / total_examples
         avg_value_loss = total_value_loss / total_examples
-        train_policy_acc = total_correct_policy / total_examples
-        train_value_acc = total_correct_value / total_examples
+        train_policy_accuracy = total_correct_policy / total_examples
+        train_value_accuracy = total_correct_value / total_examples
 
         # Validation.
         model.eval()
-        val_policy_loss = 0.0
-        val_value_loss = 0.0
-        val_correct_policy = 0
-        val_correct_value = 0
-        val_examples = 0
+        validation_policy_loss = 0.0
+        validation_value_loss = 0.0
+        validation_correct_policy = 0
+        validation_correct_value = 0
+        validation_examples = 0
 
         with torch.no_grad():
-            for states, policies, values in val_loader:
+            for states, policies, values in validation_loader:
                 states = states.to(device)
                 target_actions = policies.argmax(dim=-1).to(device)
                 target_values = values.to(device)
@@ -142,23 +142,23 @@ def main(argv: List[str]) -> None:
                 value_correct = (value_pred == target_values).sum().item()
 
                 batch_size = states.size(0)
-                val_examples += batch_size
-                val_policy_loss += p_loss.item() * batchSize
-                val_value_loss += v_loss.item() * batchSize
-                val_correct_policy += policy_correct
-                val_correct_value += value_correct
+                validation_examples += batch_size
+                validation_policy_loss += p_loss.item() * batch_size
+                validation_value_loss += v_loss.item() * batch_size
+                validation_correct_policy += policy_correct
+                validation_correct_value += value_correct
 
-        avg_val_policy_loss = val_policy_loss / val_examples
-        avg_val_value_loss = val_value_loss / val_examples
-        val_policy_acc = val_correct_policy / val_examples
-        val_value_acc = val_correct_value / val_examples
+        avg_validation_policy_loss = validation_policy_loss / validation_examples
+        avg_validation_value_loss = validation_value_loss / validation_examples
+        validation_policy_accuracy = validation_correct_policy / validation_examples
+        validation_value_accuracy = validation_correct_value / validation_examples
 
         print(
             f"Epoch {epoch}/{num_epochs} "
             f"- train_loss(p={avg_policy_loss:.3f}, v={avg_value_loss:.3f}), "
-            f"train_acc(p={train_policy_acc:.3f}, v={train_value_acc:.3f}) "
-            f"- val_loss(p={avg_val_policy_loss:.3f}, v={avg_val_value_loss:.3f}), "
-            f"val_acc(p={val_policy_acc:.3f}, v={val_value_acc:.3f})"
+            f"train_accuracy(p={train_policy_accuracy:.3f}, v={train_value_accuracy:.3f}) "
+            f"- validation_loss(p={avg_validation_policy_loss:.3f}, v={avg_validation_value_loss:.3f}), "
+            f"validation_accuracy(p={validation_policy_accuracy:.3f}, v={validation_value_accuracy:.3f})"
         )
 
     # Optionally save the final model parameters.

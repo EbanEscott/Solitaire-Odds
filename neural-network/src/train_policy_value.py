@@ -11,6 +11,13 @@ Run from the project root as:
     
     # Glob pattern (quote to prevent shell expansion)
     python -m src.train_policy_value "logs/episode*.log"
+
+Variable naming convention:
+- Variables prefixed with `validation_` represent metrics computed on the validation dataset
+  (e.g., validation_policy_loss, validation_policy_accuracy)
+- Variables prefixed with `value_` or containing `value` represent the value head predictions
+  (e.g., value_logits, avg_value_loss)
+This distinction is critical: `validation_` = validation data split, `value_` = value head output.
 """
 
 from __future__ import annotations
@@ -82,10 +89,10 @@ def main(argv: List[str] | None = None) -> None:
         print("Dataset is empty; ensure the Java engine was run with -Dlog.episodes=true.")
         raise SystemExit(1)
 
-    val_size = max(1, int(0.1 * len(dataset)))
-    train_size = len(dataset) - val_size
+    validation_size = max(1, int(0.1 * len(dataset)))
+    train_size = len(dataset) - validation_size
     generator = torch.Generator().manual_seed(42)
-    train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=generator)
+    train_ds, validation_ds = random_split(dataset, [train_size, validation_size], generator=generator)
 
     sample = dataset[0]
     state_dim = sample['state'].shape[0]
@@ -102,7 +109,7 @@ def main(argv: List[str] | None = None) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)
+    validation_loader = DataLoader(validation_ds, batch_size=64, shuffle=False)
 
     num_epochs = 5
     
@@ -111,7 +118,7 @@ def main(argv: List[str] | None = None) -> None:
     weight_metrics = 0.5
 
     print(
-        f"Training on {len(train_ds)} samples, validating on {len(val_ds)} samples "
+        f"Training on {len(train_ds)} samples, validating on {len(validation_ds)} samples "
         f"(state_dim={state_dim}, num_actions={num_actions}, device={device})"
     )
 
@@ -206,27 +213,27 @@ def main(argv: List[str] | None = None) -> None:
         avg_policy_loss = total_policy_loss / total_examples
         avg_value_loss = total_value_loss / total_examples
         avg_metric_loss = total_metric_loss / total_examples
-        train_policy_acc = total_correct_policy / total_examples
-        train_value_acc = total_correct_value / total_examples
-        train_foundation_acc = total_correct_foundation / total_examples
-        train_revealed_acc = total_correct_revealed / total_examples
-        train_talon_acc = total_correct_talon / total_examples
-        train_cascade_acc = total_correct_cascade / total_examples
+        train_policy_accuracy = total_correct_policy / total_examples
+        train_value_accuracy = total_correct_value / total_examples
+        train_foundation_accuracy = total_correct_foundation / total_examples
+        train_revealed_accuracy = total_correct_revealed / total_examples
+        train_talon_accuracy = total_correct_talon / total_examples
+        train_cascade_accuracy = total_correct_cascade / total_examples
 
         model.eval()
-        val_policy_loss = 0.0
-        val_value_loss = 0.0
-        val_metric_loss = 0.0
-        val_correct_policy = 0
-        val_correct_value = 0
-        val_correct_foundation = 0
-        val_correct_revealed = 0
-        val_correct_talon = 0
-        val_correct_cascade = 0
-        val_examples = 0
+        validation_policy_loss = 0.0
+        validation_value_loss = 0.0
+        validation_metric_loss = 0.0
+        validation_correct_policy = 0
+        validation_correct_value = 0
+        validation_correct_foundation = 0
+        validation_correct_revealed = 0
+        validation_correct_talon = 0
+        validation_correct_cascade = 0
+        validation_examples = 0
 
         with torch.no_grad():
-            for batch in val_loader:
+            for batch in validation_loader:
                 states = batch['state'].to(device)
                 target_actions = batch['policy'].argmax(dim=-1).to(device)
                 target_values = batch['value'].to(device)
@@ -276,37 +283,37 @@ def main(argv: List[str] | None = None) -> None:
                 cascade_correct = (cascade_pred == target_cascade).sum().item()
 
                 batch_size = states.size(0)
-                val_examples += batch_size
-                val_policy_loss += p_loss.item() * batch_size
-                val_value_loss += v_loss.item() * batch_size
-                val_metric_loss += metric_losses.item() * batch_size
-                val_correct_policy += policy_correct
-                val_correct_value += value_correct
-                val_correct_foundation += foundation_correct
-                val_correct_revealed += revealed_correct
-                val_correct_talon += talon_correct
-                val_correct_cascade += cascade_correct
+                validation_examples += batch_size
+                validation_policy_loss += p_loss.item() * batch_size
+                validation_value_loss += v_loss.item() * batch_size
+                validation_metric_loss += metric_losses.item() * batch_size
+                validation_correct_policy += policy_correct
+                validation_correct_value += value_correct
+                validation_correct_foundation += foundation_correct
+                validation_correct_revealed += revealed_correct
+                validation_correct_talon += talon_correct
+                validation_correct_cascade += cascade_correct
 
-        avg_val_policy_loss = val_policy_loss / val_examples
-        avg_val_value_loss = val_value_loss / val_examples
-        avg_val_metric_loss = val_metric_loss / val_examples
-        val_policy_acc = val_correct_policy / val_examples
-        val_value_acc = val_correct_value / val_examples
-        val_foundation_acc = val_correct_foundation / val_examples
-        val_revealed_acc = val_correct_revealed / val_examples
-        val_talon_acc = val_correct_talon / val_examples
-        val_cascade_acc = val_correct_cascade / val_examples
+        avg_validation_policy_loss = validation_policy_loss / validation_examples
+        avg_validation_value_loss = validation_value_loss / validation_examples
+        avg_validation_metric_loss = validation_metric_loss / validation_examples
+        validation_policy_accuracy = validation_correct_policy / validation_examples
+        validation_value_accuracy = validation_correct_value / validation_examples
+        validation_foundation_accuracy = validation_correct_foundation / validation_examples
+        validation_revealed_accuracy = validation_correct_revealed / validation_examples
+        validation_talon_accuracy = validation_correct_talon / validation_examples
+        validation_cascade_accuracy = validation_correct_cascade / validation_examples
 
         print(
             f"Epoch {epoch}/{num_epochs} "
             f"- train_loss(p={avg_policy_loss:.3f}, v={avg_value_loss:.3f}, m={avg_metric_loss:.3f}), "
-            f"train_acc(p={train_policy_acc:.3f}, v={train_value_acc:.3f}, "
-            f"f={train_foundation_acc:.3f}, r={train_revealed_acc:.3f}, "
-            f"t={train_talon_acc:.3f}, c={train_cascade_acc:.3f}) "
-            f"- val_loss(p={avg_val_policy_loss:.3f}, v={avg_val_value_loss:.3f}, m={avg_val_metric_loss:.3f}), "
-            f"val_acc(p={val_policy_acc:.3f}, v={val_value_acc:.3f}, "
-            f"f={val_foundation_acc:.3f}, r={val_revealed_acc:.3f}, "
-            f"t={val_talon_acc:.3f}, c={val_cascade_acc:.3f})"
+            f"train_accuracy(p={train_policy_accuracy:.3f}, v={train_value_accuracy:.3f}, "
+            f"f={train_foundation_accuracy:.3f}, r={train_revealed_accuracy:.3f}, "
+            f"t={train_talon_accuracy:.3f}, c={train_cascade_accuracy:.3f}) "
+            f"- validation_loss(p={avg_validation_policy_loss:.3f}, v={avg_validation_value_loss:.3f}, m={avg_validation_metric_loss:.3f}), "
+            f"validation_accuracy(p={validation_policy_accuracy:.3f}, v={validation_value_accuracy:.3f}, "
+            f"f={validation_foundation_accuracy:.3f}, r={validation_revealed_accuracy:.3f}, "
+            f"t={validation_talon_accuracy:.3f}, c={validation_cascade_accuracy:.3f})"
         )
 
     out_dir = Path("checkpoints")
