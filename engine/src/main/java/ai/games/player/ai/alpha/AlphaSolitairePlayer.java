@@ -14,16 +14,28 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * AlphaSolitaire-backed AI player that delegates move selection to the
- * Python policy–value network via the HTTP service, using a small
- * Monte Carlo Tree Search (MCTS) loop for decision making.
+ * AlphaSolitaire-backed AI player using Monte Carlo Tree Search (MCTS) guided by
+ * a neural network policy–value network.
  *
- * Requires the Python service to be running locally, for example
- * from the modeling project:
+ * Architecture:
+ * - The neural network (Python service) outputs:
+ *   * Policy head: probability distribution over legal moves
+ *   * Value head: estimated win probability for the current position
+ * - MCTS uses these signals to search the game tree efficiently:
+ *   * Policy priors initialize move exploration (PUCT formula)
+ *   * Value estimates provide rollout termination without full simulation
+ *   * Tree is rebuilt fresh for each move (no persistence)
  *
- *   cd /Users/ebo/Code/solitaire/neural-network
- *   source .venv/bin/activate
- *   python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
+ * Configuration:
+ * - Simulations per move: controlled by -Dalphasolitaire.mcts.simulations (default 256)
+ * - Max depth per simulation: controlled by -Dalphasolitaire.mcts.maxDepth (default 12)
+ * - Exploration constant: controlled by -Dalphasolitaire.mcts.cpuct (default 1.5)
+ *
+ * Requirements:
+ * - The Python service must be running at the configured endpoint
+ * - Example: python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
+ *
+ * If the neural service is unavailable, falls back to heuristic evaluation.
  */
 @Component
 @Profile("ai-alpha-solitaire")
@@ -32,20 +44,26 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
     private static final Logger log = LoggerFactory.getLogger(AlphaSolitairePlayer.class);
 
     /**
-     * Number of MCTS simulations to run per real move. This is intentionally
-     * small because each simulation may trigger an HTTP call into the Python
-     * policy–value service.
+     * Number of MCTS simulations to run per real move.
+     * Intentionally small (256) because each simulation may trigger an HTTP call
+     * to the Python service. Can be overridden via -Dalphasolitaire.mcts.simulations.
      */
     private static final int DEFAULT_MCTS_SIMULATIONS = 256;
 
     /**
      * Maximum depth (number of moves) for a single MCTS simulation path.
+     * Prevents infinite exploration in rare deadlock scenarios.
+     * Can be overridden via -Dalphasolitaire.mcts.maxDepth.
      */
     private static final int DEFAULT_MCTS_MAX_DEPTH = 12;
 
     /**
-     * PUCT exploration constant controlling how strongly prior probabilities
-     * bias selection relative to empirical value estimates.
+     * PUCT (Polynomial Upper Confidence bound applied to Trees) exploration constant.
+     * Controls the balance between exploiting high-value moves and exploring
+     * high-probability moves recommended by the policy head.
+     * - Higher values: more exploration, follows policy priors more
+     * - Lower values: more exploitation, follows empirical Q-values
+     * Can be overridden via -Dalphasolitaire.mcts.cpuct.
      */
     private static final double DEFAULT_MCTS_CPUCT = 1.5;
 
@@ -55,6 +73,11 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
 
     private final AlphaSolitaireClient client;
 
+    /**
+     * Construct a new AlphaSolitairePlayer with HTTP client for the neural service.
+     *
+     * @param client the AlphaSolitaire HTTP client (auto-wired)
+     */
     public AlphaSolitairePlayer(AlphaSolitaireClient client) {
         this.client = client;
         this.mctsSimulations = Integer.getInteger(
@@ -68,6 +91,21 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
                         Double.toString(DEFAULT_MCTS_CPUCT)));
     }
 
+    /**
+     * Select the next move using MCTS guided by the neural network.
+     *
+     * Process:
+     * 1. Extract legal moves from the current position
+     * 2. Build a root MCTS node for this decision point
+     * 3. Evaluate the root with the neural network (get priors and value)
+     * 4. Run many simulations (default 256) exploring the tree
+     * 5. Return the move with the highest visit count
+     *
+     * @param solitaire the current game state
+     * @param moves unused (legacy parameter)
+     * @param feedback unused (legacy parameter)
+     * @return the next command to execute
+     */
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
         List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
@@ -89,15 +127,17 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
 
         // Root node uses a copy of the current state so that MCTS can freely
         // explore without mutating the real game.
-        MctsNode root = MctsNode.createRoot(solitaire.copy(), legal);
+        TreeNode root = TreeNode.createRoot(solitaire.copy(), legal);
 
         // Ensure the root has priors and a value estimate from the neural net.
         root.ensureEvaluated(client);
 
+        // Run the specified number of simulations
         for (int sim = 0; sim < mctsSimulations; sim++) {
             runSimulation(root);
         }
 
+        // Select the best move based on visit counts alone (pure exploitation)
         String chosen = root.bestMove();
         if (chosen == null || chosen.isBlank()) {
             log.warn("AlphaSolitaire MCTS returned no move; defaulting to \"quit\".");
@@ -115,23 +155,37 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
         return chosen;
     }
 
-    private void runSimulation(MctsNode root) {
-        List<MctsNode> pathNodes = new ArrayList<>();
+    /**
+     * Run a single MCTS simulation from the root node.
+     *
+     * Process (tree policy and default policy combined):
+     * 1. Select moves down the tree using PUCT (balance prior + value)
+     * 2. When reaching an unexplored child, expand and evaluate it
+     * 3. Backpropagate the value up the path
+     * 4. Stop at terminal state, max depth, or first neural evaluation
+     *
+     * @param root the root node of the MCTS tree
+     */
+    private void runSimulation(TreeNode root) {
+        List<TreeNode> pathNodes = new ArrayList<>();
         List<Integer> pathMoves = new ArrayList<>();
 
-        MctsNode node = root;
+        TreeNode node = root;
         pathNodes.add(node);
         int depth = 0;
 
         while (true) {
+            // Terminal state or max depth: stop and backpropagate
             if (node.isTerminal() || depth >= mctsMaxDepth) {
                 double terminalValue = node.getValueEstimate();
                 backpropagate(pathNodes, pathMoves, terminalValue);
                 return;
             }
 
+            // Select the best move using PUCT
             int moveIndex = node.selectChildIndex(mctsCpuct);
             if (moveIndex < 0) {
+                // No moves (should be caught by isTerminal, but be safe)
                 double terminalValue = node.getValueEstimate();
                 backpropagate(pathNodes, pathMoves, terminalValue);
                 return;
@@ -139,44 +193,70 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
 
             pathMoves.add(moveIndex);
 
-            MctsNode child = node.child(moveIndex);
+            // Check if child already exists
+            TreeNode child = node.child(moveIndex);
             if (child == null) {
-                // Expand this edge by creating a new state and evaluating it via the neural net.
+                // Expand: create a new child node by applying the move
                 String move = node.moveAt(moveIndex);
                 Solitaire nextState = node.copyState();
                 applyMove(nextState, move);
                 List<String> childLegal = LegalMovesHelper.listLegalMoves(nextState);
 
-                child = MctsNode.createChild(nextState, childLegal);
+                // Create child and store in parent
+                child = TreeNode.createChild(nextState, childLegal);
                 node.setChild(moveIndex, child);
 
                 pathNodes.add(child);
+                // Evaluate the new child with the neural network
                 double value = child.ensureEvaluated(client);
                 backpropagate(pathNodes, pathMoves, value);
                 return;
             }
 
+            // Descend to child
             node = child;
             pathNodes.add(node);
             depth++;
         }
     }
 
-    private void backpropagate(List<MctsNode> nodes, List<Integer> moves, double value) {
+    /**
+     * Backpropagate a value up the tree path.
+     *
+     * In single-agent Solitaire, the value perspective is always the same,
+     * so we propagate the same scalar value up the entire path without negation.
+     *
+     * @param nodes the sequence of nodes from root to leaf (in order)
+     * @param moves the sequence of move indices taken at each node (in order)
+     * @param value the value to backpropagate (0.0 = loss, 1.0 = win)
+     */
+    private void backpropagate(List<TreeNode> nodes, List<Integer> moves, double value) {
         // Single-agent setting: value is always from the same perspective,
         // so we propagate the same scalar up the entire path.
         int steps = moves.size();
         for (int i = 0; i < steps; i++) {
-            MctsNode node = nodes.get(i);
+            TreeNode node = nodes.get(i);
             int moveIndex = moves.get(i);
             node.updateStats(moveIndex, value);
         }
     }
 
+    /**
+     * Check if a move string is the "quit" command.
+     *
+     * @param move the move command string
+     * @return true if the move is "quit"
+     */
     private static boolean isQuit(String move) {
         return move != null && move.trim().equalsIgnoreCase("quit");
     }
 
+    /**
+     * Check if the game is won from the given state.
+     *
+     * @param solitaire the game state
+     * @return true if all 52 cards are in the foundation piles
+     */
     private static boolean isWon(Solitaire solitaire) {
         int total = 0;
         for (var pile : solitaire.getFoundation()) {
@@ -185,6 +265,13 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
         return total == 52;
     }
 
+    /**
+     * Apply a move command to a game state.
+     * Handles "turn" (draw 3 cards from stockpile) and "move" (card movement).
+     *
+     * @param solitaire the game state to modify
+     * @param move the command string (e.g., "turn", "move T1 A♥ F1")
+     */
     private static void applyMove(Solitaire solitaire, String move) {
         if (move == null) {
             return;
@@ -205,12 +292,21 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
     }
 
     /**
-     * Simple state evaluation used when the neural service is unavailable.
-     * Mirrors the structure of the MonteCarloPlayer heuristic but is kept
-     * intentionally lightweight; primary guidance still comes from the neural
-     * policy and value.
+     * Evaluate a position using heuristics when the neural service is unavailable.
+     *
+     * Factors considered:
+     * - Foundation cards (40 points each): direct progress toward winning
+     * - Visible tableau cards (4 points each): movable cards
+     * - Face-down cards (-9 points each): blocking cards
+     * - Empty tableau columns (20 points each): valuable for future moves
+     * - Stockpile cards (-2 points each): remaining cards to process
+     *
+     * The score is converted to a probability via sigmoid: 1 / (1 + exp(-score/100))
+     *
+     * @param solitaire the game state to evaluate
+     * @return heuristic score (used as input to sigmoid)
      */
-    private static int heuristicScore(Solitaire solitaire) {
+    static int heuristicScore(Solitaire solitaire) {
         int score = 0;
 
         int foundationCards = 0;
@@ -236,222 +332,5 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
         score -= solitaire.getStockpile().size() * 2;
 
         return score;
-    }
-
-    /**
-     * Single-node AlphaZero-style MCTS implementation.
-     */
-    private static final class MctsNode {
-        private final Solitaire state;
-        private final List<String> moves;
-        private final double[] priors;
-        private final double[] valueSums;
-        private final int[] visits;
-        private final MctsNode[] children;
-        private boolean evaluated;
-        private double valueEstimate;
-
-        private MctsNode(Solitaire state, List<String> moves) {
-            this.state = state;
-            this.moves = moves;
-            int n = moves.size();
-            this.priors = new double[n];
-            this.valueSums = new double[n];
-            this.visits = new int[n];
-            this.children = new MctsNode[n];
-            this.evaluated = false;
-            this.valueEstimate = 0.0;
-        }
-
-        static MctsNode createRoot(Solitaire state, List<String> legalMoves) {
-            List<String> filtered = new ArrayList<>();
-            for (String move : legalMoves) {
-                if (!isQuit(move)) {
-                    filtered.add(move);
-                }
-            }
-            return new MctsNode(state, filtered);
-        }
-
-        static MctsNode createChild(Solitaire state, List<String> legalMoves) {
-            List<String> filtered = new ArrayList<>();
-            for (String move : legalMoves) {
-                if (!isQuit(move)) {
-                    filtered.add(move);
-                }
-            }
-            return new MctsNode(state, filtered);
-        }
-
-        boolean isTerminal() {
-            return moves.isEmpty() || isWon(state);
-        }
-
-        double getValueEstimate() {
-            if (!evaluated) {
-                // If we have not yet contacted the neural service, fall back
-                // to a heuristic view of the current state.
-                return valueEstimateFromHeuristic();
-            }
-            return valueEstimate;
-        }
-
-        double ensureEvaluated(AlphaSolitaireClient client) {
-            if (evaluated) {
-                return valueEstimate;
-            }
-            if (moves.isEmpty() || isWon(state)) {
-                valueEstimate = isWon(state) ? 1.0 : 0.0;
-                evaluated = true;
-                return valueEstimate;
-            }
-
-            try {
-                AlphaSolitaireRequest request = AlphaSolitaireRequest.fromSolitaire(state);
-                AlphaSolitaireResponse response = client.evaluate(request);
-                if (response != null) {
-                    Map<String, Double> priorByMove = new HashMap<>();
-                    List<AlphaSolitaireResponse.MoveScore> scored = response.getLegalMoves();
-                    if (scored != null) {
-                        for (AlphaSolitaireResponse.MoveScore ms : scored) {
-                            if (ms.getCommand() != null) {
-                                priorByMove.put(ms.getCommand().trim(), ms.getProbability());
-                            }
-                        }
-                    }
-
-                    double sum = 0.0;
-                    for (int i = 0; i < moves.size(); i++) {
-                        String m = moves.get(i);
-                        double p = priorByMove.getOrDefault(m.trim(), 0.0);
-                        priors[i] = p;
-                        sum += p;
-                    }
-                    if (sum > 0.0) {
-                        for (int i = 0; i < priors.length; i++) {
-                            priors[i] /= sum;
-                        }
-                    } else {
-                        double uniform = moves.isEmpty() ? 0.0 : 1.0 / moves.size();
-                        for (int i = 0; i < priors.length; i++) {
-                            priors[i] = uniform;
-                        }
-                    }
-
-                    valueEstimate = clamp01(response.getWinProbability());
-                } else {
-                    valueEstimate = valueEstimateFromHeuristic();
-                }
-            } catch (Exception e) {
-                valueEstimate = valueEstimateFromHeuristic();
-            }
-
-            evaluated = true;
-            return valueEstimate;
-        }
-
-        private double valueEstimateFromHeuristic() {
-            if (isWon(state)) {
-                return 1.0;
-            }
-            int score = heuristicScore(state);
-            double normalized = 1.0 / (1.0 + Math.exp(-score / 100.0));
-            return normalized;
-        }
-
-        Solitaire copyState() {
-            return state.copy();
-        }
-
-        String moveAt(int index) {
-            return moves.get(index);
-        }
-
-        MctsNode child(int index) {
-            return children[index];
-        }
-
-        void setChild(int index, MctsNode child) {
-            children[index] = child;
-        }
-
-        void updateStats(int moveIndex, double value) {
-            if (moveIndex < 0 || moveIndex >= moves.size()) {
-                return;
-            }
-            valueSums[moveIndex] += value;
-            visits[moveIndex] += 1;
-        }
-
-        int selectChildIndex(double cpuct) {
-            int nMoves = moves.size();
-            if (nMoves == 0) {
-                return -1;
-            }
-
-            int totalVisits = 0;
-            for (int n : visits) {
-                totalVisits += n;
-            }
-
-            double bestScore = Double.NEGATIVE_INFINITY;
-            int bestIndex = 0;
-
-            for (int i = 0; i < nMoves; i++) {
-                double p = priors[i];
-                int n = visits[i];
-                double q = n == 0 ? 0.0 : valueSums[i] / n;
-                double u = cpuct * p * Math.sqrt(totalVisits + 1e-6) / (1 + n);
-                double score = q + u;
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestIndex = i;
-                }
-            }
-
-            return bestIndex;
-        }
-
-        String bestMove() {
-            int nMoves = moves.size();
-            if (nMoves == 0) {
-                return null;
-            }
-
-            int bestIndex = 0;
-            int bestVisits = visits[0];
-
-            for (int i = 1; i < nMoves; i++) {
-                if (visits[i] > bestVisits) {
-                    bestVisits = visits[i];
-                    bestIndex = i;
-                }
-            }
-
-            return moves.get(bestIndex);
-        }
-
-        int visitsForMove(String move) {
-            if (move == null) {
-                return 0;
-            }
-            String normalized = move.trim();
-            for (int i = 0; i < moves.size(); i++) {
-                if (normalized.equals(moves.get(i).trim())) {
-                    return visits[i];
-                }
-            }
-            return 0;
-        }
-
-        private static double clamp01(double v) {
-            if (v < 0.0) {
-                return 0.0;
-            }
-            if (v > 1.0) {
-                return 1.0;
-            }
-            return v;
-        }
     }
 }
