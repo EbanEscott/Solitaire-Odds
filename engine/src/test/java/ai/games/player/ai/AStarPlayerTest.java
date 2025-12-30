@@ -8,6 +8,8 @@ import ai.games.player.Player;
 import ai.games.player.ai.astar.AStarPlayer;
 import ai.games.unit.helpers.FoundationCountHelper;
 import ai.games.unit.helpers.TestGameStateBuilder;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -16,6 +18,16 @@ import org.junit.jupiter.api.Test;
 class AStarPlayerTest {
 
     private static final int MAX_TEST_STEPS = 2000;
+
+    @BeforeEach
+    void setUp() {
+        AStarPlayer.resetGameState();
+    }
+
+    @AfterEach
+    void tearDown() {
+        AStarPlayer.resetGameState();
+    }
 
     @Test
     void aStarImprovesNearlyWonGame() {
