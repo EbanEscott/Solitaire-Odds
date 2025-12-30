@@ -113,22 +113,28 @@ public class EndgameTrainingDataGenerator {
         log.info("Starting endgame training data generation: {}", levelName);
         
         TrainingOpponent opponent = new TrainingOpponent(level);
-        List<Solitaire> seededGames = opponent.seedGame(GAMES_PER_LEVEL);
+        List<TrainingOpponent.SeededGame> seededGames = opponent.seedGameWithMoves(GAMES_PER_LEVEL);
         
         Stats stats = new Stats();
         List<Integer> lostGameNumbers = new ArrayList<>();
         
         int gamesProcessed = 0;
-        for (Solitaire seededGame : seededGames) {
+        for (TrainingOpponent.SeededGame seededGameWithMoves : seededGames) {
             gamesProcessed++;
+            int gameNum = gamesProcessed;
             if (log.isInfoEnabled()) {
-                log.info("[{}] Playing game {}/{}", levelName, gamesProcessed, seededGames.size());
+                log.info("[{}] Playing game {}/{}", levelName, gameNum, seededGames.size());
+            }
+            
+            // Log the reverse moves used to generate this game for easy debugging
+            if (!seededGameWithMoves.reverseMoves.isEmpty()) {
+                log.debug("Reverse moves: {}", seededGameWithMoves.reverseMoves);
             }
             
             // Create a Game instance with the solver player and seeded board
             // Episode logging is automatic when -Dlog.episodes=true is set
             Game game = new Game(solverPlayer);
-            Game.GameResult result = game.play(seededGame);
+            Game.GameResult result = game.play(seededGameWithMoves.game);
             
             stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
             
