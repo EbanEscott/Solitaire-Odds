@@ -246,17 +246,22 @@ public final class ReverseMovesApplier {
     }
 
     /**
-     * Apply a reverse "turn" operation: move cards from talon back to stockpile.
+     * Apply a reverse "turn" operation: move up to 3 cards from talon back to stockpile.
      * This reverses the forward turnThree() operation which moves up to 3 cards from stockpile to talon.
+     * Cards are moved one at a time from talon to stockpile to maintain proper order.
      */
     private static boolean applyReverseTurn(Solitaire solitaire) {
         try {
-            // For training purposes, reverse a "turn" operation by moving cards from talon to stockpile
+            // For training purposes, reverse a "turn" operation by moving up to 3 cards from talon to stockpile
             List<Card> stockpile = getInternalList(solitaire, "stockpile");
             List<Card> talon = getInternalList(solitaire, "talon");
             
             if (!talon.isEmpty()) {
-                stockpile.add(talon.remove(talon.size() - 1));
+                // Move up to 3 cards from talon back to stockpile
+                int cardsToMove = Math.min(3, talon.size());
+                for (int i = 0; i < cardsToMove; i++) {
+                    stockpile.add(talon.remove(talon.size() - 1));
+                }
                 return true;
             }
         } catch (Exception e) {
