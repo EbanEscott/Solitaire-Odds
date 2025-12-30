@@ -1,4 +1,4 @@
-package ai.games.unit.helpers;
+package ai.games.training;
 
 import ai.games.game.Card;
 import ai.games.game.Solitaire;
@@ -10,38 +10,37 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Direct state manipulation utility for applying moves to Solitaire game states
- * without rule validation. Used for seeding endgame training positions where
- * reverse moves need to be applied directly to the internal state.
+ * Applies reverse move commands to Solitaire game states without rule validation.
+ * Used for reconstructing endgame training positions from reverse move sequences.
  * 
  * <p>This bypasses {@link Solitaire#moveCard(String, String, String)} which enforces
  * game rules (e.g., foundation cards can't move to talon). For training data generation,
  * we need to construct arbitrary game states from reverse moves, which may not all be
  * rule-compliant intermediate states.</p>
  */
-public final class GameStateDirector {
-    private static final Logger log = LoggerFactory.getLogger(GameStateDirector.class);
+public final class ReverseMovesApplier {
+    private static final Logger log = LoggerFactory.getLogger(ReverseMovesApplier.class);
     
-    private GameStateDirector() {
+    private ReverseMovesApplier() {
     }
 
     /**
-     * Apply a move command directly to game state by manipulating internal collections.
+     * Apply a reverse move command to game state by directly manipulating internal collections.
      * 
      * @param solitaire the game state to modify
      * @param move command string (e.g., "move F1 K♣ T1", "move T1 T2", "turn")
      * @return true if move was applied, false if parse/validation failed
      */
-    public static boolean applyMoveDirectly(Solitaire solitaire, String move) {
+    public static boolean applyReverseMove(Solitaire solitaire, String move) {
         if (move == null || move.isBlank()) {
             return false;
         }
         
         String trimmed = move.trim();
         
-        // Handle "turn" (cycle stockpile/talon)
+        // Handle "turn" (reverse cycle: talon -> stockpile)
         if (trimmed.equalsIgnoreCase("turn")) {
-            return applyTurn(solitaire);
+            return applyReverseTurn(solitaire);
         }
         
         // Parse "move <from> <card> <to>" or "move <from> <to>"
@@ -79,7 +78,7 @@ public final class GameStateDirector {
     }
 
     /**
-     * Apply a move by directly manipulating collections.
+     * Apply a reverse move by directly manipulating collections.
      * 
      * @param solitaire the game state
      * @param fromStr location (e.g., "F1", "T2", "W")
@@ -247,21 +246,22 @@ public final class GameStateDirector {
     }
 
     /**
-     * Apply a "turn" operation: cycle stockpile to talon.
+     * Apply a reverse "turn" operation: move cards from talon back to stockpile.
+     * This reverses the forward turnThree() operation which moves up to 3 cards from stockpile to talon.
      */
-    private static boolean applyTurn(Solitaire solitaire) {
+    private static boolean applyReverseTurn(Solitaire solitaire) {
         try {
-            // For training purposes, a "turn" adds the top card from stockpile to talon
+            // For training purposes, reverse a "turn" operation by moving cards from talon to stockpile
             List<Card> stockpile = getInternalList(solitaire, "stockpile");
             List<Card> talon = getInternalList(solitaire, "talon");
             
-            if (!stockpile.isEmpty()) {
-                talon.add(stockpile.remove(stockpile.size() - 1));
+            if (!talon.isEmpty()) {
+                stockpile.add(talon.remove(talon.size() - 1));
                 return true;
             }
         } catch (Exception e) {
             if (log.isDebugEnabled()) {
-                log.debug("Failed to apply turn", e);
+                log.debug("Failed to apply reverse turn", e);
             }
         }
         
