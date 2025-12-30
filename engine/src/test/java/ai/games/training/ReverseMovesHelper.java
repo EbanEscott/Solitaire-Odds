@@ -27,10 +27,10 @@ public final class ReverseMovesHelper {
             return Collections.emptyList();
         }
         List<String> moves = new ArrayList<>();
-        addFoundationToTableau(solitaire, moves);
-        addFoundationToTalon(solitaire, moves);
-        addTableauToTableau(solitaire, moves);
-        addTableauToTalon(solitaire, moves);
+        reverseFoundationToTableau(solitaire, moves);
+        reverseFoundationToTalon(solitaire, moves);
+        reverseTableauToTableau(solitaire, moves);
+        reverseTableauToTalon(solitaire, moves);
         // "turn" reverse: cycling talon backwards (equivalent to turn, but conceptually reverse)
         if (!solitaire.getStockpile().isEmpty() || !solitaire.getTalon().isEmpty()) {
             moves.add("turn");
@@ -42,7 +42,7 @@ public final class ReverseMovesHelper {
      * Add reverse moves from foundation back to tableau.
      * A card that is currently on a foundation could have come from tableau.
      */
-    private static void addFoundationToTableau(Solitaire solitaire, List<String> out) {
+    private static void reverseFoundationToTableau(Solitaire solitaire, List<String> out) {
         List<List<Card>> foundations = solitaire.getFoundation();
         List<List<Card>> tableau = solitaire.getVisibleTableau();
         
@@ -67,7 +67,7 @@ public final class ReverseMovesHelper {
      * Add reverse moves from foundation back to talon.
      * A card on a foundation could have originally come from the talon/waste pile.
      */
-    private static void addFoundationToTalon(Solitaire solitaire, List<String> out) {
+    private static void reverseFoundationToTalon(Solitaire solitaire, List<String> out) {
         List<List<Card>> foundations = solitaire.getFoundation();
         
         // For each foundation, if it's not empty, the top card could reverse to talon
@@ -85,7 +85,7 @@ public final class ReverseMovesHelper {
      * Add reverse moves from tableau to tableau.
      * A card sequence in tableau could have come from another tableau pile.
      */
-    private static void addTableauToTableau(Solitaire solitaire, List<String> out) {
+    private static void reverseTableauToTableau(Solitaire solitaire, List<String> out) {
         List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
         
@@ -119,7 +119,7 @@ public final class ReverseMovesHelper {
      * Add reverse moves from tableau back to talon.
      * A card in tableau could have originally come from talon.
      */
-    private static void addTableauToTalon(Solitaire solitaire, List<String> out) {
+    private static void reverseTableauToTalon(Solitaire solitaire, List<String> out) {
         List<List<Card>> tableau = solitaire.getVisibleTableau();
         List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
         
