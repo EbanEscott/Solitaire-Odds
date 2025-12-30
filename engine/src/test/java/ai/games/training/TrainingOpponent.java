@@ -50,6 +50,113 @@ public class TrainingOpponent {
     }
 
     /**
+     * Seeds multiple endgame positions and returns both the games and the moves used to generate them.
+     * 
+     * <p>This is useful for debugging - you can see exactly which reverse moves were applied
+     * to generate each game, making it easier to reconstruct the game state for analysis.
+     * 
+     * @param numberOfGames requested number of games to generate
+     * @return list of SeededGame objects containing both the game and its reverse moves
+     */
+    public List<SeededGame> seedGameWithMoves(int numberOfGames) {
+        List<SeededGame> seededGames = new ArrayList<>();
+        
+        if (difficultyLevel == 1) {
+            // Level 1: Single trivial position (all foundations full)
+            Solitaire game = createCompletelyWonBoard();
+            SolitaireTestHelper.assertFullDeckState(game);
+            seededGames.add(new SeededGame(game, new ArrayList<>()));
+            if (log.isDebugEnabled()) {
+                log.debug("Generated 1 Level 1 game (all foundations full)");
+            }
+            return seededGames;
+        }
+        
+        // Start with Level 1: completely won board (all 52 on foundations)
+        List<SeededGame> currentLevelGames = new ArrayList<>();
+        Solitaire level1 = createCompletelyWonBoard();
+        SolitaireTestHelper.assertFullDeckState(level1);
+        currentLevelGames.add(new SeededGame(level1, new ArrayList<>()));
+        
+        // Generate games for levels 2 through target difficulty
+        for (int currentLevel = 2; currentLevel <= difficultyLevel && seededGames.size() < numberOfGames; currentLevel++) {
+            List<SeededGame> nextLevelGames = new ArrayList<>();
+            
+            // For each game at the current level, apply reverse moves to generate next level
+            for (SeededGame baseSeededGame : currentLevelGames) {
+                if (seededGames.size() >= numberOfGames) {
+                    break;
+                }
+                
+                // Get all possible reverse moves from this game state
+                List<String> reverseMoves = ReverseMovesHelper.listReverseMoves(baseSeededGame.game);
+                
+                if (log.isDebugEnabled()) {
+                    log.debug("Level {}: found {} reverse moves from base game", currentLevel - 1, reverseMoves.size());
+                    log.debug("  Reverse moves: {}", reverseMoves);
+                }
+                
+                if (reverseMoves.isEmpty()) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("No reverse moves available from level {}. Stopping expansion from this branch.", currentLevel - 1);
+                    }
+                    continue;
+                }
+                
+                // For each reverse move, create a new game variant for the next level
+                for (String reverseMove : reverseMoves) {
+                    if (seededGames.size() >= numberOfGames && nextLevelGames.size() > 0) {
+                        break;
+                    }
+                    
+                    // Create a game at the next difficulty level
+                    Solitaire game = baseSeededGame.game.copy();
+                    SolitaireTestHelper.assertFullDeckState(game);
+                    
+                    // Apply the reverse move
+                    applyMove(game, reverseMove);
+                    
+                    // Build the moves list by copying parent's moves and adding this one
+                    List<String> gameMoves = new ArrayList<>(baseSeededGame.reverseMoves);
+                    gameMoves.add(reverseMove);
+                    
+                    // Verify the move was applied
+                    int foundationCount = 0;
+                    for (List<Card> pile : game.getFoundation()) {
+                        foundationCount += pile.size();
+                    }
+                    
+                    SeededGame seededGame = new SeededGame(game, gameMoves);
+                    seededGames.add(seededGame);
+                    nextLevelGames.add(seededGame);
+                    
+                    if (log.isDebugEnabled()) {
+                        log.debug("Generated Level {} game: {} -> foundation_count={} (game count: {}/{})", 
+                            currentLevel, reverseMove, foundationCount, seededGames.size(), numberOfGames);
+                    }
+                }
+            }
+            
+            // If no games were generated at this level, we can't go further
+            if (nextLevelGames.isEmpty()) {
+                if (log.isDebugEnabled()) {
+                    log.debug("No games generated at level {}. Cannot progress to higher levels.", currentLevel);
+                }
+                break;
+            }
+            
+            // Move to next level
+            currentLevelGames = nextLevelGames;
+        }
+        
+        if (log.isDebugEnabled()) {
+            log.debug("Generated {} games for level {} (requested: {})", seededGames.size(), difficultyLevel, numberOfGames);
+        }
+        
+        return seededGames;
+    }
+
+    /**
      * Seeds multiple endgame positions using a systematic approach.
      * 
      * <p>Generates endgame positions by:
@@ -212,5 +319,25 @@ public class TrainingOpponent {
         SolitaireTestHelper.setStockpile(dummy, SolitaireTestHelper.emptyPile());
 
         return dummy;
+    }
+
+    /**
+     * Holds a game and the reverse moves that were used to generate it.
+     */
+    public static class SeededGame {
+        public final Solitaire game;
+        public final List<String> reverseMoves;
+
+        public SeededGame(Solitaire game, List<String> reverseMoves) {
+            this.game = game;
+            this.reverseMoves = new ArrayList<>(reverseMoves);
+        }
+
+        @Override
+        public String toString() {
+            return "SeededGame{" +
+                    "reverseMoves=" + reverseMoves +
+                    '}';
+        }
     }
 }
