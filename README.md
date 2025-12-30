@@ -18,7 +18,6 @@ The last test run was performed at Dec 30, 2025 6:36 PM AEST.
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](engine/src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
 | A* Search                    | Search | 10000 | 2340 | 23.40% ± 0.83% | 0.513s | 5129.840s | 102.81 | 5 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
-| AlphaSolitaire (MCTS + NN)   | Search | TBD  | TBD | TBD ± TBD | TBD    | TBD    | TBD    | TBD | MCTS-guided player using a neural policy–value network served from the Python modeling stack; see [code](engine/src/main/java/ai/games/player/ai/alpha/AlphaSolitairePlayer.java) and [Python model](neural-network). |
 | OpenAI                       | LLM    | 100 | 13 | 13.00% ± 6.59% | 124.992s | 12499.187s | 168.69 | 2 | OpenAI gpt-5-mini via API; see [code](engine/src/main/java/ai/games/player/ai/OpenAIPlayer.java). |
 | Alibaba                      | LLM    | 10 | 0 | 0.00% ± 0.00% | 235.863s | 2358.627s | 311.60 | 0 | Alibaba qwen3-coder:30b via Ollama; see [code](engine/src/main/java/ai/games/player/ai/OllamaPlayer.java) and [model](https://ollama.com/library/qwen3-coder). |
 
