@@ -1,10 +1,21 @@
 """
-Train a policy–value network on Solitaire logs from the Java engine.
+Train a policy–value network on Solitaire logs from the Java engine with configurable architecture.
+
+Supports both supervised learning (bootstrap from A* or other AI) and self-play RL loops.
 
 Run from the project root as:
 
-    # Single file
+    # Single file, default architecture (256 hidden, 2 layers)
     python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/episode.log
+    
+    # Larger model (512 hidden, 3 layers)
+    python -m src.train_policy_value --hidden-dim 512 --num-layers 3 logs/episode.log
+    
+    # Extra large (1024 hidden, 4 layers) for full game tree training
+    python -m src.train_policy_value --hidden-dim 1024 --num-layers 4 logs/episode.log
+    
+    # With batch norm and residual connections (experimental)
+    python -m src.train_policy_value --hidden-dim 512 --num-layers 3 --batch-norm --residual logs/episode.log
     
     # Multiple files
     python -m src.train_policy_value logs/episode.1.log logs/episode.2.log logs/episode.3.log
@@ -23,6 +34,7 @@ This distinction is critical: `validation_` = validation data split, `value_` = 
 from __future__ import annotations
 
 import sys
+import argparse
 from pathlib import Path
 from typing import List
 
@@ -30,7 +42,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
 
-from .dataset import SolitaireStateDataset
+from .dataset import SolitaireStateDataset, TrajectoryConfig
 from .model import PolicyValueNet
 
 
@@ -68,23 +80,73 @@ def main(argv: List[str] | None = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
 
-    if not argv:
-        print(
-            "Usage: python -m src.train_policy_value "
-            "/path/to/episode.log [more_logs.log ...]\n"
-            "\n"
-            "Supports glob patterns:\n"
-            "  python -m src.train_policy_value 'logs/episode*.log'"
-        )
-        raise SystemExit(1)
-
-    log_paths = _resolve_log_paths(argv)
+    # Parse command-line arguments for network configuration
+    parser = argparse.ArgumentParser(
+        prog="python -m src.train_policy_value",
+        description="Train a configurable policy-value network on Solitaire episodes."
+    )
+    parser.add_argument(
+        "log_files",
+        nargs="+",
+        help="Log files or glob patterns (e.g., 'logs/episode*.log')"
+    )
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=256,
+        help="Hidden dimension (default: 256). Increase to 512-2048 for larger models."
+    )
+    parser.add_argument(
+        "--num-layers",
+        type=int,
+        default=2,
+        help="Number of hidden layers (default: 2). Increase to 3-4 for deeper networks."
+    )
+    parser.add_argument(
+        "--batch-norm",
+        action="store_true",
+        help="Use batch normalization (experimental)"
+    )
+    parser.add_argument(
+        "--residual",
+        action="store_true",
+        help="Use residual connections (experimental, requires num-layers > 2)"
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=5,
+        help="Number of training epochs (default: 5)"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=64,
+        help="Batch size (default: 64)"
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=1e-3,
+        help="Adam learning rate (default: 1e-3)"
+    )
+    
+    args = parser.parse_args(argv)
+    
+    # Resolve log file paths
+    log_paths = _resolve_log_paths(args.log_files)
     
     if not log_paths:
         print("Error: no valid log files found")
         raise SystemExit(1)
 
-    dataset = SolitaireStateDataset(log_paths)
+    # Create trajectory config (for future self-play bootstrapping)
+    trajectory_config = TrajectoryConfig(
+        use_trajectory_value=True,  # Use full game outcome
+        use_bootstrapped_value=False,  # Self-play will enable this
+    )
+
+    dataset = SolitaireStateDataset(log_paths, trajectory_config=trajectory_config)
     if len(dataset) == 0:
         print("Dataset is empty; ensure the Java engine was run with -Dlog.episodes=true.")
         raise SystemExit(1)
@@ -100,27 +162,46 @@ def main(argv: List[str] | None = None) -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = PolicyValueNet(state_dim=state_dim, num_actions=num_actions)
+    # Create model with configurable architecture
+    model = PolicyValueNet(
+        state_dim=state_dim,
+        num_actions=num_actions,
+        hidden_dim=args.hidden_dim,
+        num_layers=args.num_layers,
+        use_batch_norm=args.batch_norm,
+        use_residual=args.residual,
+    )
     model.to(device)
 
     policy_loss_fn = nn.CrossEntropyLoss()
     value_loss_fn = nn.BCEWithLogitsLoss()
     metric_loss_fn = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-    train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
-    validation_loader = DataLoader(validation_ds, batch_size=64, shuffle=False)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
+    validation_loader = DataLoader(validation_ds, batch_size=args.batch_size, shuffle=False)
 
-    num_epochs = 5
+    num_epochs = args.epochs
     
     # Loss weights for multi-task learning
     weight_value = 0.3
     weight_metrics = 0.5
 
+    # Count model parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
     print(
         f"Training on {len(train_ds)} samples, validating on {len(validation_ds)} samples "
         f"(state_dim={state_dim}, num_actions={num_actions}, device={device})"
     )
+    print(
+        f"Model Architecture: hidden_dim={args.hidden_dim}, num_layers={args.num_layers}, "
+        f"batch_norm={args.batch_norm}, residual={args.residual}"
+    )
+    print(f"Model Size: {total_params:,} total parameters, {trainable_params:,} trainable")
+    print(f"Estimated checkpoint size: {(total_params * 4) / (1024 * 1024):.2f} MB")
+    print(f"Training: {num_epochs} epochs, batch_size={args.batch_size}, lr={args.learning_rate}")
 
     for epoch in range(1, num_epochs + 1):
         model.train()

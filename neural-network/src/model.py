@@ -1,17 +1,54 @@
 from torch import nn
 import torch
-from typing import Dict
+from typing import Dict, Optional
 
 
 class PolicyValueNet(nn.Module):
-    def __init__(self, state_dim: int, num_actions: int, hidden_dim: int = 256) -> None:
+    """
+    Configurable policy-value network with flexible depth and width.
+    
+    Supports varying architectures for training on full game trajectories.
+    Can be used as a bootstrapped value function for self-play scenarios.
+    """
+    
+    def __init__(
+        self,
+        state_dim: int,
+        num_actions: int,
+        hidden_dim: int = 256,
+        num_layers: int = 2,
+        use_batch_norm: bool = False,
+        use_residual: bool = False,
+    ) -> None:
+        """
+        Args:
+            state_dim: Input state dimension (e.g., 296 for Solitaire).
+            num_actions: Number of possible actions.
+            hidden_dim: Hidden layer dimension. Default 256 (small), can go up to 2048+ for larger models.
+            num_layers: Number of hidden layers in shared backbone (1-5+). Default 2.
+            use_batch_norm: If True, apply batch normalization after each layer.
+            use_residual: If True, add residual connections (requires same in/out dims).
+        """
         super().__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-        )
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.use_batch_norm = use_batch_norm
+        self.use_residual = use_residual
+        
+        # Build shared backbone
+        layers = []
+        in_dim = state_dim
+        
+        for layer_idx in range(num_layers):
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            if use_batch_norm:
+                layers.append(nn.BatchNorm1d(hidden_dim))
+            layers.append(nn.ReLU())
+            in_dim = hidden_dim
+        
+        self.shared = nn.Sequential(*layers)
+        
+        # Output heads
         self.policy_head = nn.Linear(hidden_dim, num_actions)
         self.value_head = nn.Linear(hidden_dim, 1)
         

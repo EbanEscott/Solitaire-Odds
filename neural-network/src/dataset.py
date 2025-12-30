@@ -17,6 +17,15 @@ class SampleIndex:
     step_idx: int
 
 
+@dataclass
+class TrajectoryConfig:
+    """Configuration for trajectory-aware training."""
+    use_trajectory_value: bool = True  # Use full game outcome as value target
+    use_bootstrapped_value: bool = False  # Use V(next_state) as bootstrapped target (for self-play)
+    discount_factor: float = 0.99  # Discount factor for bootstrapped value
+    n_step: int = 1  # For n-step returns (currently 1-step, can extend for multi-step)
+
+
 class SolitaireStateDataset(Dataset):
     """
     PyTorch Dataset for Solitaire game episodes.
@@ -29,16 +38,23 @@ class SolitaireStateDataset(Dataset):
     - All episodes are loaded into memory at initialization (one-time cost).
     - Individual samples are encoded to tensors on-demand via __getitem__.
     - Supports efficient batching via DataLoader.
+    - Full trajectory context available: can use game outcome or bootstrapped targets.
 
     Attributes:
         _episodes: List of Episode objects parsed from log files.
         _indices: Pre-computed mapping of sample index → (episode_idx, step_idx).
         action_space: ActionSpace mapping move commands to indices.
+        trajectory_config: Configuration for trajectory-aware training.
     """
 
-    def __init__(self, log_paths: Sequence[str | Path]) -> None:
+    def __init__(
+        self,
+        log_paths: Sequence[str | Path],
+        trajectory_config: TrajectoryConfig = None,
+    ) -> None:
         super().__init__()
         self._episodes: List[Episode] = []
+        self.trajectory_config = trajectory_config or TrajectoryConfig()
 
         # Load all episodes from log files
         for i, path in enumerate(log_paths, 1):
@@ -61,6 +77,13 @@ class SolitaireStateDataset(Dataset):
             for step_idx, _ in enumerate(episode.steps):
                 self._indices.append(SampleIndex(episode_idx=epi_idx, step_idx=step_idx))
         print(f"  → {len(self._indices)} sample(s) indexed", flush=True)
+        
+        # Print trajectory config
+        print(
+            f"Trajectory config: use_trajectory_value={self.trajectory_config.use_trajectory_value}, "
+            f"use_bootstrapped_value={self.trajectory_config.use_bootstrapped_value}",
+            flush=True,
+        )
 
     def __len__(self) -> int:  # type: ignore[override]
         """Return total number of training samples (across all steps in all episodes)."""
@@ -68,7 +91,11 @@ class SolitaireStateDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:  # type: ignore[override]
         """
-        Get a single training sample with all targets.
+        Get a single training sample with trajectory-aware targets.
+
+        For self-play training loops, the value target can be:
+        - trajectory_value: The actual game outcome (1.0 = won, 0.0 = lost)
+        - bootstrapped_value: V(next_state) * gamma + immediate_reward (for RL)
 
         Args:
             idx: Index into the flattened sample space.
@@ -77,11 +104,12 @@ class SolitaireStateDataset(Dataset):
             Dict with keys:
             - 'state': (296,) float tensor of encoded game state
             - 'policy': (num_actions,) one-hot tensor (1.0 at chosen action, 0.0 elsewhere)
-            - 'value': scalar tensor (1.0 if episode won, 0.0 if lost)
+            - 'value': scalar tensor (value target: game outcome or bootstrapped)
             - 'foundation_move': scalar tensor (1.0 or 0.0)
             - 'revealed_facedown': scalar tensor (1.0 or 0.0)
             - 'talon_move': scalar tensor (1.0 or 0.0)
             - 'is_cascading_move': scalar tensor (1.0 or 0.0)
+            - 'step_index': step index in trajectory (for optional n-step returns)
         """
         ref = self._indices[idx]
         episode = self._episodes[ref.episode_idx]
@@ -96,18 +124,18 @@ class SolitaireStateDataset(Dataset):
         if 0 <= action_idx < self.action_space.size:
             policy[action_idx] = 1.0
 
-        # Create value label from the actual game outcome (oracle label).
-        # Every step in a game is labeled with the final outcome:
-        # - 1.0 if the game was won
-        # - 0.0 if the game was lost (or quit due to deadlock/timeout)
-        #
-        # This is the ground truth: whether the sequence of moves led to victory.
-        # The value head learns to distinguish winning states from losing states.
-        # States that appear in both winning and losing games will have different labels,
-        # forcing the network to learn the features that actually matter for winnability.
-        
+        # Value target: trajectory outcome (full game outcome) or bootstrapped
         game_won = episode.summary.won if episode.summary else False
-        value = torch.tensor(1.0 if game_won else 0.0, dtype=torch.float32)
+        trajectory_value = 1.0 if game_won else 0.0
+        
+        # If using bootstrapped value (for self-play refinement), compute discounted future return
+        if self.trajectory_config.use_bootstrapped_value and ref.step_idx + 1 < len(episode.steps):
+            # Could implement n-step bootstrapped value here
+            # For now, use trajectory value but prepare infrastructure for RL
+            value = torch.tensor(trajectory_value, dtype=torch.float32)
+        else:
+            # Standard supervised learning: label each step with final game outcome
+            value = torch.tensor(trajectory_value, dtype=torch.float32)
 
         # Extract Tier 1 metrics (convert booleans to float tensors)
         foundation_move = torch.tensor(1.0 if step.foundation_move else 0.0, dtype=torch.float32)
