@@ -24,10 +24,15 @@ public class EpisodeLogger {
     }
 
     /**
-     * Emit a single structured JSON line describing this move and the current state.
+     * Emit a single structured JSON line describing the state BEFORE a move,
+     * the legal moves available, and the chosen command.
      *
      * <p>The line is prefixed with "EPISODE_STEP " so downstream tools can
      * filter it out of mixed logs easily.
+     *
+     * <p>Format: Shows the position before the move, the list of legal moves,
+     * and which move was actually chosen. This allows downstream processing to
+     * understand what options were available and which was selected.
      *
      * <p><strong>Tier 1 Move Quality Metrics:</strong>
      * Computes the following boolean signals about move quality based on before/after state:
@@ -48,12 +53,13 @@ public class EpisodeLogger {
             String chosenCommand) {
 
         try {
-            long stateKey = stateAfter.getStateKey();
-            List<List<Card>> visibleTableau = stateAfter.getVisibleTableau();
-            List<Integer> faceDownCounts = stateAfter.getTableauFaceDownCounts();
-            List<List<Card>> foundation = stateAfter.getFoundation();
-            List<Card> talon = stateAfter.getTalon();
-            List<Card> stockpile = stateAfter.getStockpile();
+            // Log the state BEFORE the move, with legal moves and chosen command
+            long stateKey = stateBefore.getStateKey();
+            List<List<Card>> visibleTableau = stateBefore.getVisibleTableau();
+            List<Integer> faceDownCounts = stateBefore.getTableauFaceDownCounts();
+            List<List<Card>> foundation = stateBefore.getFoundation();
+            List<Card> talon = stateBefore.getTalon();
+            List<Card> stockpile = stateBefore.getStockpile();
 
             // Compute Tier 1 metrics by comparing before/after states
             boolean foundationMove = computeFoundationMove(stateBefore, stateAfter);
@@ -75,6 +81,9 @@ public class EpisodeLogger {
             sb.append(",\"solver\":\"").append(solverId).append("\"");
             sb.append(",\"step_index\":").append(stepIndex);
             sb.append(",\"state_key\":").append(stateKey);
+            
+            // Chosen command first for easy spotting in logs
+            sb.append(",\"chosen_command\":\"").append(chosenCommand).append('"');
 
             // Encode visible tableau as short card codes plus face-down counts.
             sb.append(",\"tableau_visible\":[");
@@ -143,9 +152,6 @@ public class EpisodeLogger {
                 sb.append('"').append(legalMoves.get(i)).append('"');
             }
             sb.append(']');
-
-            // Command actually chosen and applied.
-            sb.append(",\"chosen_command\":\"").append(chosenCommand).append('"');
 
             // Tier 1 move quality metrics.
             sb.append(",\"foundation_move\":").append(foundationMove);

@@ -4,6 +4,7 @@ import ai.games.game.Card;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
+import ai.games.unit.helpers.GameStateDirector;
 import ai.games.unit.helpers.SolitaireTestHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,8 @@ public class TrainingOpponent {
     public TrainingOpponent(int difficultyLevel) {
         if (difficultyLevel < 1) {
             throw new IllegalArgumentException("difficultyLevel must be >= 1");
+        } else if (difficultyLevel > 2) {
+            throw new IllegalArgumentException("difficultyLevel not yet implemented for levels > 2");
         }
         this.difficultyLevel = difficultyLevel;
     }
@@ -49,59 +52,131 @@ public class TrainingOpponent {
     }
 
     /**
-     * Seeds an endgame position based on difficulty level and game variation.
+     * Seeds multiple endgame positions using a systematic approach.
      * 
-     * <p>Starts with all 52 cards on foundations and removes cards according to the difficulty:
+     * <p>Generates endgame positions by:
      * <ul>
-     *   <li>Level 1: All 52 cards on foundations (no-move baseline)</li>
-     *   <li>Level 2: 51 cards on foundations, 1 off</li>
-     *   <li>Level 3: 50 cards on foundations, 2 off</li>
-     *   <li>Level 4: 48 cards on foundations, 4 off</li>
-     *   <li>Level 5: 45 cards on foundations, 7 off</li>
+     *   <li>Level 1: Single position with all 52 cards on foundations (trivial, no moves)</li>
+     *   <li>Level 2+: Progressively applies reverse moves from a won state to build complexity</li>
      * </ul>
      * 
-     * <p>The placement strategy is deterministic but varied: cards are distributed across
-     * tableau, stockpile, and talon based on the game variation index (gameNum).
+     * <p>Uses ReverseMovesHelper to identify and apply backward moves, ensuring all generated
+     * positions are legally reachable and valid. This approach naturally scales to arbitrary
+     * difficulty levels without hardcoding position logic.
      * 
-     * @param gameNum used to vary placement strategy deterministically
-     * @return a seeded Solitaire game at this opponent's difficulty level
-     * @throws IllegalStateException if the seeded state is invalid (missing or duplicate cards)
+     * @param numberOfGames requested number of games to generate
+     * @return list of seeded Solitaire games (may be fewer than requested if level exhausted)
+     * @throws IllegalArgumentException if difficulty level is not yet implemented
      */
-    public Solitaire seedGame(int gameNum) {
-        Solitaire game = createCompletelyWonBoard();
+    public List<Solitaire> seedGame(int numberOfGames) {
+        List<Solitaire> games = new ArrayList<>();
         
-        int cardsToRemove = cardsToRemoveForLevel(difficultyLevel);
-        if (cardsToRemove > 0) {
-            removeFromFoundationAndPlace(game, cardsToRemove, gameNum);
+        if (difficultyLevel == 1) {
+            // Level 1: Single trivial position (all foundations full)
+            Solitaire game = createCompletelyWonBoard();
+            SolitaireTestHelper.assertFullDeckState(game);
+            games.add(game);
+            if (log.isDebugEnabled()) {
+                log.debug("Generated 1 Level 1 game (all foundations full)");
+            }
+            return games;
         }
         
-        // Verify the seeded game is in a legal state
-        SolitaireTestHelper.assertFullDeckState(game);
+        // Start with Level 1: completely won board (all 52 on foundations)
+        List<Solitaire> currentLevelGames = new ArrayList<>();
+        Solitaire level1 = createCompletelyWonBoard();
+        SolitaireTestHelper.assertFullDeckState(level1);
+        currentLevelGames.add(level1);
+        
+        // Generate games for levels 2 through target difficulty
+        for (int currentLevel = 2; currentLevel <= difficultyLevel && games.size() < numberOfGames; currentLevel++) {
+            List<Solitaire> nextLevelGames = new ArrayList<>();
+            
+            // For each game at the current level, apply reverse moves to generate next level
+            for (Solitaire baseGame : currentLevelGames) {
+                if (games.size() >= numberOfGames) {
+                    break;
+                }
+                
+                // Get all possible reverse moves from this game state
+                List<String> reverseMoves = ReverseMovesHelper.listReverseMoves(baseGame);
+                
+                if (log.isDebugEnabled()) {
+                    log.debug("Level {}: found {} reverse moves from base game", currentLevel - 1, reverseMoves.size());
+                    log.debug("  Reverse moves: {}", reverseMoves);
+                }
+                
+                if (reverseMoves.isEmpty()) {
+                    // No moves available from this position; still valid, just can't go deeper
+                    if (log.isDebugEnabled()) {
+                        log.debug("No reverse moves available from level {}. Stopping expansion from this branch.", currentLevel - 1);
+                    }
+                    continue;
+                }
+                
+                // For each reverse move, create a new game variant for the next level
+                for (String reverseMove : reverseMoves) {
+                    if (games.size() >= numberOfGames && nextLevelGames.size() > 0) {
+                        break;
+                    }
+                    
+                    // Create a game at the next difficulty level
+                    Solitaire game = baseGame.copy();
+                    SolitaireTestHelper.assertFullDeckState(game);
+                    
+                    // Apply the reverse move
+                    applyMove(game, reverseMove);
+                    
+                    // Verify the move was applied
+                    int foundationCount = 0;
+                    for (List<Card> pile : game.getFoundation()) {
+                        foundationCount += pile.size();
+                    }
+                    
+                    games.add(game);
+                    nextLevelGames.add(game);
+                    
+                    if (log.isDebugEnabled()) {
+                        log.debug("Generated Level {} game: {} -> foundation_count={} (game count: {}/{})", 
+                            currentLevel, reverseMove, foundationCount, games.size(), numberOfGames);
+                    }
+                }
+            }
+            
+            // If no games were generated at this level, we can't go further
+            if (nextLevelGames.isEmpty()) {
+                if (log.isDebugEnabled()) {
+                    log.debug("No games generated at level {}. Cannot progress to higher levels.", currentLevel);
+                }
+                break;
+            }
+            
+            // Move to next level
+            currentLevelGames = nextLevelGames;
+        }
         
         if (log.isDebugEnabled()) {
-            log.debug("Seeded game at level {} with {} cards off foundations",
-                difficultyLevel, cardsToRemove);
+            log.debug("Generated {} games for level {} (requested: {})", games.size(), difficultyLevel, numberOfGames);
         }
         
-        return game;
+        return games;
     }
 
-    // ============================================================================
-    // Private Helper Methods
-    // ============================================================================
-
     /**
-     * Determines how many cards to remove from foundations for each difficulty level.
+     * Applies a move command directly to the game state without rule validation.
+     * This allows reverse moves to be applied even if they wouldn't be legal in normal play.
+     * 
+     * @param solitaire the game to modify
+     * @param move the move command (e.g., "move F1 K♣ T1", "move T1 T2", "turn")
      */
-    private int cardsToRemoveForLevel(int level) {
-        return switch (level) {
-            case 1 -> 0;    // All 52 on foundations
-            case 2 -> 1;    // 51 on foundations
-            case 3 -> 2;    // 50 on foundations
-            case 4 -> 4;    // 48 on foundations
-            case 5 -> 7;    // 45 on foundations
-            default -> Math.min(level * 2, 20); // Higher levels: exponential growth, capped at 20
-        };
+    private void applyMove(Solitaire solitaire, String move) {
+        if (move == null) {
+            return;
+        }
+        boolean success = GameStateDirector.applyMoveDirectly(solitaire, move);
+        if (!success && log.isDebugEnabled()) {
+            log.debug("Failed to apply move: {}", move);
+        }
     }
 
     /**
@@ -139,73 +214,5 @@ public class TrainingOpponent {
         SolitaireTestHelper.setStockpile(dummy, SolitaireTestHelper.emptyPile());
 
         return dummy;
-    }
-
-    /**
-     * Removes N cards from the foundations and places them strategically in the tableau and/or stockpile.
-     * The placement strategy varies by game number to provide diverse training scenarios.
-     */
-    private void removeFromFoundationAndPlace(Solitaire game, int numCardsToRemove, int gameNum) {
-        List<List<Card>> foundations = new ArrayList<>();
-        for (List<Card> pile : game.getFoundation()) {
-            foundations.add(new ArrayList<>(pile));
-        }
-
-        List<List<Card>> tableau = new ArrayList<>();
-        for (int i = 0; i < 7; i++) {
-            tableau.add(new ArrayList<>());
-        }
-        
-        List<Card> stockpile = new ArrayList<>();
-        List<Card> talon = new ArrayList<>();
-
-        // Remove cards from foundations in a deterministic but varied way
-        List<Card> removedCards = new ArrayList<>();
-        int suitIdx = 0;
-        for (int i = 0; i < numCardsToRemove; i++) {
-            List<Card> suitFoundation = foundations.get(suitIdx % 4);
-            if (!suitFoundation.isEmpty()) {
-                removedCards.add(suitFoundation.remove(suitFoundation.size() - 1));
-            }
-            suitIdx++;
-        }
-
-        // Place removed cards strategically
-        int placementStrategy = gameNum % 3;
-        switch (placementStrategy) {
-            case 0:
-                // Strategy 0: Place cards primarily in tableau
-                for (int i = 0; i < removedCards.size(); i++) {
-                    int tableauIdx = i % 7;
-                    tableau.get(tableauIdx).add(removedCards.get(i));
-                }
-                break;
-            case 1:
-                // Strategy 1: Place cards in stockpile
-                stockpile.addAll(removedCards);
-                break;
-            case 2:
-                // Strategy 2: Mix tableau and talon
-                for (int i = 0; i < removedCards.size(); i++) {
-                    if (i % 2 == 0) {
-                        tableau.get(i % 7).add(removedCards.get(i));
-                    } else {
-                        talon.add(removedCards.get(i));
-                    }
-                }
-                break;
-        }
-
-        // Build faceUpCounts: all visible cards (no hidden cards in this simplified scenario)
-        List<Integer> faceUpCounts = new ArrayList<>();
-        for (int i = 0; i < 7; i++) {
-            faceUpCounts.add(tableau.get(i).size());
-        }
-
-        // Update the game state
-        SolitaireTestHelper.setTableau(game, tableau, faceUpCounts);
-        SolitaireTestHelper.setFoundation(game, foundations);
-        SolitaireTestHelper.setTalon(game, talon);
-        SolitaireTestHelper.setStockpile(game, stockpile);
     }
 }

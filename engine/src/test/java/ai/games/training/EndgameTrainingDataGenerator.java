@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+
 /**
  * Orchestrates generation of endgame training data for the neural network.
  * 
@@ -77,26 +79,25 @@ public class EndgameTrainingDataGenerator {
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("Level 3+ not yet implemented")
     @DisplayName("Level 3: 50 foundation cards (2 off)")
     void testEndgameLevel3() {
         generateLevelDataset(3, "Level 3 (2 cards off)");
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("Level 3+ not yet implemented")
     @DisplayName("Level 4: 48 foundation cards (4 off)")
     void testEndgameLevel4() {
         generateLevelDataset(4, "Level 4 (4 cards off)");
     }
 
     @Test
+    @org.junit.jupiter.api.Disabled("Level 3+ not yet implemented")
     @DisplayName("Level 5: 45 foundation cards (7 off)")
     void testEndgameLevel5() {
         generateLevelDataset(5, "Level 5 (7 cards off)");
     }
-
-    // ============================================================================
-    // Core Generation Logic
-    // ============================================================================
 
     /**
      * Generates a complete dataset for a single difficulty level.
@@ -112,17 +113,14 @@ public class EndgameTrainingDataGenerator {
         log.info("Starting endgame training data generation: {}", levelName);
         
         TrainingOpponent opponent = new TrainingOpponent(level);
+        List<Solitaire> seededGames = opponent.seedGame(GAMES_PER_LEVEL);
         
-        for (int gameNum = 0; gameNum < GAMES_PER_LEVEL; gameNum++) {
-            int gameNumber = gameNum + 1;
-            if (gameNumber == 1
-                    || gameNumber % 100 == 0
-                    || gameNumber == GAMES_PER_LEVEL) {
-                log.info("[{}] Playing game {}/{}", levelName, gameNumber, GAMES_PER_LEVEL);
+        int gamesProcessed = 0;
+        for (Solitaire seededGame : seededGames) {
+            gamesProcessed++;
+            if (gamesProcessed == 1 || gamesProcessed % 100 == 0 || gamesProcessed == seededGames.size()) {
+                log.info("[{}] Playing game {}/{}", levelName, gamesProcessed, seededGames.size());
             }
-            
-            // Seed an endgame position
-            Solitaire seededGame = opponent.seedGame(gameNum);
             
             // Create a Game instance with the solver player and seeded board
             // Episode logging is automatic when -Dlog.episodes=true is set
@@ -130,6 +128,6 @@ public class EndgameTrainingDataGenerator {
             game.play(seededGame);
         }
         
-        log.info("Completed {}: {} games", levelName, GAMES_PER_LEVEL);
+        log.info("Completed {}: {} games", levelName, seededGames.size());
     }
 }

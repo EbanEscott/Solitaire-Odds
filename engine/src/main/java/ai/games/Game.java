@@ -192,7 +192,8 @@ public class Game implements CommandLineRunner {
                     illegalFeedback,
                     player);
 
-            // Log this step for training after move execution (now we have before/after states).
+            // Log this step for training after move execution (log the state BEFORE the move,
+            // along with legal moves and the command that was chosen).
             if (EpisodeLogger.isEnabled() && stateBefore != null) {
                 EpisodeLogger.logStep(stateBefore, solitaire, solverId, iterations, legalMovesAtStart, input);
             }
