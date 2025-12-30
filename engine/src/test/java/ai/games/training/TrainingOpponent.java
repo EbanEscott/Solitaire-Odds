@@ -27,17 +27,17 @@ import java.util.Random;
  * <p>Usage: Call {@link #seedGame(int)} to create a seeded endgame position that can then be
  * fed into the {@link ai.games.Game} orchestrator with a player to generate training episodes.</p>
  * 
- * <p>Randomization Control: Use {@code -Dendgame.randomize=true} to randomize reverse move selection
+ * <p>Randomisation Control: Use {@code -Dendgame.randomise=true} to randomise reverse move selection
  * at each level. This creates diverse endgame positions instead of always following the same path.</p>
  */
 public class TrainingOpponent {
     private static final Logger log = LoggerFactory.getLogger(TrainingOpponent.class);
     
-    // Whether to randomize reverse move selection at each level
+    // Whether to randomise reverse move selection at each level
     // Default: false (deterministic, reproducible positions)
-    // Set via: -Dendgame.randomize=true
-    private static final boolean RANDOMIZE_MOVES = Boolean.parseBoolean(
-        System.getProperty("endgame.randomize", "false"));
+    // Set via: -Dendgame.randomise=true
+    private static final boolean RANDOMISE_MOVES = Boolean.parseBoolean(
+        System.getProperty("endgame.randomise", "false"));
     
     private final int difficultyLevel;
     private final Random random;
@@ -52,9 +52,9 @@ public class TrainingOpponent {
             throw new IllegalArgumentException("difficultyLevel must be >= 1");
         }
         this.difficultyLevel = difficultyLevel;
-        // Use current time as seed if randomization enabled, ensures different positions each run
+        // Use current time as seed if randomisation enabled, ensures different positions each run
         // Use 0 as seed if deterministic, ensures reproducibility
-        this.random = new Random(RANDOMIZE_MOVES ? System.currentTimeMillis() : 0);
+        this.random = new Random(RANDOMISE_MOVES ? System.currentTimeMillis() : 0);
     }
 
     /**
@@ -153,7 +153,7 @@ public class TrainingOpponent {
     /**
      * Selects the next reverse move to apply from the available moves.
      * 
-     * <p>If randomization is enabled ({@code -Dendgame.randomize=true}), randomly selects
+     * <p>If randomisation is enabled ({@code -Dendgame.randomise=true}), randomly selects
      * an unused move from the list. Otherwise, always selects moves in order (deterministic).
      * 
      * <p>Note: This method does NOT remove the selected move from the list; the caller
@@ -168,7 +168,7 @@ public class TrainingOpponent {
             return null;  // All moves exhausted
         }
         
-        if (RANDOMIZE_MOVES) {
+        if (RANDOMISE_MOVES) {
             // Randomly select an unused move
             int selectedIndex;
             do {
