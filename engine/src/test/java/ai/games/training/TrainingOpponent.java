@@ -55,6 +55,8 @@ public class TrainingOpponent {
      * <p>This is useful for debugging - you can see exactly which reverse moves were applied
      * to generate each game, making it easier to reconstruct the game state for analysis.
      * 
+     * <p>Generates games at the specified difficulty level only (not all levels up to it).
+     * 
      * @param numberOfGames requested number of games to generate
      * @return list of SeededGame objects containing both the game and its reverse moves
      */
@@ -78,13 +80,18 @@ public class TrainingOpponent {
         SolitaireTestHelper.assertFullDeckState(level1);
         currentLevelGames.add(new SeededGame(level1, new ArrayList<>()));
         
-        // Generate games for levels 2 through target difficulty
+        // Generate games for levels 2 through target difficulty (only target level games returned)
         for (int currentLevel = 2; currentLevel <= difficultyLevel && seededGames.size() < numberOfGames; currentLevel++) {
             List<SeededGame> nextLevelGames = new ArrayList<>();
             
             // For each game at the current level, apply reverse moves to generate next level
             for (SeededGame baseSeededGame : currentLevelGames) {
-                if (seededGames.size() >= numberOfGames) {
+                if (currentLevel < difficultyLevel && seededGames.size() >= numberOfGames) {
+                    // Early exit only if not at target level yet
+                    break;
+                }
+                if (currentLevel == difficultyLevel && seededGames.size() >= numberOfGames) {
+                    // Stop if we've reached target games at target level
                     break;
                 }
                 
@@ -105,7 +112,8 @@ public class TrainingOpponent {
                 
                 // For each reverse move, create a new game variant for the next level
                 for (String reverseMove : reverseMoves) {
-                    if (seededGames.size() >= numberOfGames && nextLevelGames.size() > 0) {
+                    if (currentLevel == difficultyLevel && seededGames.size() >= numberOfGames) {
+                        // Stop if we've reached target games at target level
                         break;
                     }
                     
@@ -126,14 +134,20 @@ public class TrainingOpponent {
                         foundationCount += pile.size();
                     }
                     
-                    SeededGame seededGame = new SeededGame(game, gameMoves);
-                    seededGames.add(seededGame);
-                    nextLevelGames.add(seededGame);
-                    
-                    if (log.isDebugEnabled()) {
-                        log.debug("Generated Level {} game: {} -> foundation_count={} (game count: {}/{})", 
-                            currentLevel, reverseMove, foundationCount, seededGames.size(), numberOfGames);
+                    // Only add to results if this is the target difficulty level
+                    if (currentLevel == difficultyLevel) {
+                        SeededGame seededGame = new SeededGame(game, gameMoves);
+                        seededGames.add(seededGame);
+                        
+                        if (log.isDebugEnabled()) {
+                            log.debug("Generated Level {} game: {} -> foundation_count={} (game count: {}/{})", 
+                                currentLevel, reverseMove, foundationCount, seededGames.size(), numberOfGames);
+                        }
                     }
+                    
+                    // Always add to nextLevelGames for progression, even if not target level
+                    SeededGame seededGame = new SeededGame(game, gameMoves);
+                    nextLevelGames.add(seededGame);
                 }
             }
             
