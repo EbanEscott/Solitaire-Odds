@@ -38,8 +38,6 @@ public class TrainingOpponent {
     public TrainingOpponent(int difficultyLevel) {
         if (difficultyLevel < 1) {
             throw new IllegalArgumentException("difficultyLevel must be >= 1");
-        } else if (difficultyLevel > 2) {
-            throw new IllegalArgumentException("difficultyLevel not yet implemented for levels > 2");
         }
         this.difficultyLevel = difficultyLevel;
     }

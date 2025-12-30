@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,7 +44,7 @@ public class EndgameTrainingDataGenerator {
     
     // Number of games per level. Can be overridden via system property -Dendgame.games.per.level
     // Default is 500 for full dataset generation; use smaller values for quick tests.
-    private static final int GAMES_PER_LEVEL = Integer.getInteger("endgame.games.per.level", 500);
+    private static final int GAMES_PER_LEVEL = Integer.getInteger("endgame.games.per.level", 5000);
     
     // The player to use for solving seeded positions.
     // Default: A* player (near-optimal solver for clean training data).
@@ -79,7 +80,6 @@ public class EndgameTrainingDataGenerator {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Level 3+ not yet implemented")
     @DisplayName("Level 3: 50 foundation cards (2 off)")
     void testEndgameLevel3() {
         generateLevelDataset(3, "Level 3 (2 cards off)");
@@ -115,19 +115,95 @@ public class EndgameTrainingDataGenerator {
         TrainingOpponent opponent = new TrainingOpponent(level);
         List<Solitaire> seededGames = opponent.seedGame(GAMES_PER_LEVEL);
         
+        Stats stats = new Stats();
+        List<Integer> lostGameNumbers = new ArrayList<>();
+        
         int gamesProcessed = 0;
         for (Solitaire seededGame : seededGames) {
             gamesProcessed++;
-            if (gamesProcessed == 1 || gamesProcessed % 100 == 0 || gamesProcessed == seededGames.size()) {
+            if (log.isInfoEnabled()) {
                 log.info("[{}] Playing game {}/{}", levelName, gamesProcessed, seededGames.size());
             }
             
             // Create a Game instance with the solver player and seeded board
             // Episode logging is automatic when -Dlog.episodes=true is set
             Game game = new Game(solverPlayer);
-            game.play(seededGame);
+            Game.GameResult result = game.play(seededGame);
+            
+            stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
+            
+            if (!result.isWon()) {
+                lostGameNumbers.add(gamesProcessed);
+            }
         }
         
-        log.info("Completed {}: {} games", levelName, seededGames.size());
+        // Print summary stats
+        printSummary(levelName, stats, lostGameNumbers);
+    }
+    
+    /**
+     * Prints summary statistics and list of lost games.
+     */
+    private void printSummary(String levelName, Stats stats, List<Integer> lostGameNumbers) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n").append("=".repeat(80)).append("\n");
+        sb.append("TRAINING DATASET SUMMARY: ").append(levelName).append("\n");
+        sb.append("=".repeat(80)).append("\n");
+        sb.append(String.format("Games Played: %d%n", stats.games));
+        sb.append(String.format("Games Won:    %d%n", stats.wins));
+        sb.append(String.format("Games Lost:   %d%n", stats.losses()));
+        sb.append(String.format("Win Rate:     %.2f%%%n", stats.winPercent()));
+        sb.append(String.format("Avg Moves:    %.2f%n", stats.avgMoves()));
+        sb.append(String.format("Avg Time:     %.3fs%n", stats.avgTimeSeconds()));
+        sb.append(String.format("Total Time:   %.3fs%n", stats.totalTimeSeconds()));
+        sb.append("=".repeat(80)).append("\n");
+        
+        if (!lostGameNumbers.isEmpty()) {
+            sb.append("\nLost games (search for 'Playing game <number>' in logs):\n");
+            for (int gameNum : lostGameNumbers) {
+                sb.append(String.format("  >> game %d%n", gameNum));
+            }
+        }
+        
+        log.info(sb.toString());
+    }
+    
+    /**
+     * Statistics collector for training runs.
+     */
+    private static class Stats {
+        int games = 0;
+        int wins = 0;
+        long totalTimeNanos = 0;
+        int totalMoves = 0;
+
+        void recordGame(boolean won, int moves, long nanos) {
+            games++;
+            if (won) {
+                wins++;
+            }
+            totalMoves += moves;
+            totalTimeNanos += nanos;
+        }
+
+        int losses() {
+            return games - wins;
+        }
+
+        double winPercent() {
+            return games == 0 ? 0.0 : (wins * 100.0) / games;
+        }
+
+        double avgMoves() {
+            return games == 0 ? 0.0 : (double) totalMoves / games;
+        }
+
+        double totalTimeSeconds() {
+            return totalTimeNanos / 1_000_000_000.0;
+        }
+
+        double avgTimeSeconds() {
+            return games == 0 ? 0.0 : totalTimeSeconds() / games;
+        }
     }
 }
