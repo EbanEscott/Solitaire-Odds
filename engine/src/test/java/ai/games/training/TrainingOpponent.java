@@ -50,12 +50,106 @@ public class TrainingOpponent {
     }
 
     /**
+     * Calculates the average branching factor (number of reverse moves per game).
+     * 
+     * <p>Samples a few games at each level to measure how many reverse moves
+     * are typically available. This is used to estimate how many intermediate
+     * games are needed at each level to reach the target game count at the
+     * target difficulty level.
+     * 
+     * <p>Algorithm:
+     * <ol>
+     *   <li>Start with Level 1 (single won board)</li>
+     *   <li>For each subsequent level up to the target:</li>
+     *   <li>Sample up to 5 games from the current level</li>
+     *   <li>Count their reverse moves, compute average</li>
+     *   <li>Generate a few children from those games to continue sampling</li>
+     * </ol>
+     * 
+     * @return average number of reverse moves available from a typical game state
+     */
+    private double calculateAverageBranchingFactor() {
+        final int SAMPLE_SIZE = 5;  // Sample this many games per level
+        
+        // Level 1: single completely won board
+        Solitaire level1 = createCompletelyWonBoard();
+        SolitaireTestHelper.assertFullDeckState(level1);
+        List<Solitaire> currentLevelGames = new ArrayList<>();
+        currentLevelGames.add(level1);
+        
+        double totalBranchingFactor = 0.0;
+        int levelssampled = 0;
+        
+        // Sample branching factor at each level from 2 to target difficulty
+        for (int currentLevel = 2; currentLevel <= difficultyLevel; currentLevel++) {
+            List<Solitaire> nextLevelGames = new ArrayList<>();
+            double levelBranchingFactorSum = 0.0;
+            int gamesInLevelSampled = 0;
+            
+            // Sample up to SAMPLE_SIZE games at this level
+            for (Solitaire baseGame : currentLevelGames) {
+                if (gamesInLevelSampled >= SAMPLE_SIZE) {
+                    break;
+                }
+                
+                List<String> reverseMoves = ReverseMovesHelper.listReverseMoves(baseGame);
+                levelBranchingFactorSum += reverseMoves.size();
+                gamesInLevelSampled++;
+                
+                // Generate a few children for the next level
+                for (String reverseMove : reverseMoves) {
+                    if (nextLevelGames.size() >= SAMPLE_SIZE) {
+                        break;
+                    }
+                    Solitaire game = baseGame.copy();
+                    applyMove(game, reverseMove);
+                    nextLevelGames.add(game);
+                }
+                
+                if (nextLevelGames.size() >= SAMPLE_SIZE) {
+                    break;
+                }
+            }
+            
+            if (gamesInLevelSampled > 0) {
+                double levelAvg = levelBranchingFactorSum / gamesInLevelSampled;
+                if (log.isDebugEnabled()) {
+                    log.debug("Level {} branching factor: {}", currentLevel - 1, 
+                        String.format("%.2f", levelAvg));
+                }
+                totalBranchingFactor += levelAvg;
+                levelssampled++;
+            }
+            
+            currentLevelGames = nextLevelGames;
+            if (currentLevelGames.isEmpty()) {
+                break;
+            }
+        }
+        
+        // Return average across all sampled levels, default to 4.0 if unable to sample
+        double avg = (levelssampled > 0) ? (totalBranchingFactor / levelssampled) : 4.0;
+        if (log.isInfoEnabled()) {
+            log.info("Average branching factor across levels: {}", String.format("%.2f", avg));
+        }
+        return avg;
+    }
+
+    /**
      * Seeds multiple endgame positions and returns both the games and the moves used to generate them.
      * 
      * <p>This is useful for debugging - you can see exactly which reverse moves were applied
      * to generate each game, making it easier to reconstruct the game state for analysis.
      * 
      * <p>Generates games at the specified difficulty level only (not all levels up to it).
+     * Uses average branching factor calculation to minimize intermediate level cardinality,
+     * reducing memory usage during generation of high-difficulty datasets.
+     * 
+     * <p><strong>Memory Optimization Strategy:</strong>
+     * Instead of maintaining numberOfGames at each intermediate level, we calculate
+     * the minimum games needed at each level to reach numberOfGames at the target level.
+     * This is done by tracking the average number of reverse moves (branching factor)
+     * available from each game state, then working backward from the target level.
      * 
      * @param numberOfGames requested number of games to generate
      * @return list of SeededGame objects containing both the game and its reverse moves
@@ -74,6 +168,28 @@ public class TrainingOpponent {
             return seededGames;
         }
         
+        // Calculate the average branching factor (avg reverse moves per game)
+        // by sampling from a few games at each level.
+        double avgBranchingFactor = calculateAverageBranchingFactor();
+        
+        // Pre-calculate how many games we need at EACH intermediate level.
+        // Map: level -> minimum games needed at that level to reach numberOfGames at target.
+        java.util.Map<Integer, Integer> gamesNeededPerLevel = new java.util.HashMap<>();
+        gamesNeededPerLevel.put(difficultyLevel, numberOfGames);  // Target level needs numberOfGames
+        
+        // Work backward from target level to level 2, calculating minimum games needed
+        for (int level = difficultyLevel - 1; level >= 2; level--) {
+            int nextLevelNeeds = gamesNeededPerLevel.get(level + 1);
+            int thisLevelNeeds = Math.max(1, (int) Math.ceil(nextLevelNeeds / avgBranchingFactor));
+            gamesNeededPerLevel.put(level, thisLevelNeeds);
+        }
+        
+        if (log.isInfoEnabled()) {
+            log.info("Seed strategy: avg_branching_factor={}, games_needed_per_level={}", 
+                String.format("%.2f", avgBranchingFactor), gamesNeededPerLevel);
+        }
+        
+        
         // Start with Level 1: completely won board (all 52 on foundations)
         List<SeededGame> currentLevelGames = new ArrayList<>();
         Solitaire level1 = createCompletelyWonBoard();
@@ -84,10 +200,13 @@ public class TrainingOpponent {
         for (int currentLevel = 2; currentLevel <= difficultyLevel && seededGames.size() < numberOfGames; currentLevel++) {
             List<SeededGame> nextLevelGames = new ArrayList<>();
             
+            // Get the target game count for this level from our pre-calculated map
+            int targetGameCountForThisLevel = gamesNeededPerLevel.get(currentLevel);
+            
             // For each game at the current level, apply reverse moves to generate next level
             for (SeededGame baseSeededGame : currentLevelGames) {
-                if (currentLevel < difficultyLevel && seededGames.size() >= numberOfGames) {
-                    // Early exit only if not at target level yet
+                if (currentLevel < difficultyLevel && nextLevelGames.size() >= targetGameCountForThisLevel) {
+                    // Early exit: we have enough intermediate games for the next level
                     break;
                 }
                 if (currentLevel == difficultyLevel && seededGames.size() >= numberOfGames) {
@@ -114,6 +233,10 @@ public class TrainingOpponent {
                 for (String reverseMove : reverseMoves) {
                     if (currentLevel == difficultyLevel && seededGames.size() >= numberOfGames) {
                         // Stop if we've reached target games at target level
+                        break;
+                    }
+                    if (currentLevel < difficultyLevel && nextLevelGames.size() >= targetGameCountForThisLevel) {
+                        // Stop intermediate expansion if we have enough for next level
                         break;
                     }
                     
