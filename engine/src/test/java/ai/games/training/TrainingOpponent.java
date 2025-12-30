@@ -4,7 +4,7 @@ import ai.games.game.Card;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
-import ai.games.unit.helpers.GameStateDirector;
+import ai.games.training.ReverseMovesApplier;
 import ai.games.unit.helpers.SolitaireTestHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -278,7 +278,7 @@ public class TrainingOpponent {
         if (move == null) {
             return;
         }
-        boolean success = GameStateDirector.applyMoveDirectly(solitaire, move);
+        boolean success = ReverseMovesApplier.applyReverseMove(solitaire, move);
         if (!success && log.isDebugEnabled()) {
             log.debug("Failed to apply move: {}", move);
         }

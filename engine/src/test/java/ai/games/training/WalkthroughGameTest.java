@@ -4,7 +4,7 @@ import ai.games.Game;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
 import ai.games.player.ai.astar.AStarPlayer;
-import ai.games.unit.helpers.GameStateDirector;
+import ai.games.training.ReverseMovesApplier;
 import ai.games.unit.helpers.SolitaireTestHelper;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -102,7 +102,7 @@ public class WalkthroughGameTest {
             String move = reverseMoves.get(i);
             log.info("Applying reverse move {}/{}: {}", i + 1, reverseMoves.size(), move);
             
-            boolean success = GameStateDirector.applyMoveDirectly(board, move);
+            boolean success = ReverseMovesApplier.applyReverseMove(board, move);
             if (!success) {
                 log.error("Failed to apply reverse move: {}", move);
                 return;
