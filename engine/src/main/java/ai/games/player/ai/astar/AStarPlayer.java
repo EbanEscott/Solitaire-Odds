@@ -54,6 +54,17 @@ public class AStarPlayer extends AIPlayer implements Player {
     private static GameTreeNode gameTreeRoot = null;
     private static GameTreeNode gameTreeCurrent = null;
 
+    /**
+     * Resets all static state for the A* player. Must be called before each new game to prevent
+     * state pollution from previous games.
+     */
+    public static void resetGameState() {
+        lastMove = null;
+        recentStates.clear();
+        gameTreeRoot = null;
+        gameTreeCurrent = null;
+    }
+
     @Override
     public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
         List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);

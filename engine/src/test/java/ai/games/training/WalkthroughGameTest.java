@@ -74,6 +74,16 @@ public class WalkthroughGameTest {
         playGameWithReverseMoves(reverseMoves);
     }
 
+    @Test
+    void debugGame948() {
+        // Game 948 from Level 3: Reverse moves: [move F4 K♠ W, turn]
+        List<String> reverseMoves = new ArrayList<>();
+        reverseMoves.add("move F4 K♠ W");
+        reverseMoves.add("turn");
+
+        playGameWithReverseMoves(reverseMoves);
+    }
+
     /**
      * Reconstructs a game state by starting with a won board and applying reverse moves,
      * then plays it with the A* player so you can debug.
@@ -151,9 +161,16 @@ public class WalkthroughGameTest {
      */
     private void logBoardState(Solitaire solitaire) {
         log.info("Board state:");
-        log.info("  Foundations: {}", solitaire.getFoundation());
-        log.info("  Tableau visible: {}", solitaire.getTableau());
-        log.info("  Talon: {}", solitaire.getTalon());
+        log.info("  Foundations: {}", stripAnsi(solitaire.getFoundation().toString()));
+        log.info("  Tableau visible: {}", stripAnsi(solitaire.getTableau().toString()));
+        log.info("  Talon: {}", stripAnsi(solitaire.getTalon().toString()));
         log.info("  Stock size: {}", solitaire.getStockpile().size());
+    }
+
+    /**
+     * Strips ANSI color codes from a string.
+     */
+    private static String stripAnsi(String input) {
+        return input.replaceAll("\\u001B\\[[;\\d]*m", "");
     }
 }

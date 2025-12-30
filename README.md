@@ -34,7 +34,7 @@ The last test run was performed at Dec 06, 2025 11:23:55 PM AEST.
 * **Best Win Streak** Longest run of consecutive wins within the batch.
 * **Notes** Free-form notes and clickable links to the implementing classes or external model pages.
 
-> Why do search-based AI far out perform LLM's at games like Solitaire? In short: LLMs don’t maintain or reason over complete card-game states, they don’t do efficient tree-search or simulation, and so they can’t reliably choose optimal moves in a structured card-game like Solitaire.
+> Why do search-based AI far out perform LLM's at games like Solitaire? In short: LLMs don't maintain or reason over complete card-game states, they don't do efficient tree-search or simulation, and so they can't reliably choose optimal moves in a structured card-game like Solitaire.
 >
 > LLMs can describe good play. They cannot compute good play.
 
