@@ -77,31 +77,54 @@ This will:
 
 ## Train a policy–value network (Step 3)
 
-To train a joint policy–value model with a validation split, run the full training script:
+To train a joint policy–value model with a validation split, run the full training script with configurable architecture:
 
 ```bash
 cd /Users/ebo/Code/solitaire/neural-network
 source .venv/bin/activate
 
-# Single file
+# Default (256 hidden, 2 layers)
 python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/episode.log
 
-# Multiple files
-python -m src.train_policy_value logs/episode.1.log logs/episode.2.log logs/episode.3.log
+# Medium model (512 hidden, 3 layers) — recommended for full game tree training
+python -m src.train_policy_value \
+  --hidden-dim 512 \
+  --num-layers 3 \
+  /Users/ebo/Code/solitaire/engine/logs/episode.log
 
-# Glob pattern (quote to prevent shell expansion)
+# Large model (1024 hidden, 3 layers) — for 200k+ samples
+python -m src.train_policy_value \
+  --hidden-dim 1024 \
+  --num-layers 3 \
+  /Users/ebo/Code/solitaire/engine/logs/episode.log
+
+# Multiple files or glob patterns
 python -m src.train_policy_value "logs/episode*.log"
 ```
+
+**Configuration options** (see `ARCHITECTURE.md` for detailed explanation):
+- `--hidden-dim` (default: 256): Width of hidden layers (128-2048+)
+- `--num-layers` (default: 2): Depth of network (1-5+)
+- `--batch-norm`: Enable batch normalization (experimental)
+- `--residual`: Enable residual connections (experimental)
+- `--epochs` (default: 5): Training epochs
+- `--batch-size` (default: 64): Batch size
+- `--learning-rate` (default: 1e-3): Adam learning rate
 
 This will:
 - Resolve all log files (supports glob patterns and multiple file arguments).
 - Build train/validation splits from the logged games (90/10 split).
+- **Train on full game trajectories**: Each step labeled with game outcome + MCTS-guided moves (ready for self-play RL).
 - Train a `PolicyValueNet` to imitate the logged moves and predict win probability.
 - Save a checkpoint to `checkpoints/policy_value_latest.pt`.
 
 **Example output** (training on 346k+ samples from 1000 A* games):
 ```
 Training on 39815 samples, validating on 4423 samples (state_dim=296, num_actions=2539, device=cpu)
+Model Architecture: hidden_dim=512, num_layers=3, batch_norm=False, residual=False
+Model Size: 731,241 total parameters, 731,241 trainable
+Estimated checkpoint size: 2.79 MB
+Training: 5 epochs, batch_size=64, lr=0.001
 Epoch 1/5 - train_loss(p=2.065, v=0.101), train_acc(p=0.658, v=0.965) - val_loss(p=1.511, v=0.054), val_acc(p=0.658, v=0.979)
 Epoch 2/5 - train_loss(p=1.354, v=0.050), train_acc(p=0.671, v=0.980) - val_loss(p=1.321, v=0.037), val_acc(p=0.698, v=0.988)
 Epoch 3/5 - train_loss(p=1.115, v=0.037), train_acc(p=0.710, v=0.986) - val_loss(p=1.251, v=0.027), val_acc(p=0.742, v=0.991)
@@ -117,7 +140,24 @@ Saved model checkpoint to checkpoints/policy_value_latest.pt
   - Value accuracy: binary accuracy of win/loss prediction (~99%)
 - Validation metrics show the model generalizes well (val_acc ≈ train_acc)
 
+**Key advancement:** The network now trains on **full game trajectories** where every step is labeled with the game outcome. This is critical for self-play: as MCTS improves and generates better move sequences, the network learns those sequences directly. This is how AlphaGo bootstraps from supervised learning into self-play RL.
+
+### Architecture & Design
+
+For detailed explanation of:
+- How trajectory-aware training works
+- Why it enables self-play
+- How to choose model size for your data
+- Bootstrapped values for self-play RL
+
+See:
+- `ARCHITECTURE.md` — Architecture configuration and capacity analysis
+- `QUICK_START.md` — Quick commands for common scenarios
+- `SELF_PLAY_RL.md` — How bootstrapped values will work for self-play loop
+
 The checkpoint is now ready for use with the AlphaSolitaire service.
+
+
 
 ## Run the AlphaSolitaire model service (Step 4)
 

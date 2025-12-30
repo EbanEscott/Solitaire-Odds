@@ -1,87 +1,93 @@
-The goal of this experiment is to create a solitaire model that is trained on game states. We want to evetually use this model in *AlphaSolitaire*.
+# Agents – Neural Network Module
 
-## Agent guidance (neural-network module)
+## Module Overview
 
-Python code in this `neural-network` directory should:
+This `neural-network/` directory contains AlphaSolitaire: a policy–value network trained on solitaire game trajectories.
 
-- Keep modules importable from the project root using `python -m src.<module>` or direct `python` invocations.
-- Prefer relative imports within the `src` package once introduced.
-- Avoid adding heavy dependencies beyond those listed in `requirements.txt` without discussion.
-- Keep training scripts, services, and notebooks focused on the Solitaire modeling experiment (no unrelated utilities).
+**Current Focus:** Phase 1 — Verify configurable architecture works, establish baseline on A* episodes
 
-For the high-level AlphaSolitaire architecture and integration plan, see:
+See [NEURAL_NETWORK_PLAN.md](NEURAL_NETWORK_PLAN.md) for the full 4-phase roadmap with details, timeline, and open questions.
 
+## Python Code Guidelines
+
+When contributing to this module:
+
+- Keep modules importable from project root: `python -m src.<module>`
+- Use relative imports within `src/` package
+- Avoid heavy dependencies beyond `requirements.txt`
+- Focus on Solitaire modeling (no unrelated utilities)
+
+## Quick Start
+
+Train the network with configurable architecture:
+
+```bash
+cd neural-network
+
+# Generate A* episodes (or use existing logs/)
+cd ../engine
+./gradlew run --args="astar --num-games 100 --output ../neural-network/logs/episode.log"
+
+# Train with custom architecture
+cd ../neural-network
+python -m src.train_policy_value \
+  --hidden-dim 512 \
+  --num-layers 3 \
+  --batch-size 32 \
+  --epochs 20 \
+  logs/episode.log
+```
+
+Available flags:
+- `--hidden-dim` (default 256): Network width (try 256–2048+)
+- `--num-layers` (default 3): Network depth (try 1–5+)
+- `--batch-size` (default 32): Batch size
+- `--epochs` (default 20): Training epochs
+- `--learning-rate` (default 0.001): Learning rate
+- `--batch-norm`: Enable batch norm
+- `--residual`: Enable residual connections
+
+## Network Architecture
+
+`PolicyValueNet` is a 2-head PyTorch network:
+
+| Config | Params | Checkpoint Size |
+|--------|--------|-----------------|
+| 256 hidden, 3 layers | 1.3M | 5MB |
+| 512 hidden, 3 layers | 3.2M | 12MB |
+| 1024 hidden, 5 layers | 12M+ | 50MB |
+
+Both heads share a trunk of configurable layers. Use larger models only with sufficient training data (10k+ samples recommended).
+
+## Roadmap
+
+| Phase | Goal | Dependencies |
+|-------|------|---------------|
+| 1 | Baseline on A* episodes | None, can start now |
+| 2 | Unified GameTree class | Refactor A* & MCTS |
+| 3 | Log search trees in episodes | Phase 2 complete |
+| 4 | Self-play loop (MCTS + network) | Phase 3 + MCTS diagnostics |
+
+**Phase 1 Success Criteria:** Policy acc > 70%, Value acc > 95%
+
+**Blocker:** MCTS currently 0% win rate — needs diagnostics before Phase 4
+
+See [NEURAL_NETWORK_PLAN.md](NEURAL_NETWORK_PLAN.md) for:
+- What each phase involves
+- Why trajectory-aware training needs search context
+- Open questions (tree JSON format, visit count labels, bootstrapped values, etc.)
+
+## Key Insight
+
+Current training: `State → Network → Move`  
+Future training: `State + Search Context → Network → Move Distribution`
+
+The real improvement comes from training the network to see what search discovered, then using those improved priors to make search better. This creates the feedback loop that makes AlphaGo work.
+
+We're not doing that yet because episodes don't log search trees. Phase 3 fixes that.
+
+## Engine Integration
+
+For AlphaSolitaire integration details, see:
 - `engine/src/main/java/ai/games/player/ai/alpha/README.md`
-
----
-
-## Next session: TODO checklist
-
-**Progress Update (Dec 27, 2025):**
-
-### ✅ Completed
-1. **Review current training setup** — Examined training infrastructure and identified encoding matches
-2. **Regenerate training data** — Generated 44k+ samples from A* player, separated episode.log from game.log
-3. **Debug and strengthen neural training** — Trained policy-value network: policy acc 75%, value acc 99%
-
-### 🔄 In Progress: Step 4 - Investigate MCTS Behaviour
-
-**Current AlphaSolitaire Results (10 games):**
-- Win rate: **0% (0/10)**
-- Average moves: **1000** (all games hit the move cap)
-- Policy accuracy on A* moves: **75%** (model learned 3/4 of moves)
-- Value prediction: **99%** (excellent at predicting win/loss)
-
-**Observation:** Despite strong policy and value accuracy on the training data, AlphaSolitaire achieves 0% wins with:
-- 32 MCTS simulations per move
-- 12-move max depth per simulation
-- 1.5 PUCT exploration constant
-
-**Hypothesis:** The policy guidance may not be sharp enough to reduce the search space effectively, or MCTS parameters need tuning.
-
-**Action Items for Step 4:**
-- Add detailed MCTS logging to record:
-  - Simulation count per move
-  - Visit distribution over actions (top-3 moves and their visit counts)
-  - Root value estimate and chosen move quality metrics
-  - Number of times search hits max depth or gets stuck
-- Run with increased simulation budget (e.g., 100+ sims vs 32)
-- Analyze logs to understand if the problem is:
-  - Policy distribution too flat (all moves equally likely)
-  - Value estimates not informative (too close to 0.5)
-  - Search getting trapped in loops
-
-When you next pick this up:
-
-1. **Review current training setup** ✅
-   - Examined training infrastructure: 290-dim state, dynamic action space from logs
-   - Confirmed encoding matches Java engine
-
-2. **Regenerate or expand training data** ✅
-   - Refactored episode logging (new `EpisodeLogger.java`)
-   - Generated 3,664 episode steps (44,238 samples) from 10 A* games
-   - Updated `engine/README.md` with episode generation instructions
-
-3. **Debug and strengthen neural training** ✅
-   - Trained on 44k samples: policy acc 75%, value acc 99%
-   - Model converges smoothly (no overfitting)
-   - Checkpoint saved and verified with `train_stub.py`
-   - Updated `neural-network/README.md` with training output and metric explanations
-
-4. **Investigate MCTS behaviour** (IN PROGRESS)
-   - Evaluated AlphaSolitaire: 0% win rate (0/10), avg 1000 moves (move cap hit)
-   - Policy accuracy on test data: 75% (learned 3/4 of A* moves)
-   - Value prediction accuracy: 99% (excellent win/loss classification)
-   - Next: Add MCTS logging to diagnose search quality (visit distributions, depth analysis)
-   - Try: Increase simulation budget and tune PUCT constant
-   - Analyze: Whether policy priors are sharp enough or search is getting trapped
-
-5. **Re-run evaluation of AlphaSolitaire** (TODO)
-   - Run 100–500 game evaluation with diagnostic MCTS logs
-   - Record win rate, move distribution, and failure modes
-   - Update `engine/src/main/java/ai/games/player/ai/alpha/README.md` with findings
-
-6. **Self-Play Training Loop** (TODO)
-   - Implement RL loop: MCTS selection → self-play → network update
-   - Add checkpointing and model comparison
-   - Close the loop for continuous improvement
+- `engine/AGENTS.md`
