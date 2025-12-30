@@ -131,9 +131,13 @@ public class EndgameTrainingDataGenerator {
                 log.debug("Reverse moves: {}", seededGameWithMoves.reverseMoves);
             }
             
-            // Create a Game instance with the solver player and seeded board
+            // Create a Game instance with a fresh solver player and seeded board
+            // Each game gets a new player instance to avoid static state pollution
+            // (A* player maintains static state like lastMove and gameTreeRoot)
             // Episode logging is automatic when -Dlog.episodes=true is set
-            Game game = new Game(solverPlayer);
+            Player freshPlayer = new AStarPlayer();
+            AStarPlayer.resetGameState();  // Reset A* static state for this new game
+            Game game = new Game(freshPlayer);
             Game.GameResult result = game.play(seededGameWithMoves.game);
             
             stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
