@@ -34,13 +34,18 @@ import java.util.List;
  *   <li><strong>Level 5:</strong> 7 cards off; 45 on foundations.</li>
  * </ul>
  * 
- * <p>Usage: Run test methods with episode logging enabled:</p>
- * <pre>
- * ./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel2" -Dlog.episodes=true
- * </pre>
+ * <p>Usage: Run with system properties to control level and game count:</p>
+ * <ul>
+ *   <li><strong>Specific level only:</strong> {@code ./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" -Dendgame.games.difficulty.level=4 -Dendgame.games.per.level=500 -Dlog.episodes=true}</li>
+ *   <li><strong>All legacy tests:</strong> {@code ./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel*" -Dlog.episodes=true}</li>
+ * </ul>
  */
 public class EndgameTrainingDataGenerator {
     private static final Logger log = LoggerFactory.getLogger(EndgameTrainingDataGenerator.class);
+    
+    // Difficulty level to generate (only used if > 0). Can be overridden via system property -Dendgame.games.difficulty.level
+    // When set, runs only that level. When not set (0), legacy individual tests are used.
+    private static final int DIFFICULTY_LEVEL = Integer.getInteger("endgame.games.difficulty.level", 0);
     
     // Number of games per level. Can be overridden via system property -Dendgame.games.per.level
     // Default is 500 for full dataset generation; use smaller values for quick tests.
@@ -86,17 +91,35 @@ public class EndgameTrainingDataGenerator {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Level 3+ not yet implemented")
     @DisplayName("Level 4: 48 foundation cards (4 off)")
     void testEndgameLevel4() {
         generateLevelDataset(4, "Level 4 (4 cards off)");
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Level 3+ not yet implemented")
     @DisplayName("Level 5: 45 foundation cards (7 off)")
     void testEndgameLevel5() {
         generateLevelDataset(5, "Level 5 (7 cards off)");
+    }
+
+    /**
+     * Single test method that generates endgame dataset for the difficulty level specified
+     * via system property {@code -Dendgame.games.difficulty.level}.
+     * 
+     * <p>Usage: {@code ./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" -Dendgame.games.difficulty.level=4 -Dendgame.games.per.level=500 -Dlog.episodes=true}</p>
+     * 
+     * <p>The difficulty level can be any positive integer. If not set, this test is skipped.</p>
+     */
+    @Test
+    @DisplayName("Generate endgame dataset for specified difficulty level")
+    void testGenerateEndgameDataset() {
+        if (DIFFICULTY_LEVEL <= 0) {
+            log.info("Skipping testGenerateEndgameDataset: set -Dendgame.games.difficulty.level=<level> to run");
+            return;
+        }
+        
+        String levelName = String.format("Level %d", DIFFICULTY_LEVEL);
+        generateLevelDataset(DIFFICULTY_LEVEL, levelName);
     }
 
     /**
