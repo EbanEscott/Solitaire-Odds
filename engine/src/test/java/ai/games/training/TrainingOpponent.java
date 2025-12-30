@@ -10,7 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Manages seeding of deterministic game states for training and self-play scenarios.
@@ -24,11 +26,21 @@ import java.util.List;
  * 
  * <p>Usage: Call {@link #seedGame(int)} to create a seeded endgame position that can then be
  * fed into the {@link ai.games.Game} orchestrator with a player to generate training episodes.</p>
+ * 
+ * <p>Randomization Control: Use {@code -Dendgame.randomize=true} to randomize reverse move selection
+ * at each level. This creates diverse endgame positions instead of always following the same path.</p>
  */
 public class TrainingOpponent {
     private static final Logger log = LoggerFactory.getLogger(TrainingOpponent.class);
     
+    // Whether to randomize reverse move selection at each level
+    // Default: false (deterministic, reproducible positions)
+    // Set via: -Dendgame.randomize=true
+    private static final boolean RANDOMIZE_MOVES = Boolean.parseBoolean(
+        System.getProperty("endgame.randomize", "false"));
+    
     private final int difficultyLevel;
+    private final Random random;
 
     /**
      * Creates a training opponent at the specified difficulty level.
@@ -40,6 +52,9 @@ public class TrainingOpponent {
             throw new IllegalArgumentException("difficultyLevel must be >= 1");
         }
         this.difficultyLevel = difficultyLevel;
+        // Use current time as seed if randomization enabled, ensures different positions each run
+        // Use 0 as seed if deterministic, ensures reproducibility
+        this.random = new Random(RANDOMIZE_MOVES ? System.currentTimeMillis() : 0);
     }
 
     /**
@@ -136,6 +151,45 @@ public class TrainingOpponent {
     }
 
     /**
+     * Selects the next reverse move to apply from the available moves.
+     * 
+     * <p>If randomization is enabled ({@code -Dendgame.randomize=true}), randomly selects
+     * an unused move from the list. Otherwise, always selects moves in order (deterministic).
+     * 
+     * <p>Note: This method does NOT remove the selected move from the list; the caller
+     * is responsible for tracking which moves have been used.
+     * 
+     * @param reverseMoves the list of available reverse moves
+     * @param usedIndices the set of indices already used (to avoid duplicates when randomizing)
+     * @return the selected reverse move, or null if all moves have been used
+     */
+    private String selectNextReverseMove(List<String> reverseMoves, java.util.Set<Integer> usedIndices) {
+        if (reverseMoves.isEmpty() || usedIndices.size() >= reverseMoves.size()) {
+            return null;  // All moves exhausted
+        }
+        
+        if (RANDOMIZE_MOVES) {
+            // Randomly select an unused move
+            int selectedIndex;
+            do {
+                selectedIndex = random.nextInt(reverseMoves.size());
+            } while (usedIndices.contains(selectedIndex));
+            
+            usedIndices.add(selectedIndex);
+            return reverseMoves.get(selectedIndex);
+        } else {
+            // Deterministic: select moves in order
+            for (int i = 0; i < reverseMoves.size(); i++) {
+                if (!usedIndices.contains(i)) {
+                    usedIndices.add(i);
+                    return reverseMoves.get(i);
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
      * Seeds multiple endgame positions and returns both the games and the moves used to generate them.
      * 
      * <p>This is useful for debugging - you can see exactly which reverse moves were applied
@@ -229,8 +283,12 @@ public class TrainingOpponent {
                     continue;
                 }
                 
-                // For each reverse move, create a new game variant for the next level
-                for (String reverseMove : reverseMoves) {
+                // Track which reverse moves we've used from this base game (to avoid duplicates with randomization)
+                java.util.Set<Integer> usedMoveIndices = new java.util.HashSet<>();
+                
+                // Generate new game variants by applying reverse moves
+                String reverseMove;
+                while ((reverseMove = selectNextReverseMove(reverseMoves, usedMoveIndices)) != null) {
                     if (currentLevel == difficultyLevel && seededGames.size() >= numberOfGames) {
                         // Stop if we've reached target games at target level
                         break;

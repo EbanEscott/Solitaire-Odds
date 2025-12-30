@@ -131,8 +131,56 @@ where:
 
 The optimization ensures **total games grow only logarithmically** with difficulty level, not exponentially.
 
+## Randomization: Creating Diverse Endgames
+
+By default, the game generation is **deterministic** - requesting the same level/game count produces the same board positions each time. This is useful for reproducible testing.
+
+However, for **training data diversity**, you can enable **randomization** via `-Dendgame.randomize=true`. This makes the algorithm randomly select reverse moves at each level instead of following the same sequence.
+
+### Effect of Randomization
+
+**Without randomization (deterministic):**
+```
+Level 4 games: move F3 K♥ T3, move F3 K♥ T4, move F3 K♥ T5, move F3 K♥ T6, ...
+```
+Same sequence every run - useful for testing, but limited diversity.
+
+**With randomization enabled:**
+```
+Level 4 games: move F2 K♦ W, move F1 K♣ W, move T7 K♠ T5, move F3 K♥ T6, ...
+```
+Random sequence each run - creates diverse endgame positions, critical for deep levels (100+).
+
+### Why Randomization Matters for Deep Levels
+
+At deep levels (e.g., Level 100), without randomization:
+- Always follows the same reverse move path
+- Results in similar board positions each time
+- May be "easy wins" if that path happens to create favorable positions
+- Limited training diversity for neural networks
+
+**With randomization:**
+- Each run explores different paths through the reverse moves
+- Creates diverse endgame positions
+- Some may be harder than others (like Level 100 with 334 moves!)
+- Provides realistic variety for training
+- Helps avoid overfitting to specific game patterns
+
+### Usage
+
+```bash
+# Deterministic mode (default - reproducible)
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" \
+  -Dendgame.games.difficulty.level=4 -Dendgame.games.per.level=500
+
+# Randomized mode (diverse endgames)
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" \
+  -Dendgame.games.difficulty.level=100 -Dendgame.games.per.level=50 \
+  -Dendgame.randomize=true
+```
 
 ## Running Tests
+
 
 ### Generate a single level (recommended for large game counts):
 
@@ -170,6 +218,7 @@ cd engine
 |----------|---------|---------|
 | `-Dendgame.games.difficulty.level=N` | None | Target difficulty level (1-N). If not set, legacy tests run. |
 | `-Dendgame.games.per.level=N` | 5000 | Number of games to generate at the target level. |
+| `-Dendgame.randomize=true\|false` | false | Enable random reverse move selection for diverse endgames. Recommended for deep levels (50+). |
 | `-Dlog.episodes=true` | false | Enable episode logging in JSONL format for neural network training. |
 | `-Dorg.gradle.jvmargs=-Xmx6g` | -Xmx512m | Heap memory. Increase for high game counts. |
 
