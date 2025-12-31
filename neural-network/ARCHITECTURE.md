@@ -1,23 +1,35 @@
 # Neural Network Architecture Guide
 
-This document explains the configurable neural network design and how to use it for training on full game trajectories (the key to effective self-play).
+This document explains the configurable neural network design and why what we're exploring for Solitaire's planning problem.
 
-## The Core Insight: Full Trajectory Training vs. Isolated States
+## The Four Core Neural Network Families
 
-**Old approach (limited):**
-- Train on individual game states in isolation
-- Each state → one label (policy + value)
-- No context about the game trajectory
-- Network struggles to understand move sequences
+Neural networks come in distinct families, each designed for different types of data structure. The key difference is what kind of **inductive bias** (built-in assumption) the architecture has. A grid-based CNN assumes spatial locality. A sequence-based Transformer assumes order matters. A graph-based GNN assumes relationships between entities matter. An MLP assumes none of these — it's pure function approximation.
 
-**New approach (powerful):**
-- Train on **full game trajectories** (start → finish)
-- Each state in trajectory labeled with:
-  - **Policy**: the actual move taken (supervised from A* or MCTS)
-  - **Value**: the final game outcome (1.0 = win, 0.0 = loss)
-  - Optionally: bootstrapped value from V(next_state) for RL
-- Network learns move dependencies and long-range planning
-- This is exactly how AlphaGo trained: supervised first, then self-play
+| Property                  | MLP                  | CNN  | Transformer | GNN    |
+| ------------------------- | -------------------- | ---- | ----------- | ------ |
+| Data structure            | Vector (flat)        | Grid | Sequence    | Graph  |
+| Fixed size                | Yes              | Yes  | No          | No     |
+| Order-sensitive           | Only by encoding | Yes  | Yes         | No     |
+| Relational inductive bias | None             | Weak | Medium      | Strong |
+
+**MLP (Multi-Layer Perceptron):** Fully-connected layers on flat vectors with no special structure—works on anything but learns nothing about relationships. **CNN (Convolutional Neural Network):** Specialized for grids (like images or Go boards) where local spatial patterns repeat and translation invariance matters. **Transformer:** Built for sequences (text, time series) where each element can attend to any other and position is explicit. **GNN (Graph Neural Network):** Designed for graph-structured data where relationships between entities matter—learning flows through edges via message passing.
+
+## Why Explore GNN for Solitaire
+
+Solitaire is fundamentally a planning game where move value depends on what downstream consequences it enables. The hypothesis: tree structure from A* search encodes reasoning that flat statistics lose. GNN's relational inductive bias could preserve causal relationships that MLP flattening destroys. However, we don't know yet whether this actually matters in practice—visit counts alone might suffice, or MLP's capacity might be enough. This is why we're building both models. For full context on the hypothesis, design questions, and implementation details, see `NEURAL_NETWORK_PLAN.md`.
+
+## Current Implementation Path
+
+**Phase 1: MLP Baseline.** Train MLP (512 hidden, 3 layers) on easy levels to verify the network can learn Solitaire fundamentals from board state alone. Uses only `EPISODE_STEP` records. Checkpoint: `policy_value_mpl_v1.pt`. See `NEURAL_NETWORK_PLAN.md` for training setup.
+
+**Phase 2: Tree Logging.** Add `EPISODE_TREE` records to episode logs capturing A* exploration (moves, visit counts, heuristics). Tree depth limited to current node + immediate children. Prepares data for GNN training. See `NEURAL_NETWORK_PLAN.md` for logging format.
+
+**Phase 3: GNN Model.** Implement pure GNN treating board features as root node and move tree as subgraph. GNN can learn whether tree structure matters for move selection. Checkpoint: `policy_value_gnn_v1.pt`. See `NEURAL_NETWORK_PLAN.md` for architecture decisions.
+
+**Phase 4: Multi-Model Support.** Maintain both MLP and GNN in codebase via `ModelFactory` to enable direct comparison. Compare performance on same test set to determine which approach is stronger. Prepare for self-play with the winning architecture.
+
+**Phase 5: Self-Play Loop.** Network priors guide MCTS, MCTS discovers better move distributions, network retrains on MCTS data, versions improve iteratively. This is the ultimate goal where network and search co-evolve. See `NEURAL_NETWORK_PLAN.md` Phase 5 for full details.
 
 ## Architecture Configuration
 
@@ -59,124 +71,3 @@ Large (1024, 3)           | 2.5M       | 9.6           | ~200s/epoch    | ~200k 
 XL (2048, 3)              | 9.2M       | 35            | ~500s/epoch    | ~1M samples
 Huge (2048, 4)            | 12.5M      | 47.5          | ~700s/epoch    | ~2M samples
 ```
-
-## For Full Game Tree Training (Recommended)
-
-When training on entire game trajectories from MCTS or self-play:
-
-**Phase 1: Bootstrap from A* (what you're doing now)**
-```bash
-# Use medium model: 512 hidden, 3 layers
-# This captures enough complexity without overfitting on limited A* data
-python -m src.train_policy_value \
-  --hidden-dim 512 \
-  --num-layers 3 \
-  "engine/logs/episode*.log"
-```
-
-**Phase 2: Self-play loop (future)**
-```bash
-# Once you have 100k+ self-play samples, scale up
-python -m src.train_policy_value \
-  --hidden-dim 1024 \
-  --num-layers 3 \
-  --batch-size 128 \
-  "self_play_logs/episodes_v*.log"
-```
-
-**Phase 3: Deep refinement (if converging poorly)**
-```bash
-# Add batch norm for deeper networks
-python -m src.train_policy_value \
-  --hidden-dim 1024 \
-  --num-layers 4 \
-  --batch-norm \
-  "self_play_logs/episodes_v*.log"
-```
-
-## Trajectory-Aware Value Targets
-
-The dataset now supports **two value target modes**:
-
-### Mode 1: Trajectory Value (Current)
-- Every step in an episode is labeled with the final game outcome
-- Example: A 50-step game that wins → all 50 steps labeled with 1.0
-- Simple, works well for supervised learning
-- Enabled by default: `trajectory_config.use_trajectory_value=True`
-
-### Mode 2: Bootstrapped Value (For Self-Play RL)
-```python
-trajectory_config = TrajectoryConfig(
-    use_trajectory_value=False,
-    use_bootstrapped_value=True,
-    discount_factor=0.99,  # γ for discount
-)
-```
-- Value target: `V(s) = r + γ * V(next_state)`
-- Requires value network to be pre-trained
-- Enables efficient RL when combined with MCTS
-- Will be used once self-play loop is implemented
-
-## Impact on Training
-
-### Policy Head (move prediction)
-- Learns: "What move did the AI take at each state in winning/losing games?"
-- Trajectory helps: Network sees sequences of moves, learns combinations
-- Better priors for MCTS (reduces search branching)
-
-### Value Head (win prediction)
-- Learns: "Is this state on a winning trajectory?"
-- Trajectory helps: Network learns which game positions lead to success
-- States appearing in both winning and losing games force the network to learn critical features
-
-### Multi-task Heads (foundation, talon, cascading moves)
-- Aux losses help the shared backbone learn general Solitaire concepts
-- Reduces overfitting to policy/value alone
-
-## Practical Training Tips
-
-1. **Start small, scale gradually**
-   - (256, 2): Quick experimentation, ~10-30 seconds per epoch
-   - (512, 3): Good balance, ~1-2 minutes per epoch
-   - Only go larger if you have 200k+ samples
-
-2. **Monitor validation accuracy**
-   - Policy accuracy < 70% → need more data or deeper network
-   - Value accuracy > 95% → network is learning but policy is weak
-   - Both > 80% → good model, ready for self-play
-
-3. **Adjust learning rate for batch size**
-   - Larger batches (128-256) may need higher learning rate (5e-4 to 1e-3)
-   - Smaller batches (32) may need lower learning rate (5e-4 to 1e-4)
-
-4. **For full game tree training**
-   - Use `--batch-size 128` (more data per gradient step)
-   - Use `--num-layers 3` or 4 (capture long-range dependencies)
-   - Train for longer (10-20 epochs) on accumulated self-play data
-
-5. **Checkpoint frequently**
-   - Model saves to `checkpoints/policy_value_latest.pt`
-   - In self-play loop, save versioned checkpoints: `v1.pt`, `v2.pt`, etc.
-   - Compare win rates between versions to track improvement
-
-## Next Steps: Self-Play Loop
-
-Once you have a trained model:
-
-1. **Run MCTS games** using the neural network for guidance
-2. **Log each game trajectory** (all states and MCTS-selected moves)
-3. **Retrain on the new data** with bootstrapped value targets
-4. **Compare model versions** (v1 vs v2 win rates)
-5. **Repeat** (reinforcement learning loop)
-
-This is the full AlphaGo approach:
-- Supervised bootstrap (A* → v0)
-- Self-play refinement (v0 plays itself → v1)
-- Continuous improvement (v1 plays itself → v2, etc.)
-
-## References
-
-- AlphaGo paper: Uses similar supervised→self-play pipeline
-- AlphaZero: Pure self-play (no supervised phase)
-- Your codebase: `TrainingOpponent` can generate seeded positions for RL games
-
