@@ -1,8 +1,7 @@
 package ai.games.player.ai.astar;
 
 import ai.games.game.Solitaire;
-import java.util.HashMap;
-import java.util.Map;
+import ai.games.player.ai.tree.TreeNode;
 
 /**
  * Unified node representing both the A* search tree (for lookahead decisions)
@@ -36,10 +35,10 @@ import java.util.Map;
  * or find new progress. Over a full game, this dramatically improves move quality and shortens
  * games that would otherwise loop indefinitely.
  */
-public class GameTreeNode implements Comparable<GameTreeNode> {
+public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode> {
     // ============= A* Search Fields =============
-    /** The Solitaire game state at this node. */
-    public final Solitaire state;
+    /** The Solitaire game state at this node (inherited from TreeNode). */
+    // state field is inherited
     
     /** Path cost from root in the A* search. */
     public final int pathCost;
@@ -52,11 +51,11 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
     /** The move that led to this state from parent (null for root). */
     public final String move;
     
-    /** Parent node in the game tree. */
-    public final GameTreeNode parent;
+    /** Parent node in the game tree (inherited from TreeNode). */
+    // parent field is inherited
     
-    /** Children: map from move string to resulting node. */
-    public final Map<String, GameTreeNode> children = new HashMap<>();
+    /** Children: map from move string to resulting node (inherited from TreeNode). */
+    // children field is inherited from base TreeNode
     
     /** Number of times this exact board state has been visited. */
     public int visitCount = 1;
@@ -65,38 +64,34 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
     public int foundationCount;
     public int facedownCount;
     
-    /** State key for quick lookup. */
-    public final long stateKey;
+    /** State key for quick lookup (inherited from TreeNode). */
+    // stateKey field is inherited
     
     /**
-     * Pruned flag: when true, indicates this subtree should not be explored further.
+     * Pruned flag (inherited from TreeNode): when true, indicates this subtree should not be explored further.
      * This persists across game decisions—once we mark a branch as unproductive (e.g., leads to cycles),
      * future lookahead searches will skip it, saving exploration budget for more promising paths.
-     * 
-     * <p><b>Why this is powerful:</b> With a 256-node expansion budget, avoiding known-bad branches
-     * means more budget for paths that might break cycles or make progress. Over a full game,
-     * this accumulates into significant improvements in move quality and shorter game lengths.
      */
-    public boolean pruned = false;
-    
+    // pruned field is inherited
+
     /**
-     * Cycle depth: how many moves deep into a detected cycle are we?
+     * Cycle depth (inherited from TreeNode): how many moves deep into a detected cycle are we?
      * Set when findCycleAncestor() detects a cycle; used to understand cycle severity.
      * A larger depth means we're wasting more moves in the cycle pattern.
      */
-    public int cycleDepth = 0;
+    // cycleDepth field is inherited
 
     /**
      * Constructor for A* search nodes.
      * Used when building lookahead trees within a single decision.
      */
-    public GameTreeNode(Solitaire state, GameTreeNode parent, String move, int pathCost, int heuristic) {
-        this.state = state;
+    public AStarTreeNode(Solitaire state, AStarTreeNode parent, String move, int pathCost, int heuristic) {
+        super();
         this.parent = parent;
+        setState(state);  // This sets both state and stateKey from base class
         this.move = move;
         this.pathCost = pathCost;
         this.heuristic = heuristic;
-        this.stateKey = state != null ? state.getStateKey() : 0L;
         this.foundationCount = 0;
         this.facedownCount = 0;
     }
@@ -105,17 +100,39 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
      * Constructor for game tree nodes (persistent game history).
      * Used when tracking moves throughout the entire game.
      */
-    public GameTreeNode(String move, GameTreeNode parent, long stateKey, int foundationCount, int facedownCount) {
+    public AStarTreeNode(String move, AStarTreeNode parent, long stateKey, int foundationCount, int facedownCount) {
+        super();
         this.move = move;
         this.parent = parent;
-        this.stateKey = stateKey;
+        setStateKey(stateKey);  // Set state key directly from base class
         this.foundationCount = foundationCount;
         this.facedownCount = facedownCount;
         
         // A* fields not used in game tree mode
-        this.state = null;
         this.pathCost = 0;
         this.heuristic = 0;
+    }
+
+    /**
+     * Check if this node is terminal (no moves or game won).
+     * Only valid for nodes with non-null state (A* search nodes).
+     *
+     * @return true if state is null or game is won
+     */
+    @Override
+    public boolean isTerminal() {
+        return getState() == null || isWon(getState());
+    }
+
+    /**
+     * Create a copy of the current game state for exploration.
+     * Only valid for nodes with non-null state (A* search nodes).
+     *
+     * @return a new Solitaire instance with the same board configuration, or null if state is null
+     */
+    @Override
+    public Solitaire copyState() {
+        return getState() != null ? getState().copy() : null;
     }
 
     /**
@@ -131,7 +148,7 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
      * For use in A* priority queue: compare by f-score.
      */
     @Override
-    public int compareTo(GameTreeNode other) {
+    public int compareTo(AStarTreeNode other) {
         return Integer.compare(this.f(), other.f());
     }
 
@@ -141,12 +158,12 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
      */
     public int countVisitsToState() {
         int count = 1;  // This node
-        GameTreeNode p = parent;
+        AStarTreeNode p = (AStarTreeNode) parent;
         while (p != null) {
-            if (p.stateKey == this.stateKey) {
+            if (p.getStateKey() == this.getStateKey()) {
                 count++;
             }
-            p = p.parent;
+            p = (AStarTreeNode) p.parent;
         }
         return count;
     }
@@ -155,16 +172,16 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
      * Check if we're cycling: same state as an ancestor but no progress made.
      * Returns the ancestor node we're cycling to, or null if no cycle detected.
      */
-    public GameTreeNode findCycleAncestor() {
-        GameTreeNode p = parent;
+    public AStarTreeNode findCycleAncestor() {
+        AStarTreeNode p = (AStarTreeNode) parent;
         while (p != null) {
-            if (p.stateKey == this.stateKey &&
+            if (p.getStateKey() == this.getStateKey() &&
                 p.foundationCount == this.foundationCount &&
                 p.facedownCount == this.facedownCount) {
                 // Found the same board state with no progress
                 return p;
             }
-            p = p.parent;
+            p = (AStarTreeNode) p.parent;
         }
         return null;
     }
@@ -172,12 +189,12 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
     /**
      * Get the distance (number of moves) to a given ancestor node.
      */
-    public int distanceTo(GameTreeNode ancestor) {
+    public int distanceTo(AStarTreeNode ancestor) {
         int dist = 0;
-        GameTreeNode current = this;
+        AStarTreeNode current = this;
         while (current != null && current != ancestor) {
             dist++;
-            current = current.parent;
+            current = (AStarTreeNode) current.parent;
         }
         return current == ancestor ? dist : -1;
     }
@@ -195,12 +212,12 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
      * @return true if this node or any ancestor is marked pruned, false otherwise
      */
     public boolean isPruned() {
-        GameTreeNode current = this;
+        AStarTreeNode current = this;
         while (current != null) {
             if (current.pruned) {
                 return true;
             }
-            current = current.parent;
+            current = (AStarTreeNode) current.parent;
         }
         return false;
     }
@@ -225,4 +242,3 @@ public class GameTreeNode implements Comparable<GameTreeNode> {
         this.pruned = true;
     }
 }
-
