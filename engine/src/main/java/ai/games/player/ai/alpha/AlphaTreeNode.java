@@ -1,7 +1,7 @@
 package ai.games.player.ai.alpha;
 
 import ai.games.game.Solitaire;
-import ai.games.player.LegalMovesHelper;
+import ai.games.player.ai.tree.TreeNode;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,13 +21,7 @@ import java.util.Map;
  * The tree is ephemeral within a single nextCommand() call; it does not
  * persist across moves.
  */
-public class TreeNode {
-
-    /**
-     * The game state at this node.
-     * Each node has its own copy to allow parallel exploration without mutation.
-     */
-    private final Solitaire state;
+public class AlphaTreeNode extends TreeNode {
 
     /**
      * List of legal moves available from this state.
@@ -52,11 +46,6 @@ public class TreeNode {
     private final int[] visits;
 
     /**
-     * Child nodes: one for each legal move (initially null, created on expansion).
-     */
-    private final TreeNode[] children;
-
-    /**
      * Whether this node has been evaluated by the neural network.
      */
     private boolean evaluated;
@@ -73,14 +62,14 @@ public class TreeNode {
      * @param state the game state at this node
      * @param moves the list of legal moves from this state
      */
-    private TreeNode(Solitaire state, List<String> moves) {
-        this.state = state;
+    private AlphaTreeNode(Solitaire state, List<String> moves) {
+        super();
+        setState(state);  // Use base class method to set state and stateKey
         this.moves = moves;
         int n = moves.size();
         this.priors = new double[n];
         this.valueSums = new double[n];
         this.visits = new int[n];
-        this.children = new TreeNode[n];
         this.evaluated = false;
         this.valueEstimate = 0.0;
     }
@@ -93,8 +82,8 @@ public class TreeNode {
      * @param legalMoves all legal moves from this state
      * @return a new root node
      */
-    public static TreeNode createRoot(Solitaire state, List<String> legalMoves) {
-        return new TreeNode(state, legalMoves);
+    public static AlphaTreeNode createRoot(Solitaire state, List<String> legalMoves) {
+        return new AlphaTreeNode(state, legalMoves);
     }
 
     /**
@@ -105,8 +94,8 @@ public class TreeNode {
      * @param legalMoves all legal moves from this new state
      * @return a new child node
      */
-    public static TreeNode createChild(Solitaire state, List<String> legalMoves) {
-        return new TreeNode(state, legalMoves);
+    public static AlphaTreeNode createChild(Solitaire state, List<String> legalMoves) {
+        return new AlphaTreeNode(state, legalMoves);
     }
 
     /**
@@ -115,8 +104,9 @@ public class TreeNode {
      *
      * @return true if no moves are available or the game is won
      */
+    @Override
     public boolean isTerminal() {
-        return moves.isEmpty() || isWon(state);
+        return moves.isEmpty() || isWon(getState());
     }
 
     /**
@@ -145,14 +135,14 @@ public class TreeNode {
         if (evaluated) {
             return valueEstimate;
         }
-        if (moves.isEmpty() || isWon(state)) {
-            valueEstimate = isWon(state) ? 1.0 : 0.0;
+        if (moves.isEmpty() || isWon(getState())) {
+            valueEstimate = isWon(getState()) ? 1.0 : 0.0;
             evaluated = true;
             return valueEstimate;
         }
 
         try {
-            AlphaSolitaireRequest request = AlphaSolitaireRequest.fromSolitaire(state);
+            AlphaSolitaireRequest request = AlphaSolitaireRequest.fromSolitaire(getState());
             AlphaSolitaireResponse response = client.evaluate(request);
             if (response != null) {
                 // Extract policy priors from response
@@ -206,10 +196,10 @@ public class TreeNode {
      * @return estimated win probability based on board position
      */
     private double valueEstimateFromHeuristic() {
-        if (isWon(state)) {
+        if (isWon(getState())) {
             return 1.0;
         }
-        int score = AlphaSolitairePlayer.heuristicScore(state);
+        int score = AlphaSolitairePlayer.heuristicScore(getState());
         double normalized = 1.0 / (1.0 + Math.exp(-score / 100.0));
         return normalized;
     }
@@ -219,8 +209,9 @@ public class TreeNode {
      *
      * @return a new Solitaire instance with the same board configuration
      */
+    @Override
     public Solitaire copyState() {
-        return state.copy();
+        return getState().copy();
     }
 
     /**
@@ -239,8 +230,12 @@ public class TreeNode {
      * @param index move index (0-based)
      * @return the child node, or null if not yet created
      */
-    public TreeNode child(int index) {
-        return children[index];
+    public AlphaTreeNode child(int index) {
+        if (index < 0 || index >= moves.size()) {
+            return null;
+        }
+        String move = moves.get(index);
+        return (AlphaTreeNode) children.get(move);
     }
 
     /**
@@ -249,8 +244,12 @@ public class TreeNode {
      * @param index move index (0-based)
      * @param child the new child node
      */
-    public void setChild(int index, TreeNode child) {
-        children[index] = child;
+    public void setChild(int index, AlphaTreeNode child) {
+        if (index < 0 || index >= moves.size()) {
+            return;
+        }
+        String move = moves.get(index);
+        children.put(move, child);
     }
 
     /**
@@ -351,35 +350,5 @@ public class TreeNode {
             }
         }
         return 0;
-    }
-
-    /**
-     * Clamp a value to the range [0.0, 1.0].
-     *
-     * @param v the value to clamp
-     * @return the clamped value
-     */
-    private static double clamp01(double v) {
-        if (v < 0.0) {
-            return 0.0;
-        }
-        if (v > 1.0) {
-            return 1.0;
-        }
-        return v;
-    }
-
-    /**
-     * Check if the game is won from the given state.
-     *
-     * @param solitaire the game state
-     * @return true if all 52 cards are in the foundation piles
-     */
-    private static boolean isWon(Solitaire solitaire) {
-        int total = 0;
-        for (var pile : solitaire.getFoundation()) {
-            total += pile.size();
-        }
-        return total == 52;
     }
 }

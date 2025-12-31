@@ -127,7 +127,7 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
 
         // Root node uses a copy of the current state so that MCTS can freely
         // explore without mutating the real game.
-        TreeNode root = TreeNode.createRoot(solitaire.copy(), legal);
+        AlphaTreeNode root = AlphaTreeNode.createRoot(solitaire.copy(), legal);
 
         // Ensure the root has priors and a value estimate from the neural net.
         root.ensureEvaluated(client);
@@ -166,11 +166,11 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
      *
      * @param root the root node of the MCTS tree
      */
-    private void runSimulation(TreeNode root) {
-        List<TreeNode> pathNodes = new ArrayList<>();
+    private void runSimulation(AlphaTreeNode root) {
+        List<AlphaTreeNode> pathNodes = new ArrayList<>();
         List<Integer> pathMoves = new ArrayList<>();
 
-        TreeNode node = root;
+        AlphaTreeNode node = root;
         pathNodes.add(node);
         int depth = 0;
 
@@ -194,7 +194,7 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
             pathMoves.add(moveIndex);
 
             // Check if child already exists
-            TreeNode child = node.child(moveIndex);
+            AlphaTreeNode child = node.child(moveIndex);
             if (child == null) {
                 // Expand: create a new child node by applying the move
                 String move = node.moveAt(moveIndex);
@@ -203,7 +203,7 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
                 List<String> childLegal = LegalMovesHelper.listLegalMoves(nextState);
 
                 // Create child and store in parent
-                child = TreeNode.createChild(nextState, childLegal);
+                child = AlphaTreeNode.createChild(nextState, childLegal);
                 node.setChild(moveIndex, child);
 
                 pathNodes.add(child);
@@ -230,12 +230,12 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
      * @param moves the sequence of move indices taken at each node (in order)
      * @param value the value to backpropagate (0.0 = loss, 1.0 = win)
      */
-    private void backpropagate(List<TreeNode> nodes, List<Integer> moves, double value) {
+    private void backpropagate(List<AlphaTreeNode> nodes, List<Integer> moves, double value) {
         // Single-agent setting: value is always from the same perspective,
         // so we propagate the same scalar up the entire path.
         int steps = moves.size();
         for (int i = 0; i < steps; i++) {
-            TreeNode node = nodes.get(i);
+            AlphaTreeNode node = nodes.get(i);
             int moveIndex = moves.get(i);
             node.updateStats(moveIndex, value);
         }
