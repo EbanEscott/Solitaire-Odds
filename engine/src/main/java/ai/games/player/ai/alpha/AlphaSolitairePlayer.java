@@ -32,10 +32,9 @@ import org.springframework.stereotype.Component;
  * - Exploration constant: controlled by -Dalphasolitaire.mcts.cpuct (default 1.5)
  *
  * Requirements:
- * - The Python service must be running at the configured endpoint
+ * - The Python service MUST be running at the configured endpoint
  * - Example: python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
- *
- * If the neural service is unavailable, falls back to heuristic evaluation.
+ * - AlphaSolitairePlayer will not function without the neural service
  */
 @Component
 @Profile("ai-alpha-solitaire")
@@ -291,46 +290,5 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
         }
     }
 
-    /**
-     * Evaluate a position using heuristics when the neural service is unavailable.
-     *
-     * Factors considered:
-     * - Foundation cards (40 points each): direct progress toward winning
-     * - Visible tableau cards (4 points each): movable cards
-     * - Face-down cards (-9 points each): blocking cards
-     * - Empty tableau columns (20 points each): valuable for future moves
-     * - Stockpile cards (-2 points each): remaining cards to process
-     *
-     * The score is converted to a probability via sigmoid: 1 / (1 + exp(-score/100))
-     *
-     * @param solitaire the game state to evaluate
-     * @return heuristic score (used as input to sigmoid)
-     */
-    static int heuristicScore(Solitaire solitaire) {
-        int score = 0;
 
-        int foundationCards = 0;
-        for (var pile : solitaire.getFoundation()) {
-            foundationCards += pile.size();
-        }
-        score += foundationCards * 40;
-
-        List<Integer> faceUps = solitaire.getTableauFaceUpCounts();
-        List<Integer> faceDowns = solitaire.getTableauFaceDownCounts();
-        int emptyColumns = 0;
-        for (int i = 0; i < faceUps.size(); i++) {
-            int up = faceUps.get(i);
-            int down = faceDowns.get(i);
-            score += up * 4;
-            score -= down * 9;
-            if (up == 0 && down == 0) {
-                emptyColumns++;
-            }
-        }
-
-        score += emptyColumns * 20;
-        score -= solitaire.getStockpile().size() * 2;
-
-        return score;
-    }
 }
