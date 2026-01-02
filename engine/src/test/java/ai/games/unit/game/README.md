@@ -1,6 +1,6 @@
 # Game Rule Tests
 
-Unit tests verifying core Solitaire game logic: legal moves, illegal move rejection, boundary conditions, and undo functionality.
+Unit tests verifying core Solitaire game logic: legal moves, illegal move rejection, boundary conditions, PLAN mode move generation with masked cards, and undo functionality.
 
 ## Tests
 
@@ -9,6 +9,7 @@ Unit tests verifying core Solitaire game logic: legal moves, illegal move reject
 | `LegalMovesTest` | Comprehensive validation that all legal moves are correctly identified by move logic |
 | `IllegalMovesTest` | Ensures the game rejects moves that violate Solitaire rules |
 | `BoundaryTest` | Edge cases: empty piles, full foundations, special card positions |
+| `PlanningMovesTest` | PLAN mode move generation with UNKNOWN cards: guess creation, plausibility checking, game state copying, and guess consistency validation |
 | `TrainingModeTest` | Validates undo mechanism: records moves, replays game minus last move, restores deck order deterministically |
 
 ## Run Tests
@@ -18,5 +19,6 @@ Unit tests verifying core Solitaire game logic: legal moves, illegal move reject
 ./gradlew test --tests "ai.games.unit.game.LegalMovesTest"
 ./gradlew test --tests "ai.games.unit.game.IllegalMovesTest"
 ./gradlew test --tests "ai.games.unit.game.BoundaryTest"
+./gradlew test --tests "ai.games.unit.game.PlanningMovesTest"
 ./gradlew test --tests "ai.games.unit.game.TrainingModeTest"
 ```
