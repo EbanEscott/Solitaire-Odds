@@ -36,12 +36,12 @@ import org.junit.jupiter.api.Test;
  *   <li><b>deckResetHas52UniqueCards</b> - Deck integrity: fresh deck has all 52 unique cards</li>
  *   <li><b>lastFaceUpCardMove</b> - State transition: face-down flip when last face-up card moves away</li>
  *   <li><b>multipleEmptyTableauColumns</b> - Multiple empty columns: any can accept Kings</li>
- *   <li><b>multiCardStackInternalColorViolation</b> (Phase 2) - Valid alternating sequence [8♥,7♣,6♥] moves onto 9♠; verifies internal validity</li>
- *   <li><b>stackMoveAfterFlipTrigger</b> (Phase 2) - Moving 5♠ away flips K♦(facedown), enabling K♦ to empty column</li>
- *   <li><b>foundationBuildAfterTableauRecovery</b> (Phase 3) - F1 has 2♥; moving 3♥ from T1 to F1 advances foundation</li>
- *   <li><b>stockTalonEmptyGameOver</b> (Phase 3) - Stock and talon both empty; no legal moves; game terminal</li>
- *   <li><b>foundationProgressWithMultipleSuits</b> (Phase 3) - Multiple foundations building in parallel; 3♠ onto 2♠ in F2</li>
- *   <li><b>sequentialFoundationBuilding</b> (Phase 3) - Foundation F1 built from A♣ through K♣ (all 13 cards)</li>
+ *   <li><b>multiCardStackInternalColorViolation</b> Valid alternating sequence [8♥,7♣,6♥] moves onto 9♠; verifies internal validity</li>
+ *   <li><b>stackMoveAfterFlipTrigger</b> Moving 5♠ away flips K♦(facedown), enabling K♦ to empty column</li>
+ *   <li><b>foundationBuildAfterTableauRecovery</b> F1 has 2♥; moving 3♥ from T1 to F1 advances foundation</li>
+ *   <li><b>stockTalonEmptyGameOver</b> Stock and talon both empty; no legal moves; game terminal</li>
+ *   <li><b>foundationProgressWithMultipleSuits</b> Multiple foundations building in parallel; 3♠ onto 2♠ in F2</li>
+ *   <li><b>sequentialFoundationBuilding</b> Foundation F1 built from A♣ through K♣ (all 13 cards)</li>
  * </ul>
  */
 class BoundaryTest {

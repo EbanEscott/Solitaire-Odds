@@ -136,6 +136,9 @@ public final class TestGameStateBuilder {
     public static void seedFoundationPartial(Solitaire solitaire, int foundationIndex, Suit suit, Rank maxRank) {
         List<Card> cards = new ArrayList<>();
         for (Rank rank : Rank.values()) {
+            if (rank == Rank.UNKNOWN) {
+                continue;  // Skip UNKNOWN; it's only used in PLAN mode
+            }
             cards.add(new Card(rank, suit));
             if (rank == maxRank) {
                 break;

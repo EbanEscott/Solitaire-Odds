@@ -43,6 +43,39 @@ Exactly one player profile must be active at a time. Run with `-Dspring.profiles
 ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true
 ```
 
+**AI player with guidance mode disabled** (suppress recommended moves and feedback):
+```bash
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar -Dguidance.mode=false
+```
+
+**Combined: training mode with guidance mode disabled:**
+```bash
+./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true -Dguidance.mode=false
+```
+
+### Configuration Properties
+
+The engine supports the following runtime configuration options (passed via `-D<key>=<value>` or set in `src/main/resources/application.properties`):
+
+#### Core Game Settings
+
+- **`training.mode`** (boolean, default: `false`)  
+  Enable training mode to allow players to undo moves and explore alternative game paths without penalty.  
+  Example: `-Dtraining.mode=true`
+
+- **`guidance.mode`** (boolean, default: `true`)  
+  Enable guidance mode to show recommended moves, feedback on illegal moves, and detection of unproductive patterns (ping-pong, repeated stock passes).  
+  Useful for human players and LLM-based players; can be disabled for pure AI experiments.  
+  Example: `-Dguidance.mode=false`
+
+- **`log.episodes`** (boolean, default: `false`)  
+  Enable episode logging to emit structured JSON logs for neural network training data generation.  
+  Example: `-Dlog.episodes=true`
+
+- **`max.moves.per.game`** (integer, default: `10000`)  
+  Cap the maximum number of iterations (moves) per game. Games exceeding this limit are terminated to prevent runaway loops.  
+  Example: `-Dmax.moves.per.game=1000`
+
 ### Player Profiles
 
 #### Search-based Players

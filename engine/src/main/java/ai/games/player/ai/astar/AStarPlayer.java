@@ -265,8 +265,13 @@ public class AStarPlayer extends AIPlayer implements Player {
         // ============= Phase 3: Run A* search with improved pruning =============
         // Initialise the A* search at the current board state. We'll expand nodes using a
         // priority queue, guided by the heuristic evaluation function.
+        // Switch to PLAN mode so that lookahead copies mask face-down cards with UNKNOWN.
+        Solitaire.GameMode originalMode = solitaire.getMode();
+        solitaire.setMode(Solitaire.GameMode.PLAN);
         int rootHeuristic = evaluate(solitaire);
-        AStarTreeNode root = new AStarTreeNode(solitaire.copy(), null, null, 0, rootHeuristic);
+        Solitaire planCopy = solitaire.copy();
+        solitaire.setMode(originalMode);  // Restore original mode for the real game
+        AStarTreeNode root = new AStarTreeNode(planCopy, null, null, 0, rootHeuristic);
         Queue<AStarTreeNode> open = new PriorityQueue<>();
         open.add(root);
 
