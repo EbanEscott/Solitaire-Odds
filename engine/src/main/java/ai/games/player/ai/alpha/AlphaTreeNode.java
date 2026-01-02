@@ -111,15 +111,14 @@ public class AlphaTreeNode extends TreeNode {
 
     /**
      * Get the estimated value for this position.
-     * If not yet evaluated, returns a heuristic estimate.
+     * This node must have been evaluated by the neural network first.
      *
      * @return estimated win probability (0.0 = loss, 1.0 = win)
+     * @throws IllegalStateException if the node has not been evaluated by the neural service
      */
     public double getValueEstimate() {
         if (!evaluated) {
-            // If we have not yet contacted the neural service, fall back
-            // to a heuristic view of the current state.
-            return valueEstimateFromHeuristic();
+            throw new IllegalStateException("Node has not been evaluated by neural service; call ensureEvaluated() first");
         }
         return valueEstimate;
     }
@@ -179,29 +178,14 @@ public class AlphaTreeNode extends TreeNode {
                 // Extract value estimate from value head
                 valueEstimate = clamp01(response.getWinProbability());
             } else {
-                valueEstimate = valueEstimateFromHeuristic();
+                throw new IllegalStateException("Neural service returned null response; AlphaSolitairePlayer requires the neural service to be running");
             }
         } catch (Exception e) {
-            valueEstimate = valueEstimateFromHeuristic();
+            throw new IllegalStateException("Failed to evaluate position with neural service; AlphaSolitairePlayer requires the neural service to be running", e);
         }
 
         evaluated = true;
         return valueEstimate;
-    }
-
-    /**
-     * Estimate value using a heuristic when the neural service is unavailable.
-     * Used as fallback and for unselected leaf nodes.
-     *
-     * @return estimated win probability based on board position
-     */
-    private double valueEstimateFromHeuristic() {
-        if (isWon(getState())) {
-            return 1.0;
-        }
-        int score = AlphaSolitairePlayer.heuristicScore(getState());
-        double normalized = 1.0 / (1.0 + Math.exp(-score / 100.0));
-        return normalized;
     }
 
     /**
