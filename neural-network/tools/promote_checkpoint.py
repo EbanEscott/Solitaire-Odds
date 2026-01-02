@@ -80,7 +80,13 @@ def generate_markdown(checkpoint, metadata, level_name, description, timestamp):
     if isinstance(training_duration, (int, float)) and training_duration != 'Unknown':
         hours = int(training_duration) // 3600
         minutes = (int(training_duration) % 3600) // 60
-        duration_str = f"{hours}h {minutes}m"
+        seconds = int(training_duration) % 60
+        if hours > 0:
+            duration_str = f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            duration_str = f"{minutes}m {seconds}s"
+        else:
+            duration_str = f"{seconds}s"
     else:
         duration_str = str(training_duration)
     
