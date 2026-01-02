@@ -484,10 +484,13 @@ public class TrainingOpponent {
      */
     private Solitaire createCompletelyWonBoard() {
         // Build foundations: organize cards by suit, each in ascending order (A-K)
+        // Note: skip UNKNOWN rank and suit as they are only used for PLAN mode masking
         List<List<Card>> foundationPiles = new ArrayList<>();
         for (Suit suit : Suit.values()) {
+            if (suit == Suit.UNKNOWN) continue;  // Skip UNKNOWN suit
             List<Card> suitPile = new ArrayList<>();
             for (Rank rank : Rank.values()) {
+                if (rank == Rank.UNKNOWN) continue;  // Skip UNKNOWN rank
                 suitPile.add(new Card(rank, suit));
             }
             foundationPiles.add(suitPile);

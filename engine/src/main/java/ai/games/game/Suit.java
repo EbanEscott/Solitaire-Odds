@@ -11,6 +11,8 @@ package ai.games.game;
  * allowing red suits to be rendered in red text and black suits in default text.
  */
 public enum Suit {
+    /** Unknown – placeholder for hidden cards in PLAN mode. */
+    UNKNOWN("?", false),
     /** Clubs – a black suit represented by the ♣ symbol. */
     CLUBS("♣", false),
     /** Diamonds – a red suit represented by the ♦ symbol. */

@@ -91,6 +91,9 @@ public final class SolitaireTestHelper {
      * Validates that the given solitaire state contains exactly 52 unique cards
      * across tableau, foundation, stockpile, and talon. Intended for seeded test
      * positions to avoid illegal duplicate/missing card setups.
+     *
+     * <p>Note: UNKNOWN cards are excluded from this check since they only appear
+     * in PLAN mode copies where some face-down cards are masked for lookahead.</p>
      */
     public static void assertFullDeckState(Solitaire solitaire) {
         int total = 0;
@@ -102,17 +105,34 @@ public final class SolitaireTestHelper {
         List<Card> talon = solitaire.getTalon();
 
         for (List<Card> pile : tableau) {
-            total += pile.size();
-            unique.addAll(pile);
+            for (Card card : pile) {
+                // Skip UNKNOWN cards (only present in PLAN mode copies)
+                if (card.getRank() != Rank.UNKNOWN) {
+                    total++;
+                    unique.add(card);
+                }
+            }
         }
         for (List<Card> pile : foundation) {
-            total += pile.size();
-            unique.addAll(pile);
+            for (Card card : pile) {
+                if (card.getRank() != Rank.UNKNOWN) {
+                    total++;
+                    unique.add(card);
+                }
+            }
         }
-        total += stockpile.size();
-        unique.addAll(stockpile);
-        total += talon.size();
-        unique.addAll(talon);
+        for (Card card : stockpile) {
+            if (card.getRank() != Rank.UNKNOWN) {
+                total++;
+                unique.add(card);
+            }
+        }
+        for (Card card : talon) {
+            if (card.getRank() != Rank.UNKNOWN) {
+                total++;
+                unique.add(card);
+            }
+        }
 
         if (total != 52 || unique.size() != 52) {
             throw new IllegalStateException(

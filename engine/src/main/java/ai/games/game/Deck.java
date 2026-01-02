@@ -97,8 +97,13 @@ public class Deck {
     public final void reset() {
         cards.clear();
         for (Suit suit : Suit.values()) {
+            if (suit == Suit.UNKNOWN) {  // Skip UNKNOWN; it's only used in PLAN mode
+                continue;
+            }
             for (Rank rank : Rank.values()) {
-                cards.add(new Card(rank, suit));
+                if (rank != Rank.UNKNOWN) {  // Skip UNKNOWN; it's only used in PLAN mode
+                    cards.add(new Card(rank, suit));
+                }
             }
         }
         shuffle(); // Shuffle by default after creating the full deck.

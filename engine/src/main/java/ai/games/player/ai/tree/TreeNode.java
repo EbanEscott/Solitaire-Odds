@@ -382,6 +382,28 @@ public abstract class TreeNode {
     }
 
     /**
+     * Get the list of cards unknown to the player at this node during lookahead (PLAN mode).
+     *
+     * <p><b>Purpose:</b> During PLAN mode lookahead, cards that haven't been revealed to the
+     * player (face-down cards under tableau piles, unseen stock cards) are represented as
+     * {@link Card#UNKNOWN}. This method returns the list of actual cards that are currently
+     * unknown to the player, allowing search algorithms to understand what information the
+     * player doesn't have access to at this point in the game tree.
+     *
+     * <p><b>Usage:</b> When executing search (A*, MCTS) in PLAN mode, call this method to
+     * determine which cards the search should treat as hidden when evaluating board positions.
+     *
+     * @return the list of cards unknown to the player at this node state, or an empty list if
+     *         the state is null or no unknown cards are tracked
+     */
+    public List<Card> getUnknownCards() {
+        if (state == null) {
+            return List.of();
+        }
+        return state.getUnknownCards();
+    }
+
+    /**
      * Functional interface for applying moves to state copies.
      * Used by isCycleDetected to apply moves in a pluggable way.
      */

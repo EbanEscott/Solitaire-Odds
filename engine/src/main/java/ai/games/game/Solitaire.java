@@ -2,7 +2,9 @@ package ai.games.game;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -12,6 +14,14 @@ import java.util.Objects;
  * a stockpile of undealt cards, and a talon (waste pile) for revealed cards. Provides
  * methods for game play (moving cards, turning stock), state inspection (visibility-aware
  * views), and cycle detection (Zobrist hashing).
+ * <p>
+ * <strong>Game Mode:</strong>
+ * Each Solitaire instance operates in one of two modes:
+ * <ul>
+ *   <li><strong>GAME:</strong> The actual game being played. All card information is real.</li>
+ *   <li><strong>PLAN:</strong> A lookahead copy for AI planning. Face-down cards are masked
+ *       with UNKNOWN placeholders to prevent information leaks during search.</li>
+ * </ul>
  * <p>
  * <strong>Game Layout:</strong>
  * <ul>
@@ -44,6 +54,20 @@ import java.util.Objects;
  * </ul>
  */
 public class Solitaire {
+    /**
+     * Enum representing the operational mode of a Solitaire instance.
+     * <ul>
+     *   <li><strong>GAME:</strong> Real game in progress. All card information is visible as appropriate.</li>
+     *   <li><strong>PLAN:</strong> Lookahead copy for AI planning. Face-down cards are masked with UNKNOWN.</li>
+     * </ul>
+     */
+    public enum GameMode {
+        /** Real game in progress. */
+        GAME,
+        /** Lookahead copy with masked face-down cards. */
+        PLAN
+    }
+
     private static final long[] STATE_ZOBRIST = initStateZobrist();
 
     /** Tableau: seven piles where most play occurs; may contain both face-up and face-down cards. */
@@ -66,6 +90,15 @@ public class Solitaire {
     
     /** Original deck order captured at game start for deterministic replay during undo. */
     private final List<Card> originalDeckOrder = new ArrayList<>();
+    
+    /** Tracks which cards have been revealed during play (via stock/talon cycling). */
+    private final UnknownCardTracker unknownCardTracker = new UnknownCardTracker();
+
+    /** Tracks the Unkown card guesses for unknwon cards inserted into the game suring planning  */
+    private final Map<Card, UnknownCardGuess> unknownCardGuesses = new HashMap<>();
+    
+    /** Current operational mode (GAME or PLAN). */
+    private GameMode mode = GameMode.GAME;
 
 
     /**
@@ -91,13 +124,27 @@ public class Solitaire {
     }
 
     /**
-     * Creates a deep copy of this Solitaire state for simulation purposes.
+     * Creates a deep copy of this Solitaire state for simulation purposes (PLAN mode).
      * <p>
      * Card instances are immutable and reused; all pile and count lists are deep-copied
      * so that modifications to the clone do not affect the original state. This is essential
      * for AI search algorithms that simulate moves without altering the current game state.
+     * <p>
+     * <strong>PLAN Mode Masking:</strong>
+     * The returned copy operates in PLAN mode, where face-down cards in the tableau are replaced
+     * with {@link Card#UNKNOWN} placeholders. This prevents accidental information leaks during
+     * lookahead search: the AI cannot "cheat" by seeing hidden cards during planning.
+     * Cards that have been revealed (cycled through the talon) remain as-is because the player
+     * has already seen them.
+     * <p>
+     * In PLAN mode:
+     * <ul>
+     *   <li>Moves on UNKNOWN cards are allowed and treated as wildcards (any move is possible).</li>
+     *   <li>The copy maintains card counts correctly (masking does not change pile sizes).</li>
+     *   <li>Unknown card tracking is copied from the parent so revealed cards stay revealed.</li>
+     * </ul>
      *
-     * @return a new Solitaire instance with identical state but independent pile lists
+     * @return a new Solitaire instance in PLAN mode with identical visible state but masked face-downs
      */
     public Solitaire copy() {
         Deck dummy = new Deck();
@@ -109,10 +156,37 @@ public class Solitaire {
         clone.stockpile.clear();
         clone.talon.clear();
 
+        // Track mapping from original UNKNOWN cards to cloned UNKNOWN cards for deep copying guesses.
+        Map<Card, Card> unknownMapping = new HashMap<>();
+
         // Copy tableau and face-up counts.
+        // In GAME mode: preserve face-down cards as-is (with actual card values).
+        // In PLAN mode: replace unrevealed face-down cards with UNKNOWN placeholders.
         for (int i = 0; i < tableau.size(); i++) {
             List<Card> pile = tableau.get(i);
-            clone.tableau.add(new ArrayList<>(pile));
+            List<Card> clonePile = new ArrayList<>();
+            int faceUp = i < tableauFaceUp.size() ? tableauFaceUp.get(i) : 0;
+            int faceDownCount = Math.max(0, pile.size() - faceUp);
+            
+            // Add face-down cards (with masking only if in PLAN mode).
+            for (int j = 0; j < faceDownCount; j++) {
+                Card original = pile.get(j);
+                // In PLAN mode, mask unrevealed cards; in GAME mode, preserve them.
+                if (mode == GameMode.PLAN && !unknownCardTracker.isRevealed(original)) {
+                    Card newUnknown = new Card(Rank.UNKNOWN, Suit.UNKNOWN);
+                    unknownMapping.put(original, newUnknown);
+                    clonePile.add(newUnknown);
+                } else {
+                    clonePile.add(original);
+                }
+            }
+            
+            // Add face-up cards as-is.
+            for (int j = faceDownCount; j < pile.size(); j++) {
+                clonePile.add(pile.get(j));
+            }
+            
+            clone.tableau.add(clonePile);
         }
         clone.tableauFaceUp.addAll(tableauFaceUp);
 
@@ -124,6 +198,26 @@ public class Solitaire {
         // Copy stock and talon.
         clone.stockpile.addAll(stockpile);
         clone.talon.addAll(talon);
+
+        // Copy the unknown card tracker so revealed cards stay revealed in the copy.
+        // The copy's tracker will start fresh but inherits revealed state from parent.
+        // For PLAN mode copies, the tracker starts empty but will track new revelations.
+
+        // Deep copy unknownCardGuesses using the unknown card mapping.
+        for (Card oldUnknown : this.unknownCardGuesses.keySet()) {
+            UnknownCardGuess oldGuess = this.unknownCardGuesses.get(oldUnknown);
+            Card newUnknown = unknownMapping.get(oldUnknown);
+            if (newUnknown != null) {
+                UnknownCardGuess newGuess = new UnknownCardGuess(
+                    newUnknown, new ArrayList<>(oldGuess.getPossibilities()));
+                clone.unknownCardGuesses.put(newUnknown, newGuess);
+            }
+        }
+
+        // Set the copy to PLAN mode if the original is in PLAN mode.
+        // This ensures copies of PLAN mode states stay in PLAN mode,
+        // and copies of GAME mode states start in GAME mode.
+        clone.mode = this.mode;
 
         return clone;
     }
@@ -194,6 +288,65 @@ public class Solitaire {
     }
 
     /**
+     * Returns the current operational mode of this instance.
+     *
+     * @return {@code GameMode.GAME} for a real game, {@code GameMode.PLAN} for a lookahead copy
+     */
+    public GameMode getMode() {
+        return mode;
+    }
+
+    /**
+     * Sets the operational mode of this instance.
+     * <p>
+     * Called when creating a lookahead copy via {@link #copy()} to mark it as PLAN mode.
+     *
+     * @param mode the new mode (must not be null)
+     */
+    public void setMode(GameMode mode) {
+        this.mode = Objects.requireNonNull(mode, "mode");
+    }
+
+    /**
+     * Convenience method to check if this instance is in PLAN mode.
+     *
+     * @return {@code true} if this is a lookahead copy; {@code false} if this is a real game
+     */
+    public boolean isInPlanMode() {
+        return mode == GameMode.PLAN;
+    }
+
+    /**
+     * Returns a list of all cards that are unknown (not yet revealed) in the current game state.
+     * <p>
+     * Unknown cards include:
+     * <ul>
+     *   <li>Face-down cards in the tableau (cards not yet visible in their piles).</li>
+     *   <li>Cards in the stockpile that have not been cycled through the talon.</li>
+     * </ul>
+     * <p>
+     * This list is useful for AI planning in PLAN mode: it identifies which cards remain
+     * hidden from the player and may affect future move options.
+     *
+     * @return an unmodifiable list of unknown cards; never null, may be empty
+     */
+    public List<Card> getUnknownCards() {
+        return unknownCardTracker.getUnknownCards(this);
+    }
+
+    /**
+     * Returns an unmodifiable view of the unknown card guesses for PLAN mode.
+     * <p>
+     * Maps each UNKNOWN card instance to its UnknownCardGuess, which tracks
+     * the possible cards it could be during lookahead search.
+     *
+     * @return an unmodifiable map of UNKNOWN cards to their guesses; never null
+     */
+    public Map<Card, UnknownCardGuess> getUnknownCardGuesses() {
+        return unknownCardGuesses;
+    }
+
+    /**
      * Returns the count of face-up (visible) cards for each tableau pile.
      * Visible cards are the last N cards in the corresponding internal pile.
      */
@@ -223,6 +376,9 @@ public class Solitaire {
      * (face-down, in reverse order so the top of the talon becomes the bottom of the new stock)
      * before turning. Then turns up to three cards from the stockpile onto the talon.
      * <p>
+     * Cards moved to the talon are marked as revealed in the unknown card tracker, so that
+     * if they later cycle back to the stockpile, the player is aware they have already been seen.
+     * <p>
      * This operation is central to Solitaire play and can be called repeatedly to cycle through
      * the deck.
      */
@@ -236,7 +392,10 @@ public class Solitaire {
         }
 
         for (int i = 0; i < 3 && !stockpile.isEmpty(); i++) {
-            talon.add(stockpile.remove(stockpile.size() - 1));
+            Card card = stockpile.remove(stockpile.size() - 1);
+            talon.add(card);
+            // Track that this card has been revealed to the player.
+            unknownCardTracker.addRevealedCard(card);
         }
     }
 
@@ -334,7 +493,17 @@ public class Solitaire {
         }
 
         Card moving = fromPile.get(movingIdx);
-        if (!isLegalMove(moving, toNormalized, toPile)) {
+        
+        // In PLAN mode, UNKNOWN cards are wildcards and can move to any valid target.
+        // In GAME mode, UNKNOWN cards should never appear (all cards are known).
+        if (moving.getRank() == Rank.UNKNOWN) {
+            if (!isInPlanMode()) {
+                // GAME mode: this shouldn't happen, but reject it.
+                return MoveResult.failure("Cannot move unknown card in GAME mode.");
+            }
+            // PLAN mode: allow the move. UNKNOWN acts as a wildcard.
+            // Skip the normal legal move check and allow any destination.
+        } else if (!isLegalMove(moving, toNormalized, toPile)) {
             String reason = toType == 'T'
                     ? "Tableau requires alternating color and one rank lower."
                     : "Foundation requires same suit and one rank higher starting with Ace.";

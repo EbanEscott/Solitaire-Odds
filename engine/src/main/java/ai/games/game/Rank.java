@@ -9,6 +9,8 @@ package ai.games.game;
  * foundations in ascending order, cascades in descending order).
  */
 public enum Rank {
+    /** Unknown – placeholder for hidden cards in PLAN mode (value 0). */
+    UNKNOWN(0, "?"),
     /** Ace – the lowest rank in most Solitaire variants (value 1). */
     ACE(1, "A"),
     /** Two – rank value 2. */

@@ -43,6 +43,13 @@ public class EpisodeLogger {
      *   <li><strong>is_cascading_move:</strong> True if the move took a card from a foundation pile (enabling cascades).</li>
      * </ul>
      * These metrics provide direct signals about move quality without depending on LLM-specific filters.
+     *
+     * <p><strong>Future Integration (Phase 2 - Neural Network Training):</strong>
+     * In a future phase, this method should include the list of cards unknown to the player at this step
+     * (cards not yet revealed during gameplay). This can be obtained via
+     * {@link Solitaire#getUnknownCards()} and will provide the neural network training pipeline with
+     * information about the player's knowledge state during decision-making. See NEURAL_NETWORK_PLAN.md
+     * for details on Phase 2 integration.
      */
     public static void logStep(
             Solitaire stateBefore,
