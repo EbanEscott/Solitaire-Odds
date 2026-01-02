@@ -7,7 +7,7 @@ computes the heuristic value (40% foundation + 60% facedown revelation),
 and helps understand what the network is learning to predict.
 
 Usage:
-    python log_analyser.py engine/logs/episode.log
+    python tools/log_analyser.py ../engine/logs/episode.log
 """
 
 import json
