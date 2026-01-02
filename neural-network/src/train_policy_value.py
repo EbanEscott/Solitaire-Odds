@@ -35,6 +35,9 @@ from __future__ import annotations
 
 import sys
 import argparse
+import subprocess
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -74,6 +77,22 @@ def _resolve_log_paths(argv: List[str]) -> List[Path]:
             raise SystemExit(1)
     
     return resolved
+
+
+def _get_git_commit(repo_path: Path) -> str:
+    """Get the current git commit hash for a repository."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
 
 
 def main(argv: List[str] | None = None) -> None:
@@ -201,6 +220,8 @@ def main(argv: List[str] | None = None) -> None:
     print(f"Estimated checkpoint size: {(total_params * 4) / (1024 * 1024):.2f} MB")
     print(f"Training: {num_epochs} epochs, batch_size={args.batch_size}, lr={args.learning_rate}")
 
+    training_start_time = time.time()
+
     for epoch in range(1, num_epochs + 1):
         model.train()
         total_policy_loss = 0.0
@@ -305,12 +326,54 @@ def main(argv: List[str] | None = None) -> None:
     out_dir = Path("checkpoints")
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / "policy_value_latest.pt"
+    
+    # Calculate training duration
+    training_duration_seconds = time.time() - training_start_time
+    
+    # Collect metadata for reproducibility
+    neural_net_repo = Path(__file__).parent.parent.parent  # solitaire root
+    engine_repo = neural_net_repo / "engine"
+    
+    metadata = {
+        'timestamp': datetime.now().isoformat(),
+        'git_commit_neural': _get_git_commit(neural_net_repo),
+        'git_commit_engine': _get_git_commit(engine_repo),
+        'training_samples': len(train_ds),
+        'validation_samples': len(validation_ds),
+        'architecture': {
+            'hidden_dim': args.hidden_dim,
+            'num_layers': args.num_layers,
+            'batch_norm': args.batch_norm,
+            'residual': args.residual,
+        },
+        'hyperparameters': {
+            'epochs': args.epochs,
+            'batch_size': args.batch_size,
+            'learning_rate': args.learning_rate,
+        },
+        'final_metrics': {
+            'training_policy_loss': float(avg_policy_loss),
+            'training_value_loss': float(avg_value_loss),
+            'training_policy_accuracy': float(train_policy_accuracy),
+            'training_value_accuracy': float(train_value_accuracy),
+            'validation_policy_loss': float(avg_validation_policy_loss),
+            'validation_value_loss': float(avg_validation_value_loss),
+            'validation_policy_accuracy': float(validation_policy_accuracy),
+            'validation_value_accuracy': float(validation_value_accuracy),
+        },
+        'training_duration_seconds': training_duration_seconds,
+        'data_sources': [str(p) for p in log_paths],
+        'python_version': sys.version.split()[0],
+        'pytorch_version': torch.__version__,
+    }
+    
     torch.save(
         {
-            "state_dim": state_dim,
-            "num_actions": num_actions,
-            "index_to_action": dataset.action_space.index_to_action,
+            "feature_dim": state_dim,
+            "action_space_size": num_actions,
+            "action_index_map": dataset.action_space.index_to_action,
             "model_state_dict": model.state_dict(),
+            "metadata": metadata,
         },
         out_path,
     )
