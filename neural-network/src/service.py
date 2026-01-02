@@ -24,11 +24,12 @@ from .state_encoding import encode_state
 
 class _ModelBundle:
     def __init__(self, checkpoint_path: Path, device: torch.device) -> None:
-        ckpt = torch.load(checkpoint_path, map_location=device)
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-        state_dim = int(ckpt["state_dim"])
-        num_actions = int(ckpt["num_actions"])
-        index_to_action: List[str] = list(ckpt["index_to_action"])
+        # Support both old and new checkpoint formats
+        state_dim = int(ckpt.get("feature_dim") or ckpt.get("state_dim", 532))
+        num_actions = int(ckpt.get("action_space_size") or ckpt.get("num_actions", 238))
+        index_to_action: List[str] = list(ckpt.get("action_index_map") or ckpt.get("index_to_action", []))
 
         self.action_space = ActionSpace(
             index_to_action=index_to_action,
