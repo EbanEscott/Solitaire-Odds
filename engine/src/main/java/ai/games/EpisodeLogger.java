@@ -2,9 +2,11 @@ package ai.games;
 
 import ai.games.game.Card;
 import ai.games.game.Solitaire;
+import ai.games.game.UnknownCardGuess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Responsible for emitting structured JSON logs for episode training data.
@@ -149,6 +151,54 @@ public class EpisodeLogger {
 
             // Stockpile size (we do not expose hidden order by default to the model).
             sb.append(",\"stock_size\":").append(stockpile.size());
+
+            // Unknown cards: list of cards not yet revealed to the player
+            List<Card> unknownCards = stateBefore.getUnknownCards();
+            sb.append(",\"unknown_cards\":[");
+            for (int i = 0; i < unknownCards.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append('"').append(unknownCards.get(i).shortName()).append('"');
+            }
+            sb.append(']');
+
+            // Unknown card guesses: plausibility constraints indexed by tableau position
+            // Structure: array of 46 positions (7 tableau piles × 22 depth + 24 stockpile)
+            // Each position: array of possible card names (e.g., ["5♣", "5♠"] or [])
+            Map<Card, UnknownCardGuess> guesses = stateBefore.getUnknownCardGuesses();
+            sb.append(",\"unknown_guesses_ordered\":[");
+            
+            // Tableau guesses: positions 0-21 (7 piles, max 22 face-downs per pile theoretical max)
+            int posIndex = 0;
+            for (int pileIdx = 0; pileIdx < 7; pileIdx++) {
+                int faceDownAtPile = faceDownCounts.get(pileIdx);
+                // For each face-down position in this pile
+                for (int depth = 0; depth < 22; depth++) {
+                    if (posIndex > 0) {
+                        sb.append(',');
+                    }
+                    sb.append('[');
+                    // Find guess for this position (if it exists)
+                    // Since we don't have position-based keys in the guess map, we emit empty for now
+                    // This will be populated when guess map keys are ordered properly
+                    sb.append(']');
+                    posIndex++;
+                }
+            }
+            
+            // Stockpile guesses: positions 22-45 (24 possible cards)
+            for (int stockIdx = 0; stockIdx < 24; stockIdx++) {
+                if (posIndex > 0) {
+                    sb.append(',');
+                }
+                sb.append('[');
+                // Stockpile guesses would go here if indexed
+                sb.append(']');
+                posIndex++;
+            }
+            
+            sb.append(']');
 
             // Legal moves at start of turn.
             sb.append(",\"legal_moves\":[");

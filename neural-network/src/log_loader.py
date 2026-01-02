@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Dict
 import json
 
 
@@ -68,6 +68,21 @@ class EpisodeStep:
     @property
     def is_cascading_move(self) -> bool:
         return bool(self.raw.get("is_cascading_move", False))
+
+    @property
+    def unknown_cards(self) -> List[str]:
+        """List of card names that are currently unknown (face-down) to the player."""
+        return list(self.raw.get("unknown_cards", []))
+
+    @property
+    def unknown_guesses_ordered(self) -> List[List[str]]:
+        """
+        Guess constraints for each of 46 possible unknown positions.
+        Position 0-21: tableau face-downs (7 piles × 22 max depth)
+        Position 22-45: stockpile (24 cards)
+        Each position is a list of possible card names, empty if no guess exists.
+        """
+        return list(self.raw.get("unknown_guesses_ordered", []))
 
 
 @dataclass

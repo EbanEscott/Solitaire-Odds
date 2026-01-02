@@ -22,7 +22,7 @@ class PolicyValueNet(nn.Module):
     ) -> None:
         """
         Args:
-            state_dim: Input state dimension (e.g., 296 for Solitaire).
+            state_dim: Input state dimension (e.g., 532 for Solitaire with Option C encoding: 296 base + 52 card inventory + 184 guess constraints).
             num_actions: Number of possible actions.
             hidden_dim: Hidden layer dimension. Default 256 (small), can go up to 2048+ for larger models.
             num_layers: Number of hidden layers in shared backbone (1-5+). Default 2.
@@ -48,19 +48,13 @@ class PolicyValueNet(nn.Module):
         
         self.shared = nn.Sequential(*layers)
         
-        # Output heads
+        # Output heads: policy and value only
         self.policy_head = nn.Linear(hidden_dim, num_actions)
         self.value_head = nn.Linear(hidden_dim, 1)
-        
-        # Tier 1 metric heads for multi-task learning
-        self.foundation_move_head = nn.Linear(hidden_dim, 1)
-        self.revealed_facedown_head = nn.Linear(hidden_dim, 1)
-        self.talon_move_head = nn.Linear(hidden_dim, 1)
-        self.cascading_move_head = nn.Linear(hidden_dim, 1)
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:  # type: ignore[override]
         """
-        Forward pass computing policy, value, and Tier 1 metrics.
+        Forward pass computing policy and value.
         
         Args:
             x: Input state tensor of shape (batch_size, state_dim)
@@ -69,19 +63,11 @@ class PolicyValueNet(nn.Module):
             Dict with keys:
             - 'policy': (batch_size, num_actions) policy logits
             - 'value': (batch_size, 1) value logits
-            - 'foundation_move': (batch_size, 1) foundation move logits
-            - 'revealed_facedown': (batch_size, 1) revealed facedown logits
-            - 'talon_move': (batch_size, 1) talon move logits
-            - 'cascading_move': (batch_size, 1) cascading move logits
         """
         h = self.shared(x)
         return {
             'policy': self.policy_head(h),
             'value': self.value_head(h),
-            'foundation_move': self.foundation_move_head(h),
-            'revealed_facedown': self.revealed_facedown_head(h),
-            'talon_move': self.talon_move_head(h),
-            'cascading_move': self.cascading_move_head(h),
         }
 
 
