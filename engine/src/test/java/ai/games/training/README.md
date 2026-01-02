@@ -10,25 +10,19 @@ Use `EndgameTrainingDataGenerator` to create progressively harder endgame positi
 cd engine
 
 # Level 2: 1 card off foundations
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel2" \
-  -Dlog.episodes=true --console=plain
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel2" --rerun-tasks --console=plain  -Dlog.episodes=true
 
 # Level 4: 4 cards off foundations
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel4" \
-  -Dlog.episodes=true --console=plain
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel4" --rerun-tasks --console=plain  -Dlog.episodes=true
 
 # Level 5: 7 cards off foundations
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel5" \
-  -Dlog.episodes=true --console=plain
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel5" --rerun-tasks --console=plain  -Dlog.episodes=true
 
 # Custom level (e.g., Level 10)
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" \
-  -Dendgame.games.difficulty.level=10 -Dendgame.games.per.level=100 \
-  -Dlog.episodes=true --console=plain
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" --rerun-tasks --console=plain  -Dlog.episodes=true -Dendgame.games.per.level=100 -Dendgame.games.difficulty.level=10 
 
 # All levels 1-5
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator" \
-  -Dlog.episodes=true --console=plain
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator" --rerun-tasks --console=plain  -Dlog.episodes=true
 ```
 
 ## 2. Test AlphaSolitaire Neural Player
