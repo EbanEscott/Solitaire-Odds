@@ -19,6 +19,9 @@ public final class ResultsConfig {
 
     /**
      * Number of games to run in a single sweep.
+     * 
+     * Can be overridden via: -Dtest.games=<number>
+     * Example: ./gradlew test --tests "ai.games.results.AStarPlayerResultsTest" -Dtest.games=100
      *
      * What changing this does:
      * - Increasing GAMES reduces randomness in the measured win rate.
@@ -34,17 +37,23 @@ public final class ResultsConfig {
      * - Early tuning / broad comparisons: 25k–100k is usually enough.
      * - Final benchmarks / tiny improvements (<0.2%): 250k–1M.
      */
-    public static final int GAMES = 10000;
+    public static final int GAMES = Integer.getInteger("test.games", 10);
 
     /**
      * How often to log progress during multi-game sweeps.
+     * 
+     * Can be overridden via: -Dtest.progress.log.interval=<number>
+     * Example: ./gradlew test --tests "ai.games.results.AStarPlayerResultsTest" -Dtest.progress.log.interval=25
      *
      * Example: 50 means log at games 1, 50, 100, …, N.
      */
-    public static final int PROGRESS_LOG_INTERVAL = 1;
+    public static final int PROGRESS_LOG_INTERVAL = Integer.getInteger("test.progress.log.interval", 1);
 
     /**
      * Safety cap on the number of moves allowed per game.
+     * 
+     * Can be overridden via: -Dtest.max.moves.per.game=<number>
+     * Example: ./gradlew test --tests "ai.games.results.AStarPlayerResultsTest" -Dtest.max.moves.per.game=2000
      *
      * What changing this does:
      * - Increasing MAX_MOVES_PER_GAME allows very long games to finish,
@@ -63,5 +72,5 @@ public final class ResultsConfig {
      * - If you see frequent caps being hit, your results are suspect:
      *   raise the cap or fix the AI/game rules that cause loops.
      */
-    public static final int MAX_MOVES_PER_GAME = 1000;
+    public static final int MAX_MOVES_PER_GAME = Integer.getInteger("test.max.moves.per.game", 1000);
 }
