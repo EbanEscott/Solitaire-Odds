@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
+import ai.games.player.ai.mcts.MonteCarloPlayer;
 import ai.games.unit.helpers.FoundationCountHelper;
 import ai.games.unit.helpers.TestGameStateBuilder;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,7 @@ class MonteCarloPlayerTest {
     @Test
     void monteCarloAdvancesOnSimpleNearlyWonGame() {
         Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
-        Player ai = new MonteCarloPlayer(123L);
+        Player ai = new MonteCarloPlayer();
 
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
 
@@ -37,7 +38,7 @@ class MonteCarloPlayerTest {
     @Test
     void monteCarloDoesNotLoopForeverOnRandomGame() {
         Solitaire solitaire = new Solitaire(new Deck());
-        Player ai = new MonteCarloPlayer(98765L);
+        Player ai = new MonteCarloPlayer();
 
         int steps = 0;
         while (!isTerminal(solitaire) && steps < MAX_TEST_STEPS) {

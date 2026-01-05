@@ -48,14 +48,14 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
     
     
     // ============= Game Tree Fields =============
-    /** The move that led to this state from parent (null for root). */
-    public final String move;
-    
     /** Parent node in the game tree (inherited from TreeNode). */
     // parent field is inherited
     
     /** Children: map from move string to resulting node (inherited from TreeNode). */
     // children field is inherited from base TreeNode
+    
+    /** The move that led to this state from parent (inherited from TreeNode, can be set before evaluating). */
+    // move field is inherited
     
     /** Number of times this exact board state has been visited. */
     public int visitCount = 1;
@@ -89,7 +89,7 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
         super();
         this.parent = parent;
         setState(state);  // This sets both state and stateKey from base class
-        this.move = move;
+        this.move = move;  // Set the inherited move field
         this.pathCost = pathCost;
         this.heuristic = heuristic;
         this.foundationCount = 0;
@@ -102,37 +102,14 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
      */
     public AStarTreeNode(String move, AStarTreeNode parent, long stateKey, int foundationCount, int facedownCount) {
         super();
-        this.move = move;
+        this.move = move;  // Set the inherited move field
         this.parent = parent;
-        setStateKey(stateKey);  // Set state key directly from base class
         this.foundationCount = foundationCount;
         this.facedownCount = facedownCount;
         
         // A* fields not used in game tree mode
         this.pathCost = 0;
         this.heuristic = 0;
-    }
-
-    /**
-     * Check if this node is terminal (no moves or game won).
-     * Only valid for nodes with non-null state (A* search nodes).
-     *
-     * @return true if state is null or game is won
-     */
-    @Override
-    public boolean isTerminal() {
-        return getState() == null || isWon(getState());
-    }
-
-    /**
-     * Create a copy of the current game state for exploration.
-     * Only valid for nodes with non-null state (A* search nodes).
-     *
-     * @return a new Solitaire instance with the same board configuration, or null if state is null
-     */
-    @Override
-    public Solitaire copyState() {
-        return getState() != null ? getState().copy() : null;
     }
 
     /**
@@ -197,48 +174,5 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
             current = (AStarTreeNode) current.parent;
         }
         return current == ancestor ? dist : -1;
-    }
-
-    /**
-     * Check if this node or any of its ancestors is marked as pruned.
-     *
-     * <p><b>Why check ancestors?</b> If a parent node is pruned (marked as leading to unproductive
-     * paths), then all its descendants are also effectively pruned. By walking up the tree,
-     * we can quickly determine if we're in a pruned subtree without examining every node.
-     *
-     * <p><b>Usage in A* search:</b> Before expanding a node's children, check {@code isPruned()}.
-     * If true, skip this node to save exploration budget for more promising branches.
-     *
-     * @return true if this node or any ancestor is marked pruned, false otherwise
-     */
-    public boolean isPruned() {
-        AStarTreeNode current = this;
-        while (current != null) {
-            if (current.pruned) {
-                return true;
-            }
-            current = (AStarTreeNode) current.parent;
-        }
-        return false;
-    }
-
-    /**
-     * Mark this node as pruned, indicating its subtree should not be explored further.
-     *
-     * <p><b>When to call:</b> After cycle detection (Phase 2 of {@code nextCommand()}) detects
-     * that a particular state-transition path leads to a cycle or stagnation, mark the cycle node
-     * as pruned. This prevents future game decisions from re-exploring the same unproductive pattern.
-     *
-     * <p><b>Memory across decisions:</b> The game tree is persistent across all moves in a game.
-     * Once a node is marked pruned, it stays pruned for the remainder of the game. This creates
-     * a "learning" effect: the more moves the player makes, the more unproductive paths it avoids,
-     * and the better its move quality becomes.
-     *
-     * <p><b>Impact on A* search:</b> When A* expands nodes in Phase 4, it will skip children
-     * of pruned nodes (via {@code isPruned()} check), conserving the 256-node budget for paths
-     * that haven't been ruled out as unproductive.
-     */
-    public void markPruned() {
-        this.pruned = true;
     }
 }

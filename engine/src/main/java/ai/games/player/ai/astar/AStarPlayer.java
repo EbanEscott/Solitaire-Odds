@@ -6,6 +6,7 @@ import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
+import ai.games.player.ai.tree.MoveSignature;
 import ai.games.player.ai.tree.TreeNode;
 import java.util.HashMap;
 import java.util.List;
@@ -259,7 +260,8 @@ public class AStarPlayer extends AIPlayer implements Player {
         // If only one move is legal, no need to search—execute it immediately.
         if (legal.size() == 1) {
             String only = legal.getFirst();
-            return TreeNode.isQuit(only) ? "quit" : only;
+            gameTreeCurrent.setMove(only);
+            return gameTreeCurrent.isQuit() ? "quit" : only;
         }
 
         // ============= Phase 3: Run A* search with improved pruning =============
@@ -305,12 +307,13 @@ public class AStarPlayer extends AIPlayer implements Player {
             }
 
             // Generate and evaluate all legal moves from this state.
-            List<String> moves = LegalMovesHelper.listLegalMoves(current.state);
+            List<String> moves = LegalMovesHelper.listLegalMoves(current.getState());
             for (String move : moves) {
                 // ===== Pruning: Quit moves =====
                 // Never choose a quit move during the search. If the game ends, it's handled
                 // separately in phase 5 (fallback logic).
-                if (TreeNode.isQuit(move)) {
+                current.setMove(move);
+                if (current.isQuit()) {
                     continue;
                 }
 
@@ -327,7 +330,8 @@ public class AStarPlayer extends AIPlayer implements Player {
                 // ===== Pruning: Useless king moves =====
                 // Don't shuffle a king between tableau columns if it won't reveal new cards
                 // beneath it. This prune saves expansions without losing solutions.
-                if (current.isUselessKingMove(move)) {
+                current.setMove(move);
+                if (current.isUselessKingMove()) {
                     continue;
                 }
 
@@ -335,12 +339,13 @@ public class AStarPlayer extends AIPlayer implements Player {
                 // Skip moves that would lead us to a pruned subtree (marked from previous
                 // game decisions as cycling or stagnating). This persists knowledge of
                 // unproductive paths across decisions, conserving search budget.
-                if (current.isCycleDetected(move, this::applyMove)) {
+                current.setMove(move);
+                if (current.isCycleDetected()) {
                     continue;
                 }
 
                 // Apply the move to a copy of the state so we can evaluate it.
-                Solitaire copy = current.state.copy();
+                Solitaire copy = current.getState().copy();
                 applyMove(copy, move);
                 long key = copy.getStateKey();
 
@@ -369,7 +374,7 @@ public class AStarPlayer extends AIPlayer implements Player {
                 // ===== Early exit optimization =====
                 // If we've found a winning position (all 52 cards in foundation), immediately
                 // stop expanding. No need to search further; a win is a win.
-                if (TreeNode.isWon(copy)) {
+                if (child.isWon()) {
                     bestNode = child;
                     open.clear();
                     break;
@@ -387,12 +392,13 @@ public class AStarPlayer extends AIPlayer implements Player {
         // Record the move we chose in the persistent game tree. This maintains an accurate
         // history of the game's actual path. After each move, check if we've entered a cycle;
         // if so, mark the node as pruned so future A* searches avoid this unproductive branch.
-        if (!TreeNode.isQuit(chosen)) {
-            AStarTreeNode child = (AStarTreeNode) gameTreeCurrent.children.get(chosen);
+        gameTreeCurrent.setMove(chosen);
+        if (!gameTreeCurrent.isQuit()) {
+            AStarTreeNode child = (AStarTreeNode) gameTreeCurrent.getChildren().get(chosen);
             if (child == null) {
                 // This is the first time we've made this move from this state. Create a new node.
                 child = new AStarTreeNode(chosen, gameTreeCurrent, currentKey, currentFoundation, currentFacedown);
-                gameTreeCurrent.children.put(chosen, child);
+                gameTreeCurrent.getChildren().put(chosen, child);
             } else {
                 // We've made this move before from this state. Increment the visit counter.
                 child.visitCount++;
@@ -405,7 +411,6 @@ public class AStarPlayer extends AIPlayer implements Player {
             if (cycleAncestor != null) {
                 // We've detected a cycle: same board state with no progress (same foundation + facedown counts)
                 gameTreeCurrent.markPruned();
-                gameTreeCurrent.cycleDepth = gameTreeCurrent.distanceTo(cycleAncestor);
             }
         } else {
             // Game is ending (player quits). Reset the tree for the next game.
@@ -442,20 +447,20 @@ public class AStarPlayer extends AIPlayer implements Player {
      * @return a move command string ("move...", "turn", or "quit")
      */
     private String selectBestMove(AStarTreeNode bestNode, AStarTreeNode turnNode) {
-        if (bestNode == null || bestNode.parent == null) {
+        if (bestNode == null || bestNode.getParent() == null) {
             // Search did not find a good path; try a turn move as fallback.
             // Turn gives us a chance to reset the stock and see new cards, which is often
                 // better than giving up immediately.
             if (turnNode != null) {
                 AStarTreeNode current = turnNode;;
                 AStarTreeNode previous = null;
-                while (current.parent != null && ((AStarTreeNode)current.parent).parent != null) {
+                while (current.getParent() != null && ((AStarTreeNode)current.getParent()).getParent() != null) {
                     previous = current;
-                    current = (AStarTreeNode)current.parent;
+                    current = (AStarTreeNode)current.getParent();
                 }
-                AStarTreeNode firstStep = current.parent == null ? previous : current;
-                String turnMove = firstStep != null && firstStep.move != null
-                        ? firstStep.move
+                AStarTreeNode firstStep = current.getParent() == null ? previous : current;
+                String turnMove = firstStep != null && firstStep.getMove() != null
+                        ? firstStep.getMove()
                         : "quit";
                 if (!"quit".equalsIgnoreCase(turnMove.trim())) {
                     return turnMove;
@@ -468,12 +473,12 @@ public class AStarPlayer extends AIPlayer implements Player {
         // The A* search found that starting with this move leads to the best future state.
         AStarTreeNode current = bestNode;
         AStarTreeNode previous = null;
-        while (current.parent != null && ((AStarTreeNode)current.parent).parent != null) {
+        while (current.getParent() != null && ((AStarTreeNode)current.getParent()).getParent() != null) {
             previous = current;
-            current = (AStarTreeNode)current.parent;
+            current = (AStarTreeNode)current.getParent();
         }
-        AStarTreeNode firstStep = current.parent == null ? previous : current;
-        return firstStep != null && firstStep.move != null ? firstStep.move : "quit";
+        AStarTreeNode firstStep = current.getParent() == null ? previous : current;
+        return firstStep != null && firstStep.getMove() != null ? firstStep.getMove() : "quit";
     }
 
     /**
