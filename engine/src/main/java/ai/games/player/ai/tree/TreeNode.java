@@ -419,7 +419,7 @@ public abstract class TreeNode {
         
         // Count how many ancestors have this state key
         int occurrences = 0;
-        TreeNode current = this;
+        TreeNode current = parent;
         while (current != null) {
             if (current.stateKey == resultKey) {
                 occurrences++;

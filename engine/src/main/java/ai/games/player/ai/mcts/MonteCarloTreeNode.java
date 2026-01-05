@@ -27,6 +27,9 @@ public class MonteCarloTreeNode extends TreeNode {
     private int visits = 0;
     private double totalReward = 0.0;
 
+    // Maximum possible evaluation score for normalisation
+    public static final double MAX_SCORE = 100.0;
+
     /**
      * Creates a new MonteCarloTreeNode.
      */
@@ -36,14 +39,6 @@ public class MonteCarloTreeNode extends TreeNode {
 
     /**
      * State evaluation used as a playout reward.
-     *
-     * <p>This heuristic scores board positions based on:
-     * <ul>
-     *   <li><b>Foundation progress:</b> Strong reward for cards moved to foundation (40 points each)
-     *   <li><b>Tableau visibility:</b> Reward visible face-up cards (+4 each), penalize face-down cards (-9 each)
-     *   <li><b>Empty columns:</b> Reward empty tableau columns for king placement flexibility (+20 each)
-     *   <li><b>Stock size:</b> Penalize remaining stockpile cards (-2 each)
-     * </ul>
      *
      * @param solitaire the game state to evaluate
      * @return the heuristic score for this state
@@ -55,33 +50,30 @@ public class MonteCarloTreeNode extends TreeNode {
 
         int score = 0;
 
-        // Foundation progress: strong reward.
+        // Foundation progress
         int foundationCards = 0;
         for (var pile : state.getFoundation()) {
             foundationCards += pile.size();
         }
-        score += foundationCards * 40;
+        score += foundationCards * 4; // Weight foundation cards more heavily
 
-        // Tableau visibility: reward face-ups, penalize face-downs.
-        List<Integer> faceUps = state.getTableauFaceUpCounts();
-        List<Integer> faceDowns = state.getTableauFaceDownCounts();
-        int emptyColumns = 0;
-        for (int i = 0; i < faceUps.size(); i++) {
-            int up = faceUps.get(i);
-            int down = faceDowns.get(i);
-            score += up * 4;
-            score -= down * 9;
-            if (up == 0 && down == 0) {
-                emptyColumns++;
-            }
+        // Tableau visibility: reward face-ups
+        int faceUps = 0;
+        for(int count : state.getTableauFaceUpCounts())
+            faceUps += count;
+        score += faceUps;
+
+        // Tableau visibility: reward flipping face-downs
+        int faceDowns = 0;
+        for(int count : state.getTableauFaceDownCounts())
+            faceDowns += count;
+        // Assume starting face-down count is 21
+        int startingFaceDownCount = 21;
+        score += (startingFaceDownCount - faceDowns) * 3; // Weight flipped cards
+
+        if(score > MAX_SCORE) {
+            throw new IllegalStateException("Evaluation score exceeds maximum: " + score);
         }
-
-        // Reward empty tableau columns for king placement flexibility.
-        score += emptyColumns * 20;
-
-        // Stock drag: penalize large remaining stockpile.
-        score -= state.getStockpile().size() * 2;
-
         return score;
     }
 

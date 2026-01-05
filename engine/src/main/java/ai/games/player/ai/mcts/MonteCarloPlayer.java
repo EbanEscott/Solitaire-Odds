@@ -1,6 +1,7 @@
 package ai.games.player.ai.mcts;
 
 import ai.games.game.Solitaire;
+import ai.games.game.Solitaire.MoveResult;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 import java.util.List;
@@ -62,30 +63,35 @@ public class MonteCarloPlayer extends AIPlayer {
      */
     private static final double EXPLORATION_CONSTANT = Math.sqrt(2);
 
-    /**
-     * Root of the persistent MCTS tree for this game session.
-     */
-    private MonteCarloTreeNode root;
-
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
-        log.debug(LegalMovesHelper.listLegalMoves(  solitaire).toString(    ));
-        // Initialise root on first call
-        if (root == null) {
-            root = new MonteCarloTreeNode();
-            root.setState(solitaire);
+        if (log.isTraceEnabled()) {
+            log.trace(LegalMovesHelper.listLegalMoves(solitaire).toString());
+        }
+
+        // Initialize MCTS root node for this move
+        MonteCarloTreeNode root = new MonteCarloTreeNode();
+        root.setState(solitaire);
+
+        if(log.isTraceEnabled()) {
+            log.trace("MCTS starting. Root has {} children that include {}", 
+                root.getChildren().size(), root.getChildren().keySet());
         }
 
         // Run MCTS tree building
         long startTime = System.currentTimeMillis();
         for (int i = 0; i < MCTS_ITERATIONS; i++) {
             MonteCarloTreeNode leaf = selectAndExpand(root);
-            log.debug("Selected and expanded node: {}", leaf);
+            if (log.isTraceEnabled()) {
+                log.trace("Selected and expanded node: {}", leaf);
+            }
 
             // Simulate and backpropagate
             if (leaf != null) {
                 double reward = simulate(leaf);
-                log.debug("Simulation reward: {}", reward);
+                if (log.isTraceEnabled()) {
+                    log.trace("Simulation reward: {}", reward);
+                }
                 backpropagate(leaf, reward);
             }
         }
@@ -94,24 +100,40 @@ public class MonteCarloPlayer extends AIPlayer {
         // Select the best move from the root after selection, expansion, simulation, and backpropagation.
         String bestMove = null;
         MonteCarloTreeNode bestChild = null;
-        int bestVisits = -1;
+        double bestMeanReward = -1.0;
+        
+        if(log.isDebugEnabled()) {
+            log.debug("MCTS completed. Root has {} children after {} iterations:", 
+                root.getChildren().size(), MCTS_ITERATIONS);
+        }
+        
         for(String move: root.getChildren().keySet()) {
             MonteCarloTreeNode child = (MonteCarloTreeNode) root.getChildren().get(move);
             int visits = child.getVisits();
-            if(visits > bestVisits) {
-                bestVisits = visits;
+            double meanReward = child.getMeanReward();
+            
+            if(log.isDebugEnabled()) {
+                log.debug("  '{}': visits={}, meanReward={}", 
+                    move, visits, String.format("%.4f", meanReward));
+            }
+            
+            if(meanReward > bestMeanReward) {
+                bestMeanReward = meanReward;
                 bestChild = child;
                 bestMove = move;
             }
+
         }
 
         // Advance root to selected child for next decision
         root = bestChild;
-        root.setState(solitaire);
-        root.setParent(null);
 
         if(log.isDebugEnabled()) {
-            log.debug(
+            log.debug("MCTS selected '{}' with {} visits (highest mean reward)", bestMove, bestMeanReward);
+        }
+
+        if(log.isTraceEnabled()) {
+            log.trace(
                 "MCTS decision: {} iterations in {}ms, selected move: {}",
                 MCTS_ITERATIONS,
                 elapsedMs,
@@ -190,13 +212,36 @@ public class MonteCarloPlayer extends AIPlayer {
      * @return reward in [-1.0, 1.0]
      */
     private double simulate(MonteCarloTreeNode node) {
+        if(log.isTraceEnabled()) {
+            log.trace("Simulating move: {} from parent: {}", node.getMove(), node.getParent().getMove() != null ? node.getParent().getMove() : "ROOT");
+        }
+
         Solitaire state = node.getState();
         if (state == null) {
             throw new IllegalStateException("Cannot simulate from null state");
         }
 
-        // Skip undesirable nodes
-        if(node.isPruned() || node.isQuit() || node.isUselessKingMove() || node.isCycleDetected()) {
+        // Skip quitting
+        if(node.isQuit()) {
+            if(log.isTraceEnabled()) {
+                log.trace("Quitting reward: -1.0");
+            }
+            return -1.0; // No rewards from undesirable nodes
+        }
+
+        // Skip useless king move
+        if(node.isUselessKingMove()) {
+            if(log.isTraceEnabled()) {
+                log.trace("Useless king move reward: -1.0");
+            }
+            return -1.0; // No rewards from undesirable nodes
+        }
+
+        // Skip cycle detected
+        if(node.isCycleDetected()) {
+            if(log.isTraceEnabled()) {
+                log.trace("Cycle detected reward: -1.0");
+            }
             return -1.0; // No rewards from undesirable nodes
         }
 
@@ -230,20 +275,39 @@ public class MonteCarloPlayer extends AIPlayer {
             } else if (moveCommand.toLowerCase().startsWith("move")) {
                 String[] parts = moveCommand.split("\\s+");
                 if (parts.length == 4) {
-                    simulation.attemptMove(parts[1], parts[2], parts[3]);
+                    MoveResult result = simulation.attemptMove(parts[1], parts[2], parts[3]);
+                    if (!result.success) {
+                        throw new IllegalStateException("Move failed in simulation: " + moveCommand + " - " + result.message);
+                    }
                 }
             }
         }
 
+        // Evaluate initial state using node's heuristic. This node is unchanged.
+        int beforeScore = node.evaluate();
+
         // Evaluate final state using node's heuristic
-        MonteCarloTreeNode evalNode = new MonteCarloTreeNode();
-        evalNode.setState(simulation);
-        int score = evalNode.evaluate();
+        MonteCarloTreeNode afterNode = new MonteCarloTreeNode();
+        afterNode.setState(simulation);
+        int afterScore = afterNode.evaluate();
+
+        // Reward = progress, not absolute value
+        int deltaScore = afterScore - beforeScore;        
+
+        if(log.isTraceEnabled()) {
+            log.trace("Simulation scores - before: {}, after: {}, delta: {}", 
+                beforeScore, afterScore, deltaScore);
+        }
 
         // Normalise score to [-1.0, 1.0]
-        double MAX_SCORE = 3000.0; //Approx max achievable score
-        double clamped = Math.max(-MAX_SCORE, Math.min(MAX_SCORE, score));
-        return clamped / MAX_SCORE;
+        double clamped = Math.max(-MonteCarloTreeNode.MAX_SCORE, Math.min(MonteCarloTreeNode.MAX_SCORE, deltaScore));
+        double normalised = clamped / MonteCarloTreeNode.MAX_SCORE;
+        
+        if(log.isTraceEnabled()) {
+            log.trace("Normalised reward: {}", String.format("%.4f", normalised));
+        }
+        
+        return normalised;
     }
 
     /**
@@ -273,10 +337,7 @@ public class MonteCarloPlayer extends AIPlayer {
      * @param moves legal moves from parent's state
      * @return the newly-created child node
      */
-    private MonteCarloTreeNode expandFirstUnexploredMove(
-        MonteCarloTreeNode parent,
-        List<String> moves
-    ) {
+    private MonteCarloTreeNode expandFirstUnexploredMove(MonteCarloTreeNode parent, List<String> moves) {
         for (String moveCommand : moves) {
             if (!parent.getChildren().containsKey(moveCommand)) {
                 // Create child
@@ -317,11 +378,22 @@ public class MonteCarloPlayer extends AIPlayer {
     private MonteCarloTreeNode selectBestChildByUCB(MonteCarloTreeNode parent, List<String> moves) {
         MonteCarloTreeNode best = null;
         double bestUcb = -Double.MAX_VALUE;
+        
+        if(log.isTraceEnabled()) {
+            log.trace("UCB selection from {} explored children (parent visits: {}):", 
+                parent.getChildren().size(), parent.getVisits());
+        }
 
         for (String move : moves) {
             MonteCarloTreeNode child = (MonteCarloTreeNode) parent.getChildren().get(move);
             if (child != null) {
                 double ucb = child.getUctValue(EXPLORATION_CONSTANT, parent.getVisits());
+                if(log.isTraceEnabled()) {
+                    log.trace("  Move '{}': visits={}, meanReward={}, UCB={}", 
+                        move, child.getVisits(), 
+                        String.format("%.4f", child.getMeanReward()),
+                        String.format("%.4f", ucb));
+                }
                 if (ucb > bestUcb) {
                     bestUcb = ucb;
                     best = child;
