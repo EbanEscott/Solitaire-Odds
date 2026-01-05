@@ -106,7 +106,14 @@ public class AlphaTreeNode extends TreeNode {
      */
     @Override
     public boolean isTerminal() {
-        return moves.isEmpty() || isWon(getState());
+        if (moves.isEmpty()) {
+            return true;
+        }
+        int total = 0;
+        for (var pile : getState().getFoundation()) {
+            total += pile.size();
+        }
+        return total == 52;
     }
 
     /**
@@ -134,8 +141,17 @@ public class AlphaTreeNode extends TreeNode {
         if (evaluated) {
             return valueEstimate;
         }
-        if (moves.isEmpty() || isWon(getState())) {
-            valueEstimate = isWon(getState()) ? 1.0 : 0.0;
+        if (moves.isEmpty()) {
+            valueEstimate = 0.0;
+            evaluated = true;
+            return valueEstimate;
+        }
+        int total = 0;
+        for (var pile : getState().getFoundation()) {
+            total += pile.size();
+        }
+        if (total == 52) {
+            valueEstimate = 1.0;
             evaluated = true;
             return valueEstimate;
         }

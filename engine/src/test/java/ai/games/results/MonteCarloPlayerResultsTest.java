@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.games.Game;
 import ai.games.Game.GameResult;
 import ai.games.player.Player;
-import ai.games.player.ai.MonteCarloPlayer;
+import ai.games.player.ai.mcts.MonteCarloPlayer;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;

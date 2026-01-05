@@ -3,6 +3,7 @@ package ai.games.player.ai.tree;
 import ai.games.game.Card;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
+import ai.games.player.LegalMovesHelper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,39 +32,39 @@ public abstract class TreeNode {
     /**
      * Parent node in the tree (null if this is the root).
      */
-    public TreeNode parent;
+    protected TreeNode parent;
 
     /**
      * The game state at this node.
      * May be null for game tree nodes that only track state history (not full state).
      */
-    public Solitaire state;
+    protected Solitaire state;
 
     /**
      * Hashed state key for quick comparisons and lookups.
      * Derived from the state; null state yields 0L.
      */
-    public long stateKey;
+    protected long stateKey;
 
     /**
      * Children: map from move string to resulting child node.
      * Provides a unified interface for accessing child nodes across different search strategies.
      */
-    public final Map<String, TreeNode> children = new HashMap<>();
+    protected final Map<String, TreeNode> children = new HashMap<>();
 
     /**
      * Pruned flag: when true, indicates this subtree should not be explored further.
      * This persists across game decisions—once we mark a branch as unproductive (e.g., leads to cycles),
      * future lookahead searches will skip it, saving exploration budget for more promising paths.
      */
-    public boolean pruned = false;
+    protected boolean pruned = false;
+
 
     /**
-     * Cycle depth: how many moves deep into a detected cycle are we?
-     * Set when cycle detection finds a cycle; used to understand cycle severity.
-     * A larger depth means we're wasting more moves in the cycle pattern.
+     * Current move being evaluated. Set before calling isCycleDetected() or isUselessKingMove().
+     * These methods evaluate the move in the context of this node's state.
      */
-    public int cycleDepth = 0;
+    protected String move = null;
 
     /**
      * Protected constructor for subclasses.
@@ -73,7 +74,16 @@ public abstract class TreeNode {
         this.state = null;
         this.stateKey = 0L;
         this.pruned = false;
-        this.cycleDepth = 0;
+        this.move = null;
+    }
+
+    /**
+     * String representation of the node for debugging.
+     *
+     * @return a string summarizing the node's state key and number of children
+     */
+    public String toString() {
+        return "TreeNode[stateKey=" + stateKey + ", move=" + move + ", children=" + children.size() + "]";
     }
 
     /**
@@ -108,7 +118,7 @@ public abstract class TreeNode {
      *
      * @param state the Solitaire state
      */
-    protected void setState(Solitaire state) {
+    public void setState(Solitaire state) {
         this.state = state;
         this.stateKey = state != null ? state.getStateKey() : 0L;
     }
@@ -123,26 +133,44 @@ public abstract class TreeNode {
     }
 
     /**
-     * Set the state key directly (useful for game tree nodes that don't have full state).
+     * Get the move string that led to this node.
      *
-     * @param stateKey the state key to set
+     * @return the move string
      */
-    protected void setStateKey(long stateKey) {
-        this.stateKey = stateKey;
+    public String getMove() {
+        return move;
+    }   
+
+    /**
+     * Set the move string that led to this node.
+     * 
+     * @param move the move string
+     */
+    public void setMove(String move) {
+        this.move = move;
     }
 
     /**
-     * Check if the game is won from the given state.
+     * Get the children map (move string to child node).
      *
-     * @param solitaire the game state
-     * @return true if all 52 cards are in the foundation piles
+     * @return the map of children nodes
      */
-    public static boolean isWon(Solitaire solitaire) {
-        int total = 0;
-        for (var pile : solitaire.getFoundation()) {
-            total += pile.size();
+    public Map<String, TreeNode> getChildren() {
+        return children;
+    }
+
+    /**
+     * Add a child node for the given move.
+     * 
+     * @param move the move string
+     * @param child the child node
+     */
+    public void addChild(String move, TreeNode child) {
+        if(move == null || child == null) {
+            throw new IllegalArgumentException("Move and child cannot be null");
         }
-        return total == 52;
+
+        children.put(move, child);
     }
 
     /**
@@ -182,6 +210,15 @@ public abstract class TreeNode {
     }
 
     /**
+     * Set the pruned flag for this node.
+     *
+     * @param pruned true to mark as pruned, false otherwise
+    */
+    public void setPruned(boolean pruned) {
+        this.pruned = pruned;
+    }
+
+    /**
      * Mark this node as pruned, indicating its subtree should not be explored further.
      *
      * <p><b>When to call:</b> After cycle detection detects that a particular state-transition
@@ -197,21 +234,26 @@ public abstract class TreeNode {
     }
 
     /**
-     * Checks whether a move string is a "quit" command.
+     * Create a copy of the current game state for exploration.
      *
-     * @param move the move command string
-     * @return true if the command is "quit" (case-insensitive), false otherwise
+     * @return a new Solitaire instance with the same board configuration, or null if state is null
      */
-    public static boolean isQuit(String move) {
-        return move != null && move.trim().equalsIgnoreCase("quit");
+    public Solitaire copyState() {
+        return state != null ? state.copy() : null;
     }
 
     /**
-     * Create a copy of the current game state for exploration.
+     * Check if the game is won from the given state.
      *
-     * @return a new Solitaire instance with the same board configuration
+     * @return true if all 52 cards are in the foundation piles
      */
-    public abstract Solitaire copyState();
+    public boolean isWon() {
+        int total = 0;
+        for (var pile : state.getFoundation()) {
+            total += pile.size();
+        }
+        return total == 52;
+    }
 
     /**
      * Check if this node is terminal (no moves or game won).
@@ -219,7 +261,27 @@ public abstract class TreeNode {
      *
      * @return true if no moves are available or the game is won
      */
-    public abstract boolean isTerminal();
+    public boolean isTerminal() {
+        if (state == null) {
+            return true;  // Null state is considered terminal
+        }
+        // Check if game is already won
+        if (isWon()) {
+            return true;
+        }
+        // Check if there are any legal moves available
+        return LegalMovesHelper.listLegalMoves(state).isEmpty();
+    }
+
+    /**
+     * Checks whether a move string is a "quit" command.
+     *
+     * @param move the move command string
+     * @return true if the command is "quit" (case-insensitive), false otherwise
+     */
+    public boolean isQuit() {
+        return move != null && move.trim().equalsIgnoreCase("quit");
+    }
 
     /**
      * Prunes moves that shift a king between tableau columns without revealing new cards.
@@ -240,17 +302,18 @@ public abstract class TreeNode {
      *
      * <p><b>Implementation:</b>
      * <ol>
-     *   <li>Parse the move string to extract source column and card
+     *   <li>Parse the move string (from this.move) to extract source column and card
      *   <li>Verify both source and destination are tableau columns
      *   <li>Find the card being moved and check it's a king
      *   <li>Examine the source column's face-down count
      *   <li>Return true (prune) only if the move is T→T, is a king, and has no face-downs
      * </ol>
      *
-     * @param move the move command string to evaluate
+     * <p><b>Before calling:</b> Set {@code this.move} to the move command string to evaluate.
+     *
      * @return true if the move is a useless king shuffle (should be pruned), false otherwise
      */
-    public boolean isUselessKingMove(String move) {
+    public boolean isUselessKingMove() {
         if (move == null || state == null) {
             return false;
         }
@@ -311,74 +374,65 @@ public abstract class TreeNode {
     }
 
     /**
-     * Checks whether a specific move would lead to a pruned subtree (marked as cycling or stagnating).
+     * Checks whether a move would create a repeating cycle (ping-ponging).
      *
-     * <p><b>Purpose:</b> This method queries the persistent game tree to determine if a move
-     * would land us in a subtree that has been marked {@code pruned}. If so, we skip the move
-     * during search expansion to avoid re-exploring known-bad paths.
+     * <p><b>Purpose:</b> Detect when a move would return to a state we've visited before,
+     * AND that state is part of a repeating pattern. A single return to a state is fine
+     * (exploration), but when the same sequence repeats twice, that's wasteful ping-ponging.
      *
      * <p><b>How it works:</b>
      * <ol>
-     *   <li>Apply the move to a copy of the current state
-     *   <li>Look up the resulting board state in the persistent game tree (starting from root)
-     *   <li>If found and marked pruned, return true (prune this move)
-     *   <li>Otherwise, return false (move is safe to explore)
+     *   <li>Apply the move (from this.move) to a copy of the current state to get the resulting state key
+     *   <li>Count how many ancestors in the path have that same state key
+     *   <li>If 2 or more ancestors have it, the cycle pattern has repeated at least twice
+     *   <li>Return true (ping-ponging detected)
      * </ol>
      *
-     * <p><b>Why this matters:</b> The game tree persists across all game decisions. As the game
-     * progresses, nodes are marked {@code pruned} when they lead to cycles. During search,
-     * this method prevents the search from re-exploring those same unproductive branches,
-     * conserving search budget for paths that haven't been ruled out.
+     * <p><b>Why we don't check intermediate moves:</b> The state key is a Zobrist hash that
+     * fully encodes the entire game state (card positions, face-up/face-down counts, stock, talon).
+     * Two nodes with identical state keys represent identical boards and will have identical legal moves.
+     * Therefore, the path taken to reach a state doesn't matter—identical states always lead to
+     * identical futures. Counting occurrences of the state key is sufficient.
      *
-     * @param move the move command string to check
-     * @param applyMoveFunction a function to apply moves to state copies
-     * @return true if the move would land in a pruned subtree, false otherwise
+     * <p><b>Example:</b>
+     * <pre>
+     * Pos 0: State X (key=123)
+     * Pos 1: Move A → State Y
+     * Pos 2: Move B → State Z
+     * Pos 3: Move C → State X (key=123) ← First return to X (1 occurrence)
+     * Pos 4: Move A → State Y
+     * Pos 5: Move B → State Z
+     * Pos 6: Move C → State X (key=123) ← Second return to X (2 occurrences = PING-PONG!)
+     * </pre>
+     *
+     * <p><b>Before calling:</b> Set {@code this.move} to the move command string to check.
+     *
+     * @return true if this move would cause a repeating cycle (2+ occurrences), false otherwise
      */
-    public boolean isCycleDetected(String move, ApplyMoveFunction applyMoveFunction) {
-        if (state == null) {
+    public boolean isCycleDetected() {
+        if (state == null || move == null) {
             return false;
         }
         
-        // Apply the move to see where it leads
-        Solitaire copy = state.copy();
-        applyMoveFunction.apply(copy, move);
-        long resultKey = copy.getStateKey();
+        // Get the state key for the current tree node
+        long resultKey = state.getStateKey();
         
-        // Find the root of the tree (walk up parent chain)
-        TreeNode root = this;
-        while (root.parent != null) {
-            root = root.parent;
-        }
-        
-        // Search the persistent game tree for a node matching this state
-        TreeNode node = root.findNodeByStateKey(resultKey);
-        
-        // If we found the node and it's marked pruned (or any ancestor is), skip this move
-        return node != null && node.isPruned();
-    }
-
-    /**
-     * Searches the persistent game tree starting from this node for a node with a given state key.
-     *
-     * <p><b>Note:</b> This is a depth-first search through the game tree. For games with many
-     * moves, this could be slow. Optimisations like a state-key map could improve performance,
-     * but for now we favour simplicity and correctness.
-     *
-     * @param targetKey the state key to search for
-     * @return the node with matching state key, or null if not found
-     */
-    public TreeNode findNodeByStateKey(long targetKey) {
-        if (this.stateKey == targetKey) {
-            return this;
-        }
-        // Search children
-        for (TreeNode childNode : this.children.values()) {
-            TreeNode found = childNode.findNodeByStateKey(targetKey);
-            if (found != null) {
-                return found;
+        // Count how many ancestors have this state key
+        int occurrences = 0;
+        TreeNode current = this;
+        while (current != null) {
+            if (current.stateKey == resultKey) {
+                occurrences++;
+                // If we've found this state 2+ times, the cycle repeats (ping-pong)
+                if (occurrences >= 2) {
+                    return true;
+                }
             }
+            current = current.parent;
         }
-        return null;
+        
+        // State appears 0 or 1 time in ancestors—no repeating cycle
+        return false;
     }
 
     /**
@@ -401,14 +455,5 @@ public abstract class TreeNode {
             return List.of();
         }
         return state.getUnknownCards();
-    }
-
-    /**
-     * Functional interface for applying moves to state copies.
-     * Used by isCycleDetected to apply moves in a pluggable way.
-     */
-    @FunctionalInterface
-    public interface ApplyMoveFunction {
-        void apply(Solitaire solitaire, String move);
     }
 }
