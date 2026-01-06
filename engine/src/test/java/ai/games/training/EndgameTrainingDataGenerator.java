@@ -155,11 +155,10 @@ public class EndgameTrainingDataGenerator {
             }
             
             // Create a Game instance with a fresh solver player and seeded board
-            // Each game gets a new player instance to avoid static state pollution
-            // (A* player maintains static state like lastMove and gameTreeRoot)
+            // Each game gets a new player instance with fresh state
+            // (Instance fields like lastMove and gameTreeRoot are null by default)
             // Episode logging is automatic when -Dlog.episodes=true is set
-            Player freshPlayer = new AStarPlayer();
-            AStarPlayer.resetGameState();  // Reset A* static state for this new game
+            AStarPlayer freshPlayer = new AStarPlayer();
             Game game = new Game(freshPlayer);
             Game.GameResult result = game.play(seededGameWithMoves.game);
             

@@ -41,7 +41,7 @@ public final class TestGameStateBuilder {
 
         List<Card> hearts = new ArrayList<>();
         for (Rank rank : Rank.values()) {
-            if (rank == Rank.KING) {
+            if (rank == Rank.KING || rank == Rank.UNKNOWN) {
                 continue;
             }
             hearts.add(SolitaireTestHelper.takeCard(deck, rank, Suit.HEARTS));
