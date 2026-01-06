@@ -43,7 +43,7 @@ public class AStarPlayer extends AIPlayer {
     private static final int NODE_BUDGET = 1024;
 
     /** Maximum size of the open set to prevent memory exhaustion. */
-    private static final int MAX_OPEN_SET_SIZE = 10000;
+    private static final int MAX_OPEN_SET_SIZE = 5000;
 
     /** Root of the game tree, created at game start. */
     private static AStarTreeNode root = null;
@@ -72,7 +72,7 @@ public class AStarPlayer extends AIPlayer {
      *
      * <p>This method contains the main A* search loop:
      * <ol>
-     *   <li>Initialize tree if root is null (new game)</li>
+     *   <li>Initialise tree if root is null (new game)</li>
      *   <li>Refresh current node's state with fresh planning copy</li>
      *   <li>Invalidate stale children (Option B: re-explore after card reveals)</li>
      *   <li>Run A* expansion up to NODE_BUDGET</li>
@@ -87,10 +87,10 @@ public class AStarPlayer extends AIPlayer {
      */
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
-        // ===== Step 1: Initialize tree if this is a new game =====
+        // ===== Step 1: Initialise tree if this is a new game =====
         if (root == null) {
-            if (log.isInfoEnabled()) {
-                log.info("Initializing new A* game tree");
+            if (log.isDebugEnabled()) {
+                log.debug("Initialising new A* game tree");
             }
             root = new AStarTreeNode(solitaire.copy());
             current = root;
@@ -125,8 +125,8 @@ public class AStarPlayer extends AIPlayer {
 
         // ===== Step 4: Check for terminal state =====
         if (current.isWon()) {
-            if (log.isInfoEnabled()) {
-                log.info("Game won! Returning quit.");
+            if (log.isDebugEnabled()) {
+                log.debug("Game won! Returning quit.");
             }
             return "quit";
         }
@@ -147,8 +147,8 @@ public class AStarPlayer extends AIPlayer {
             // Check for win
             if (node.isWon()) {
                 bestWinNode = node;
-                if (log.isInfoEnabled()) {
-                    log.info("Found winning path after {} expansions", expansions);
+                if (log.isDebugEnabled()) {
+                    log.debug("Found winning path after {} expansions", expansions);
                 }
                 break;
             }
@@ -266,21 +266,21 @@ public class AStarPlayer extends AIPlayer {
         if (bestWinNode != null) {
             // Found a winning path — trace back to find first move from current
             selectedMove = traceFirstMove(bestWinNode, current);
-            if (log.isInfoEnabled()) {
-                log.info("Selected winning move: {}", selectedMove);
+            if (log.isDebugEnabled()) {
+                log.debug("Selected winning move: {}", selectedMove);
             }
         } else if (openSet.isEmpty()) {
             // Tree exhausted — no viable paths remain
-            if (log.isInfoEnabled()) {
-                log.info("Tree exhausted, no winning path found. Quitting.");
+            if (log.isDebugEnabled()) {
+                log.debug("Tree exhausted, no winning path found. Quitting.");
             }
             return "quit";
         } else {
             // No win found within budget — pick the best node's path
             AStarTreeNode best = findBestNodeFromCurrent();
             if (best == null || best == current) {
-                if (log.isInfoEnabled()) {
-                    log.info("No progress possible. Quitting.");
+                if (log.isDebugEnabled()) {
+                    log.debug("No progress possible. Quitting.");
                 }
                 return "quit";
             }
@@ -294,7 +294,10 @@ public class AStarPlayer extends AIPlayer {
         if (selectedMove != null) {
             TreeNode nextNode = current.getChildren().get(selectedMove);
             if (nextNode instanceof AStarTreeNode) {
-                current = (AStarTreeNode) nextNode;
+                AStarTreeNode chosenChild = (AStarTreeNode) nextNode;
+                // Prune siblings to free memory - only keep the chosen path
+                pruneSiblings(current, selectedMove);
+                current = chosenChild;
                 // Clean openSet: remove nodes not descendant of new current
                 cleanOpenSet();
             }
@@ -383,6 +386,22 @@ public class AStarPlayer extends AIPlayer {
             n = n.getParent();
         }
         return false;
+    }
+
+    /**
+     * Prunes sibling branches when advancing to a chosen child.
+     * This is critical for memory management - when we commit to a move,
+     * all alternative branches become irrelevant.
+     *
+     * @param parent     the parent node (current before advancing)
+     * @param chosenMove the move leading to the child we're advancing to
+     */
+    private void pruneSiblings(AStarTreeNode parent, String chosenMove) {
+        TreeNode chosenChild = parent.getChildren().get(chosenMove);
+        parent.getChildren().clear();
+        if (chosenChild != null) {
+            parent.getChildren().put(chosenMove, chosenChild);
+        }
     }
 
     /**
