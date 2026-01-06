@@ -28,7 +28,8 @@ public class MonteCarloTreeNode extends TreeNode {
     private double totalReward = 0.0;
 
     // Maximum possible evaluation score for normalisation
-    public static final double MAX_SCORE = 100.0;
+    // Max: 52*5 (foundation) + 52 (faceUps) + 21*2 (flipped) = 260 + 52 + 42 = 354
+    public static final double MAX_SCORE = 354.0;
 
     /**
      * Creates a new MonteCarloTreeNode.
@@ -39,8 +40,10 @@ public class MonteCarloTreeNode extends TreeNode {
 
     /**
      * State evaluation used as a playout reward.
+     * 
+     * <p>This evaluates the intrinsic quality of the game state, not the move
+     * that led to it. Move-specific penalties should be applied separately.
      *
-     * @param solitaire the game state to evaluate
      * @return the heuristic score for this state
      */
     public int evaluate() {
@@ -50,12 +53,12 @@ public class MonteCarloTreeNode extends TreeNode {
 
         int score = 0;
 
-        // Foundation progress
+        // Foundation progress: most important metric
         int foundationCards = 0;
         for (var pile : state.getFoundation()) {
             foundationCards += pile.size();
         }
-        score += foundationCards * 4; // Weight foundation cards more heavily
+        score += foundationCards * 5; // Heavy weight on foundation
 
         // Tableau visibility: reward face-ups
         int faceUps = 0;
@@ -69,11 +72,13 @@ public class MonteCarloTreeNode extends TreeNode {
             faceDowns += count;
         // Assume starting face-down count is 21
         int startingFaceDownCount = 21;
-        score += (startingFaceDownCount - faceDowns) * 3; // Weight flipped cards
+        score += (startingFaceDownCount - faceDowns) * 2; // Weight flipped cards
 
+        // Sanity check: score should not exceed maximum
         if(score > MAX_SCORE) {
             throw new IllegalStateException("Evaluation score exceeds maximum: " + score);
         }
+
         return score;
     }
 
