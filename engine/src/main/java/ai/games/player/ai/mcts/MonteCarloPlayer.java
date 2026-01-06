@@ -63,25 +63,57 @@ public class MonteCarloPlayer extends AIPlayer {
      */
     private static final double EXPLORATION_CONSTANT = Math.sqrt(2);
 
+    /**
+     * Persisted MCTS tree root across turns.
+     */
+    private MonteCarloTreeNode root;
+
+    /**
+     * Node corresponding to the current Solitaire state.
+     */
+    private MonteCarloTreeNode current;
+
+    /**
+     * State key observed at the start of the previous turn.
+     */
+    private long lastStateKey = 0L;
+
+    /**
+     * State key we expect after applying the move we return.
+     */
+    private long expectedNextStateKey = 0L;
+
+    /**
+     * Whether the expectedNextStateKey is populated for the next call.
+     */
+    private boolean hasExpectedNextStateKey = false;
+
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
         if (log.isTraceEnabled()) {
             log.trace(LegalMovesHelper.listLegalMoves(solitaire).toString());
         }
 
-        // Initialize MCTS root node for this move
-        MonteCarloTreeNode root = new MonteCarloTreeNode();
-        root.setState(solitaire);
+        long actualStateKey = solitaire.getStateKey();
+        if (root == null || current == null) {
+            initialiseTree(solitaire, actualStateKey);
+        } else {
+            validateStateSynchronisation(actualStateKey);
+            refreshCurrentState(solitaire);
+            lastStateKey = actualStateKey;
+        }
+
+        MonteCarloTreeNode searchRoot = current;
 
         if(log.isTraceEnabled()) {
             log.trace("MCTS starting. Root has {} children that include {}", 
-                root.getChildren().size(), root.getChildren().keySet());
+                searchRoot.getChildren().size(), searchRoot.getChildren().keySet());
         }
 
         // Run MCTS tree building
         long startTime = System.currentTimeMillis();
         for (int i = 0; i < MCTS_ITERATIONS; i++) {
-            MonteCarloTreeNode leaf = selectAndExpand(root);
+            MonteCarloTreeNode leaf = selectAndExpand(searchRoot);
             if (log.isTraceEnabled()) {
                 log.trace("Selected and expanded node: {}", leaf);
             }
@@ -104,11 +136,11 @@ public class MonteCarloPlayer extends AIPlayer {
         
         if(log.isDebugEnabled()) {
             log.debug("MCTS completed. Root has {} children after {} iterations:", 
-                root.getChildren().size(), MCTS_ITERATIONS);
+                searchRoot.getChildren().size(), MCTS_ITERATIONS);
         }
         
-        for(String move: root.getChildren().keySet()) {
-            MonteCarloTreeNode child = (MonteCarloTreeNode) root.getChildren().get(move);
+        for(String move: searchRoot.getChildren().keySet()) {
+            MonteCarloTreeNode child = (MonteCarloTreeNode) searchRoot.getChildren().get(move);
             int visits = child.getVisits();
             double meanReward = child.getMeanReward();
             
@@ -125,8 +157,16 @@ public class MonteCarloPlayer extends AIPlayer {
 
         }
 
-        // Advance root to selected child for next decision
-        root = bestChild;
+        // Advance current to selected child for next decision (root stays at the initial game state)
+        current = bestChild;
+
+        if (bestMove != null && bestChild != null) {
+            expectedNextStateKey = computeExpectedNextStateKey(solitaire, bestMove);
+            hasExpectedNextStateKey = true;
+        } else {
+            hasExpectedNextStateKey = false;
+        }
+        lastStateKey = actualStateKey;
 
         if(log.isDebugEnabled()) {
             log.debug("MCTS selected '{}' with {} visits (highest mean reward)", bestMove, bestMeanReward);
@@ -142,6 +182,80 @@ public class MonteCarloPlayer extends AIPlayer {
         }
 
         return bestMove;
+    }
+
+    /**
+     * Initialize the persistent tree from the provided solitaire state.
+     */
+    private void initialiseTree(Solitaire solitaire, long stateKey) {
+        MonteCarloTreeNode node = new MonteCarloTreeNode();
+        node.setState(solitaire.copy());
+        node.setParent(null);
+        this.root = node;
+        this.current = node;
+        this.lastStateKey = stateKey;
+        this.hasExpectedNextStateKey = false;
+    }
+
+    /**
+     * Refresh the current node's state snapshot to match the provided solitaire.
+     */
+    private void refreshCurrentState(Solitaire solitaire) {
+        if (current == null) {
+            throw new IllegalStateException("Current node is null while refreshing state");
+        }
+        current.setState(solitaire.copy());
+    }
+
+    /**
+     * Validate that the engine-provided state matches what we expect based on prior moves.
+     */
+    private void validateStateSynchronisation(long actualStateKey) {
+        if (hasExpectedNextStateKey) {
+            if (actualStateKey != expectedNextStateKey) {
+                throw new IllegalStateException(
+                    String.format("Solitaire state drift detected. Expected key %d but observed %d", expectedNextStateKey, actualStateKey));
+            }
+            hasExpectedNextStateKey = false;
+        } else if (actualStateKey != lastStateKey) {
+            throw new IllegalStateException(
+                String.format("Solitaire state changed between turns. Previous key %d but observed %d", lastStateKey, actualStateKey));
+        }
+    }
+
+    /**
+     * Compute the expected state key after applying a move to the given solitaire snapshot.
+     */
+    private long computeExpectedNextStateKey(Solitaire solitaire, String moveCommand) {
+        if (moveCommand == null) {
+            throw new IllegalStateException("Cannot compute expected state key for null move");
+        }
+
+        Solitaire nextState = solitaire.copy();
+        nextState.setMode(Solitaire.GameMode.GAME);
+
+        if (moveCommand.equalsIgnoreCase("turn")) {
+            nextState.turnThree();
+        } else if (moveCommand.toLowerCase().startsWith("move")) {
+            String[] parts = moveCommand.split("\\s+");
+            if (parts.length == 4) {
+                MoveResult result = nextState.attemptMove(parts[1], parts[2], parts[3]);
+                if (!result.success) {
+                    throw new IllegalStateException("Failed to apply expected move: " + moveCommand + " (" + result.message + ")");
+                }
+            } else if (parts.length == 3) {
+                MoveResult result = nextState.attemptMove(parts[1], null, parts[2]);
+                if (!result.success) {
+                    throw new IllegalStateException("Failed to apply expected move: " + moveCommand + " (" + result.message + ")");
+                }
+            } else {
+                throw new IllegalStateException("Invalid move format for expected state computation: " + moveCommand);
+            }
+        } else {
+            throw new IllegalStateException("Unsupported move for expected state computation: " + moveCommand);
+        }
+
+        return nextState.getStateKey();
     }
 
     /**
