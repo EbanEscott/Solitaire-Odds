@@ -62,11 +62,18 @@ public final class SolitaireTestHelper {
 
     /**
      * Returns a fresh list containing one card of every rank/suit combination.
+     * Excludes UNKNOWN rank and suit which are only used in PLAN mode.
      */
     public static List<Card> fullDeck() {
         List<Card> deck = new ArrayList<>();
         for (Suit suit : Suit.values()) {
+            if (suit == Suit.UNKNOWN) {
+                continue;
+            }
             for (Rank rank : Rank.values()) {
+                if (rank == Rank.UNKNOWN) {
+                    continue;
+                }
                 deck.add(new Card(rank, suit));
             }
         }

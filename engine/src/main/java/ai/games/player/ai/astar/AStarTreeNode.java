@@ -1,178 +1,256 @@
 package ai.games.player.ai.astar;
 
+import ai.games.game.Card;
+import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.player.ai.tree.TreeNode;
+import java.util.List;
 
 /**
- * Unified node representing both the A* search tree (for lookahead decisions)
- * and the persistent game tree (for cycle detection and intelligent pruning across the full game).
+ * A* search tree node extending the base TreeNode with A* scoring fields.
  *
- * <p><b>Dual-purpose design:</b>
+ * <p>Each node stores:
  * <ul>
- *   <li>A* search fields ({@code state}, {@code pathCost}, {@code heuristic}) track lookahead
- *       decisions within a single {@code nextCommand()} call, guiding tactical move selection.
- *   <li>Game tree fields ({@code move}, {@code parent}, {@code children}, {@code stateKey}) track
- *       the actual moves made throughout the entire game, enabling strategic cycle detection.
+ *   <li><b>g</b>: Path cost from the search root (number of moves taken)</li>
+ *   <li><b>h</b>: Heuristic estimate of remaining cost to win (lower = closer to goal)</li>
+ *   <li><b>f</b>: Total estimated cost = g + h (used for priority queue ordering)</li>
+ *   <li><b>probability</b>: Estimated probability of success when moving to UNKNOWN cards</li>
  * </ul>
  *
- * <p><b>What this enables:</b>
- * <ul>
- *   <li><b>Tactical A* search:</b> Uses game state evaluation to find strong moves quickly
- *   <li><b>State visit tracking:</b> Counts how many times each board state has been reached
- *   <li><b>Cycle detection:</b> From any leaf node, walks back up through parents identifying
- *       cycles—repeated patterns of returning to the same board state. Counts nested cycles
- *       to determine if the game is stuck in unproductive loops.
- *   <li><b>Intelligent pruning:</b> Marks unproductive subtrees ({@code pruned = true})
- *       so future decisions avoid them, saving exploration budget
- * </ul>
- *
- * <p><b>Why persistent pruning matters:</b>
- * Klondike has many potential cycles—move sequences that return to previous board states.
- * When Phase 2 (cycle detection) walks up from the current leaf and finds multiple nested cycles,
- * it marks the leaf as {@code pruned}. On the next game decision, when A* considers moves, it skips
- * expanding children of pruned nodes. This memory prevents the player from re-exploring the same
- * unproductive paths, concentrating the 256-node budget on moves that can break the cycle
- * or find new progress. Over a full game, this dramatically improves move quality and shortens
- * games that would otherwise loop indefinitely.
+ * <p>Nodes are compared by f-score for use in a priority queue, enabling A* expansion order.
  */
 public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode> {
-    // ============= A* Search Fields =============
-    /** The Solitaire game state at this node (inherited from TreeNode). */
-    // state field is inherited
-    
-    /** Path cost from root in the A* search. */
-    public final int pathCost;
-    
-    /** Heuristic value (negative, so lower is better). */
-    public final int heuristic;
-    
-    
-    // ============= Game Tree Fields =============
-    /** Parent node in the game tree (inherited from TreeNode). */
-    // parent field is inherited
-    
-    /** Children: map from move string to resulting node (inherited from TreeNode). */
-    // children field is inherited from base TreeNode
-    
-    /** The move that led to this state from parent (inherited from TreeNode, can be set before evaluating). */
-    // move field is inherited
-    
-    /** Number of times this exact board state has been visited. */
-    public int visitCount = 1;
-    
-    /** Game progress snapshot: foundation + facedown card counts at this node. */
-    public int foundationCount;
-    public int facedownCount;
-    
-    /** State key for quick lookup (inherited from TreeNode). */
-    // stateKey field is inherited
-    
-    /**
-     * Pruned flag (inherited from TreeNode): when true, indicates this subtree should not be explored further.
-     * This persists across game decisions—once we mark a branch as unproductive (e.g., leads to cycles),
-     * future lookahead searches will skip it, saving exploration budget for more promising paths.
-     */
-    // pruned field is inherited
+
+    /** Path cost from search root (number of moves). */
+    private double g;
+
+    /** Heuristic estimate of remaining cost to win. */
+    private double h;
+
+    /** Total estimated cost: f = g + h/probability. */
+    private double f;
+
+    /** Probability of success for moves targeting UNKNOWN cards (1.0 for known destinations). */
+    private double probability;
 
     /**
-     * Cycle depth (inherited from TreeNode): how many moves deep into a detected cycle are we?
-     * Set when findCycleAncestor() detects a cycle; used to understand cycle severity.
-     * A larger depth means we're wasting more moves in the cycle pattern.
+     * Creates a new A* tree node with default scores.
      */
-    // cycleDepth field is inherited
-
-    /**
-     * Constructor for A* search nodes.
-     * Used when building lookahead trees within a single decision.
-     */
-    public AStarTreeNode(Solitaire state, AStarTreeNode parent, String move, int pathCost, int heuristic) {
+    public AStarTreeNode() {
         super();
-        this.parent = parent;
-        setState(state);  // This sets both state and stateKey from base class
-        this.move = move;  // Set the inherited move field
-        this.pathCost = pathCost;
-        this.heuristic = heuristic;
-        this.foundationCount = 0;
-        this.facedownCount = 0;
+        this.g = 0.0;
+        this.h = 0.0;
+        this.f = 0.0;
+        this.probability = 1.0;
     }
 
     /**
-     * Constructor for game tree nodes (persistent game history).
-     * Used when tracking moves throughout the entire game.
+     * Creates a new A* tree node with the given state.
+     *
+     * @param state the Solitaire game state at this node
      */
-    public AStarTreeNode(String move, AStarTreeNode parent, long stateKey, int foundationCount, int facedownCount) {
+    public AStarTreeNode(Solitaire state) {
         super();
-        this.move = move;  // Set the inherited move field
-        this.parent = parent;
-        this.foundationCount = foundationCount;
-        this.facedownCount = facedownCount;
-        
-        // A* fields not used in game tree mode
-        this.pathCost = 0;
-        this.heuristic = 0;
+        setState(state);
+        this.g = 0.0;
+        this.h = computeHeuristic(state);
+        this.probability = 1.0;
+        this.f = g + h;
     }
 
+    // ========== Getters and Setters ==========
+
+    public double getG() {
+        return g;
+    }
+
+    public void setG(double g) {
+        this.g = g;
+    }
+
+    public double getH() {
+        return h;
+    }
+
+    public void setH(double h) {
+        this.h = h;
+    }
+
+    public double getF() {
+        return f;
+    }
+
+    public void setF(double f) {
+        this.f = f;
+    }
+
+    public double getProbability() {
+        return probability;
+    }
+
+    public void setProbability(double probability) {
+        this.probability = probability;
+    }
+
+    // ========== A* Scoring Methods ==========
+
     /**
-     * A* f-score: pathCost + heuristic (path cost plus heuristic).
-     * Only meaningful for A* search nodes.
+     * Computes the heuristic estimate for the given state.
+     *
+     * <p>Heuristic components:
+     * <ul>
+     *   <li>Base: (52 - foundationCards) — minimum moves to win</li>
+     *   <li>Penalty: +2 per face-down card — must be revealed before playing</li>
+     *   <li>Penalty: +0.5 per stock card — less accessible than tableau</li>
+     *   <li>Bonus: -3 per empty tableau column — strategic flexibility</li>
+     * </ul>
+     *
+     * @param state the Solitaire state to evaluate
+     * @return the heuristic value (lower = closer to goal)
      */
-    public int f() {
-        // Higher heuristic (good board) should reduce cost, so subtract.
-        return pathCost - heuristic;
+    public static double computeHeuristic(Solitaire state) {
+        if (state == null) {
+            return Double.MAX_VALUE;
+        }
+
+        // Count foundation cards (goal progress)
+        int foundationCards = 0;
+        for (List<Card> pile : state.getFoundation()) {
+            foundationCards += pile.size();
+        }
+
+        // Count face-down cards across all tableau piles
+        int faceDownCards = 0;
+        for (int count : state.getTableauFaceDownCounts()) {
+            faceDownCards += count;
+        }
+
+        // Count stock cards (less accessible)
+        int stockCards = state.getStockpile().size();
+
+        // Count empty tableau columns (strategic flexibility)
+        int emptyColumns = 0;
+        List<List<Card>> visibleTableau = state.getVisibleTableau();
+        for (List<Card> pile : visibleTableau) {
+            if (pile.isEmpty()) {
+                emptyColumns++;
+            }
+        }
+
+        // Compute heuristic: base + penalties - bonuses
+        double h = (52 - foundationCards)       // Base: minimum moves to win
+                 + (2.0 * faceDownCards)        // Penalty: face-down cards
+                 + (0.5 * stockCards)           // Penalty: stock cards
+                 - (3.0 * emptyColumns);        // Bonus: empty columns
+
+        return Math.max(0.0, h);
     }
 
     /**
-     * For use in A* priority queue: compare by f-score.
+     * Computes the probability of a move succeeding when targeting UNKNOWN cards.
+     *
+     * <p>When moving to a tableau pile topped by an UNKNOWN card, we estimate the probability
+     * that the hidden card is compatible (allows the move). This is calculated as:
+     * <pre>
+     *   P(success) = (compatible cards in unknown pool) / (total unknowns)
+     * </pre>
+     *
+     * <p>The probability is used to penalise risky moves: f = g + h/p.
+     * Lower probability results in higher f-score, discouraging uncertain moves.
+     *
+     * @param move  the move command string to evaluate
+     * @param state the current game state
+     * @return probability between 0.0 and 1.0 (1.0 if destination is known)
+     */
+    public static double computeProbability(String move, Solitaire state) {
+        if (move == null || state == null) {
+            return 1.0;
+        }
+
+        // Parse the move to extract destination
+        String[] parts = move.trim().split("\\s+");
+        if (parts.length < 3 || !parts[0].equalsIgnoreCase("move")) {
+            return 1.0; // Turn or other non-move commands
+        }
+
+        String dest = parts[parts.length - 1].toUpperCase();
+        if (!dest.startsWith("T")) {
+            return 1.0; // Foundation moves don't depend on unknown cards
+        }
+
+        // Get the destination tableau pile
+        int pileIndex;
+        try {
+            pileIndex = Integer.parseInt(dest.substring(1)) - 1;
+        } catch (NumberFormatException e) {
+            return 1.0;
+        }
+
+        List<List<Card>> visibleTableau = state.getVisibleTableau();
+        if (pileIndex < 0 || pileIndex >= visibleTableau.size()) {
+            return 1.0;
+        }
+
+        List<Card> destPile = visibleTableau.get(pileIndex);
+        if (destPile.isEmpty()) {
+            return 1.0; // Empty column: only kings can move, no unknown dependency
+        }
+
+        Card topCard = destPile.get(destPile.size() - 1);
+        if (topCard.getRank() != Rank.UNKNOWN) {
+            return 1.0; // Known card at destination
+        }
+
+        // Destination is UNKNOWN — estimate probability based on compatible cards
+        List<Card> unknowns = state.getUnknownCards();
+        if (unknowns.isEmpty()) {
+            return 1.0;
+        }
+
+        // Parse the card being moved to determine compatibility requirements
+        String cardToken = (parts.length == 4) ? parts[2].toUpperCase() : null;
+        if (cardToken == null) {
+            return 0.5; // Unknown what we're moving, assume 50% chance
+        }
+
+        // When destination is UNKNOWN, we can't know if the move will succeed.
+        // Rough estimate: about half of unknowns will be compatible colour
+        // and 1/13 will be the right rank. So ~1/26 chance per unknown.
+        // Simplified: use a fixed probability to penalise uncertain moves.
+        double p = 0.5; // Base probability for unknown destination
+        return clamp01(p);
+    }
+
+    /**
+     * Recalculates the f-score based on current g, h, and probability.
+     * Call this after updating any of the component values.
+     */
+    public void recalculateF() {
+        // Adjust f-score: lower probability penalises the move
+        // f = g + h/p (when p is low, h/p is high, making f higher)
+        double adjustedH = (probability > 0.0) ? h / probability : Double.MAX_VALUE;
+        this.f = g + adjustedH;
+    }
+
+    // ========== Comparable Implementation ==========
+
+    /**
+     * Compares nodes by f-score for priority queue ordering.
+     * Lower f-score = higher priority (closer to optimal path).
+     *
+     * @param other the other node to compare against
+     * @return negative if this node has lower f, positive if higher, 0 if equal
      */
     @Override
     public int compareTo(AStarTreeNode other) {
-        return Integer.compare(this.f(), other.f());
+        return Double.compare(this.f, other.f);
     }
 
-    /**
-     * Walk up the tree to find how many times we've been in this exact state.
-     * Counts all ancestor nodes with the same stateKey.
-     */
-    public int countVisitsToState() {
-        int count = 1;  // This node
-        AStarTreeNode p = (AStarTreeNode) parent;
-        while (p != null) {
-            if (p.getStateKey() == this.getStateKey()) {
-                count++;
-            }
-            p = (AStarTreeNode) p.parent;
-        }
-        return count;
-    }
+    // ========== String Representation ==========
 
-    /**
-     * Check if we're cycling: same state as an ancestor but no progress made.
-     * Returns the ancestor node we're cycling to, or null if no cycle detected.
-     */
-    public AStarTreeNode findCycleAncestor() {
-        AStarTreeNode p = (AStarTreeNode) parent;
-        while (p != null) {
-            if (p.getStateKey() == this.getStateKey() &&
-                p.foundationCount == this.foundationCount &&
-                p.facedownCount == this.facedownCount) {
-                // Found the same board state with no progress
-                return p;
-            }
-            p = (AStarTreeNode) p.parent;
-        }
-        return null;
-    }
-
-    /**
-     * Get the distance (number of moves) to a given ancestor node.
-     */
-    public int distanceTo(AStarTreeNode ancestor) {
-        int dist = 0;
-        AStarTreeNode current = this;
-        while (current != null && current != ancestor) {
-            dist++;
-            current = (AStarTreeNode) current.parent;
-        }
-        return current == ancestor ? dist : -1;
+    @Override
+    public String toString() {
+        return String.format("AStarTreeNode[g=%.2f, h=%.2f, f=%.2f, p=%.2f, move=%s, children=%d]",
+                g, h, f, probability, move, children.size());
     }
 }
