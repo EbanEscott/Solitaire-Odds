@@ -96,34 +96,52 @@ Solitaire game features multiple AI players with different strategies, from dete
 
 ## Test Organization
 
-All player tests follow a consistent pattern:
+Tests are organized into different categories based on speed and purpose:
 
-1. **Functional Tests** (`*PlayerTest.java`): Verify player implementation
-   - Move selection correctness
-   - Integration with game engine
-   - Error handling
+### Unit Tests (`unit/` package) — FAST, run frequently
+Located in `engine/src/test/java/ai/games/unit/`. These tests are fast and safe to run often:
+- `unit/game/` — Game logic tests (legal moves, illegal moves, game state)
+- `unit/player/` — Player component tests (TreeNode, search utilities)
+- `unit/helpers/` — Test helper utilities
 
-2. **Performance Tests** (`results/*PlayerResultsTest.java`): Benchmark win-rates
-   - Games played: 500 (configurable in `ResultsConfig.java`)
-   - Measures: win %, average moves, time per game
-   - Repeated across multiple players for comparison
+**Run unit tests with:**
+```bash
+./gradlew test --tests "ai.games.unit.*"
+```
+
+### Functional Tests (`ai/` package) — MODERATE speed
+Player functional tests (`*PlayerTest.java`) verify player implementation:
+- Move selection correctness
+- Integration with game engine
+- Error handling
+
+### Results Tests (`results/` package) — SLOW, run sparingly
+Performance benchmarks (`*PlayerResultsTest.java`) are expensive and time-consuming:
+- Games played: 500 (configurable in `ResultsConfig.java`)
+- Measures: win %, average moves, time per game
+- **Do NOT run these for routine development** — only for final benchmarking
 
 ## Running Tests
 
 ```bash
-# All AI player functional tests
-./gradlew test --tests "ai.games.player.ai.**"
+# ✅ RECOMMENDED: Run unit tests (fast, safe to run frequently)
+./gradlew test --tests "ai.games.unit.*"
 
-# Specific player
+# Functional tests for specific player
 ./gradlew test --tests "ai.games.player.ai.GreedySearchPlayerTest"
 ./gradlew test --tests "ai.games.player.ai.MonteCarloPlayerTest"
 
-# All performance benchmarks (slow)
+# ⚠️ SLOW: All AI player functional tests
+./gradlew test --tests "ai.games.player.ai.**"
+
+# ❌ AVOID during development: Performance benchmarks (very slow)
 ./gradlew test --tests "ai.games.results.**"
 
-# Specific player performance
+# If you must run a specific performance benchmark:
 ./gradlew test --tests "ai.games.results.GreedySearchPlayerResultsTest"
 ```
+
+**For AI agents:** When making code changes, run `./gradlew test --tests "ai.games.unit.*"` to verify correctness. Do NOT run the full test suite or results tests unless specifically requested.
 
 ## Configuration
 

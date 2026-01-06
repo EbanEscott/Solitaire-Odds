@@ -55,7 +55,7 @@ public class MonteCarloPlayer extends AIPlayer {
      * Number of MCTS iterations (tree-building loops) per decision.
      * Higher values = stronger play but slower decisions.
      */
-    private static final int MCTS_ITERATIONS = 256;
+    private static final int MCTS_ITERATIONS = 1024;
 
     /**
      * Exploration constant for UCB formula: c * sqrt(ln(parent_visits) / child_visits).
@@ -283,24 +283,34 @@ public class MonteCarloPlayer extends AIPlayer {
             }
         }
 
-        // Evaluate initial state using node's heuristic. This node is unchanged.
-        int beforeScore = node.evaluate();
+        // Evaluate the IMMEDIATE value of this move by comparing against parent
+        MonteCarloTreeNode parent = (MonteCarloTreeNode) node.getParent();
+        if (parent == null) {
+            throw new IllegalStateException("Cannot simulate from root node (no parent)");
+        }
+        int parentScore = parent.evaluate();  // State BEFORE the move
+        int nodeScore = node.evaluate();       // State AFTER the move
+        int immediateValue = nodeScore - parentScore;
 
-        // Evaluate final state using node's heuristic
+        // Evaluate final state after random playout
         MonteCarloTreeNode afterNode = new MonteCarloTreeNode();
         afterNode.setState(simulation);
-        int afterScore = afterNode.evaluate();
+        int finalScore = afterNode.evaluate();
 
-        // Reward = progress, not absolute value
-        int deltaScore = afterScore - beforeScore;        
+        // Future potential from random play (relative to post-move state)
+        int playoutGain = finalScore - nodeScore;
+
+        // Total reward = immediate move value + discounted future potential
+        // Weight immediate value more heavily since it's deterministic
+        double totalReward = immediateValue + 0.5 * playoutGain;
 
         if(log.isTraceEnabled()) {
-            log.trace("Simulation scores - before: {}, after: {}, delta: {}", 
-                beforeScore, afterScore, deltaScore);
+            log.trace("Scores - parent: {}, node: {}, immediate: {}, final: {}, playoutGain: {}, total: {}", 
+                parentScore, nodeScore, immediateValue, finalScore, playoutGain, totalReward);
         }
 
         // Normalise score to [-1.0, 1.0]
-        double clamped = Math.max(-MonteCarloTreeNode.MAX_SCORE, Math.min(MonteCarloTreeNode.MAX_SCORE, deltaScore));
+        double clamped = Math.max(-MonteCarloTreeNode.MAX_SCORE, Math.min(MonteCarloTreeNode.MAX_SCORE, totalReward));
         double normalised = clamped / MonteCarloTreeNode.MAX_SCORE;
         
         if(log.isTraceEnabled()) {

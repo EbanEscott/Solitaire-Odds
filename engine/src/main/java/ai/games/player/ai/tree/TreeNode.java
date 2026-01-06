@@ -284,6 +284,15 @@ public abstract class TreeNode {
     }
 
     /**
+     * Checks whether a move string is a "turn" command.
+     *
+     * @return true if the command starts with "turn" (case-insensitive), false otherwise
+     */
+    public boolean isTurn() {
+        return move != null && move.trim().toLowerCase().startsWith("turn");
+    }
+
+    /**
      * Prunes moves that shift a king between tableau columns without revealing new cards.
      *
      * <p><b>What does this prune?</b> If there are no face-down cards beneath a king in one
