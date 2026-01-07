@@ -46,21 +46,22 @@ public class AStarPlayer extends AIPlayer {
     private static final int MAX_OPEN_SET_SIZE = 5000;
 
     /** Root of the game tree, created at game start. */
-    private static AStarTreeNode root = null;
+    private AStarTreeNode root = null;
 
     /** Current position in the tree, advances after each move selection. */
-    private static AStarTreeNode current = null;
+    private AStarTreeNode current = null;
 
     /** Priority queue for A* expansion, ordered by f-score (lowest first). */
-    private static PriorityQueue<AStarTreeNode> openSet = null;
+    private PriorityQueue<AStarTreeNode> openSet = null;
 
     /** Best g-cost seen for each state key, for duplicate path pruning. */
-    private static Map<Long, Double> bestG = null;
+    private Map<Long, Double> bestG = null;
 
     /**
-     * Resets the static game tree state. Call this to start a fresh game.
+     * Resets the game tree state. Called automatically when root is null,
+     * but can be called explicitly to start a fresh game.
      */
-    public static void reset() {
+    public void reset() {
         root = null;
         current = null;
         openSet = null;

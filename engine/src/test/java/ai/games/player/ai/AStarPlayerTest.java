@@ -10,7 +10,6 @@ import ai.games.player.ai.astar.AStarTreeNode;
 import ai.games.unit.helpers.FoundationCountHelper;
 import ai.games.unit.helpers.TestGameStateBuilder;
 import java.util.List;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,12 +27,6 @@ import org.junit.jupiter.api.Test;
 class AStarPlayerTest {
 
     private static final int MAX_TEST_STEPS = 2000;
-
-    @BeforeEach
-    void setUp() {
-        // Reset static state before each test to ensure isolation
-        AStarPlayer.reset();
-    }
 
     /**
      * Tests that A* improves foundation count on a nearly-won game.
@@ -197,13 +190,13 @@ class AStarPlayerTest {
             applyCommand(solitaire, command);
         }
 
-        // Reset and start fresh
-        AStarPlayer.reset();
+        // Create a new player instance for a fresh game (no static state to reset)
+        AStarPlayer newAi = new AStarPlayer();
         
         // New game should work fine
         Solitaire newGame = new Solitaire(new Deck());
-        String command = ai.nextCommand(newGame, "", "");
-        assertNotNull(command, "Player should work after reset");
+        String command = newAi.nextCommand(newGame, "", "");
+        assertNotNull(command, "New player instance should work for new game");
     }
 
     // ========== Helper Methods ==========
