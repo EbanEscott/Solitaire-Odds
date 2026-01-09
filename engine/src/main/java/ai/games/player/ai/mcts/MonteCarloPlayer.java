@@ -129,6 +129,12 @@ public class MonteCarloPlayer extends AIPlayer {
                 }
                 // Phase 4: Backpropagation (one level is needed only as children are directly under current)
                 child.updateStats(reward);
+
+                // If we hit the sentinel penalty (-1.0), the move is undesirable (quit/useless/cycle).
+                // Running more rollouts for this move cannot improve its mean reward, so stop early.
+                if (reward == -1.0) {
+                    break;
+                }
             }
         }
         long elapsedMs = System.currentTimeMillis() - startTime;
