@@ -65,8 +65,30 @@ public class MonteCarloPlayer extends AIPlayer {
      */
     private MonteCarloTreeNode current;
 
+    /**
+     * Expected state key after the previously selected move is applied.
+     * Used to detect state drift when callers forget to apply the AI's chosen move.
+     */
+    private Long expectedNextStateKey;
+
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
+        // Validate that the caller applied the previously selected move.
+        // In PLAN mode, card identities may be masked/guessed, so the state key is not stable;
+        // we skip validation and clear the expectation.
+        if (expectedNextStateKey != null) {
+            if (solitaire.getMode() == Solitaire.GameMode.PLAN) {
+                expectedNextStateKey = null;
+            } else {
+                long actualKey = solitaire.getStateKey();
+                if (actualKey != expectedNextStateKey) {
+                    throw new IllegalStateException(
+                            "State drift detected: expected stateKey=" + expectedNextStateKey + " but was " + actualKey);
+                }
+                expectedNextStateKey = null;
+            }
+        }
+
         if (log.isTraceEnabled()) {
             log.trace(LegalMovesHelper.listLegalMoves(solitaire).toString());
         }
@@ -144,6 +166,9 @@ public class MonteCarloPlayer extends AIPlayer {
 
         // Advance current to selected child for next decision (root stays at the initial game state)
         current = bestChild;
+
+        // Record the state we expect to see on the next call (after the move is applied).
+        expectedNextStateKey = current.getState() != null ? current.getState().getStateKey() : null;
 
         if(log.isDebugEnabled()) {
             log.debug("MCTS selected '{}' with {} visits (highest mean reward)", bestMove, bestMeanReward);

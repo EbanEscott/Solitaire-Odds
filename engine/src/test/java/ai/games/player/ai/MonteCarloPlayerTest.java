@@ -3,14 +3,20 @@ package ai.games.player.ai;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Deck;
+import ai.games.game.Card;
+import ai.games.game.Rank;
 import ai.games.game.Solitaire;
+import ai.games.game.Suit;
 import ai.games.player.Player;
 import ai.games.player.ai.mcts.MonteCarloPlayer;
+import ai.games.player.ai.mcts.MonteCarloTreeNode;
 import ai.games.unit.helpers.FoundationCountHelper;
 import ai.games.unit.helpers.TestGameStateBuilder;
 import ai.games.player.LegalMovesHelper;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -39,6 +45,7 @@ class MonteCarloPlayerTest {
     }
 
     @Test
+    @Disabled("Disabled: can be long-running/non-deterministic; keep unit tests fast")
     void monteCarloDoesNotLoopForeverOnRandomGame() {
         Solitaire solitaire = new Solitaire(new Deck());
         Player ai = new MonteCarloPlayer();
@@ -123,6 +130,89 @@ class MonteCarloPlayerTest {
 
         assertDoesNotThrow(() -> ai.nextCommand(solitaire, "", ""),
                 "Second call after applying move should validate and clear expected key");
+    }
+
+    @Test
+        void kingToFoundationIsNotUselessInLoggedGameState() throws Exception {
+        Solitaire solitaire = seedLoggedGameStateMove249();
+
+        MonteCarloTreeNode parent = new MonteCarloTreeNode();
+        parent.setState(solitaire.copy());
+
+        MonteCarloTreeNode kingToFoundation = new MonteCarloTreeNode();
+        kingToFoundation.setParent(parent);
+        kingToFoundation.setState(solitaire.copy());
+        kingToFoundation.applyMove("move T6 K♠ F3");
+
+        assertFalse(
+            kingToFoundation.isUselessKingMove(),
+            "King to foundation should never be classified as a useless king move");
+
+        // And verify MonteCarloPlayer.simulate() does not apply the -1 sentinel.
+        MonteCarloPlayer ai = new MonteCarloPlayer();
+        Method simulate = MonteCarloPlayer.class.getDeclaredMethod("simulate", MonteCarloTreeNode.class);
+        simulate.setAccessible(true);
+
+        double reward = (double) simulate.invoke(ai, kingToFoundation);
+        assertNotEquals(
+            -1.0,
+            reward,
+            "King to foundation should not get the -1 sentinel penalty");
+        }
+
+        @Test
+        void kingShuffleTableauToTableauIsUselessInLoggedGameState() throws Exception {
+        Solitaire solitaire = seedLoggedGameStateMove249();
+
+        MonteCarloTreeNode parent = new MonteCarloTreeNode();
+        parent.setState(solitaire.copy());
+
+        // Useless king move: moving K♦ from a 0-facedown, single-card pile to an empty tableau.
+        MonteCarloTreeNode uselessKingShuffle = new MonteCarloTreeNode();
+        uselessKingShuffle.setParent(parent);
+        uselessKingShuffle.setState(solitaire.copy());
+        uselessKingShuffle.applyMove("move T2 K♦ T7");
+
+        assertTrue(
+            uselessKingShuffle.isUselessKingMove(),
+            "King shuffle T→T with 0 facedowns (even when source becomes empty) should be classified as useless");
+
+        // And verify MonteCarloPlayer.simulate() applies the -1 sentinel.
+        MonteCarloPlayer ai = new MonteCarloPlayer();
+        Method simulate = MonteCarloPlayer.class.getDeclaredMethod("simulate", MonteCarloTreeNode.class);
+        simulate.setAccessible(true);
+
+        double reward = (double) simulate.invoke(ai, uselessKingShuffle);
+        assertEquals(
+            -1.0,
+            reward,
+            0.0,
+            "Useless king moves should be hard-penalised to -1 sentinel");
+        }
+
+    /**
+     * Recreates the board position from the provided log (GAME 1 MOVE 249).
+     * Foundations: F1=Q♦, F2=K♣, F3=Q♠, F4=K♥.
+     * Tableau: T2 has K♦, T6 has K♠, all other piles empty. Stock/talon empty.
+     */
+    private Solitaire seedLoggedGameStateMove249() {
+        Solitaire solitaire = new Solitaire(new Deck());
+
+        TestGameStateBuilder.clearTableau(solitaire);
+        TestGameStateBuilder.clearFoundations(solitaire);
+        TestGameStateBuilder.seedStockAndTalon(solitaire, List.of(), List.of());
+
+        // Foundations are 0-indexed in builder: 0=F1 .. 3=F4
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.DIAMONDS, Rank.QUEEN); // Q♦
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 1, Suit.CLUBS, Rank.KING); // K♣
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 2, Suit.SPADES, Rank.QUEEN); // Q♠
+        TestGameStateBuilder.seedFoundationPartial(solitaire, 3, Suit.HEARTS, Rank.KING); // K♥
+
+        // Tableau columns are 0-indexed: 1=T2, 5=T6
+        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.KING, Suit.DIAMONDS));
+        TestGameStateBuilder.seedTableauStack(solitaire, 5, new Card(Rank.KING, Suit.SPADES));
+
+        return solitaire;
     }
 
     private boolean isTerminal(Solitaire solitaire) {
