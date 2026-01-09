@@ -48,7 +48,12 @@ public class MonteCarloPlayer extends AIPlayer {
      * Number of MCTS iterations (tree-building loops) per decision.
      * Higher values = stronger play but slower decisions.
      */
-    private static final int MCTS_ITERATIONS = 1024;
+    private static final int MCTS_ITERATIONS = 64;
+
+    /**
+     * Maximum simulation steps per playout to avoid infinite loops.
+     */
+    private static final int MAX_SIMULATION_STEPS = 128;
 
     /**
      * Persisted MCTS tree root across turns.
@@ -202,6 +207,7 @@ public class MonteCarloPlayer extends AIPlayer {
         leaf.setParent(node);
         // The possible moves from current state
         List<MonteCarloTreeNode> possibles = new ArrayList<>();
+        int steps = 0;
         do {
             List<String> legalMoves = LegalMovesHelper.listLegalMoves(leaf.getState());
             for(String move : legalMoves) {
@@ -216,8 +222,10 @@ public class MonteCarloPlayer extends AIPlayer {
                 }
             }
 
+            // Terminal state: no productive moves available (all filtered out).
+            // Treat this as the end of the rollout and evaluate from here.
             if(possibles.isEmpty()) {
-                throw new IllegalStateException("No possible moves during simulation from state: " + leaf.getState());
+                break;
             }
 
             // Randomly select one of the possible moves
@@ -231,6 +239,13 @@ public class MonteCarloPlayer extends AIPlayer {
             // Advance leaf but keep building the tree for cycle detection
             leaf.addChild(selected.getMove(), selected);
             leaf = selected;
+            steps++;
+            if(steps >= MAX_SIMULATION_STEPS) {
+                if(log.isTraceEnabled()) {
+                    log.trace("Maximum simulation steps {} reached, terminating playout.", MAX_SIMULATION_STEPS);
+                }
+                break;
+            }   
         } while (!leaf.isTerminal());
 
 
