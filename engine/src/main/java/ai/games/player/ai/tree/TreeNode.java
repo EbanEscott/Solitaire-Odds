@@ -163,6 +163,7 @@ public abstract class TreeNode {
         String trimmed = move.trim();
         if (trimmed.equalsIgnoreCase("turn")) {
             state.turnThree();
+            this.stateKey = state.getStateKey();
             return;
         }
         String[] parts = trimmed.split("\\s+");
@@ -173,6 +174,9 @@ public abstract class TreeNode {
                 state.moveCard(parts[1], null, parts[2]);
             }
         }
+
+        // Keep our cached key aligned with the mutated state.
+        this.stateKey = state.getStateKey();
     }
 
     /**
@@ -351,6 +355,13 @@ public abstract class TreeNode {
         if (move == null || state == null) {
             return false;
         }
+
+        // Classification must be based on the *pre-move* position.
+        // In search (MCTS/A*), nodes typically store the state *after* applying `move`.
+        // If we inspect `state` here, the source pile may already be empty, causing
+        // single-card king shuffles (the common case) to be missed.
+        Solitaire referenceState = (parent != null && parent.state != null) ? parent.state : state;
+
         String trimmed = move.trim();
         String[] parts = trimmed.split("\\s+");
         if (parts.length < 3) {
@@ -374,7 +385,7 @@ public abstract class TreeNode {
         } catch (NumberFormatException e) {
             return false;
         }
-        List<List<Card>> visibleTableau = state.getVisibleTableau();
+        List<List<Card>> visibleTableau = referenceState.getVisibleTableau();
         if (pileIndex < 0 || pileIndex >= visibleTableau.size()) {
             return false;
         }
@@ -399,7 +410,7 @@ public abstract class TreeNode {
 
         // Check the face-down count beneath this pile. If it's zero, revealing nothing means
         // the move doesn't make progress and can be pruned.
-        List<Integer> faceDowns = state.getTableauFaceDownCounts();
+        List<Integer> faceDowns = referenceState.getTableauFaceDownCounts();
         if (pileIndex < 0 || pileIndex >= faceDowns.size()) {
             return false;
         }

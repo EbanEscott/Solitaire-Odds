@@ -308,6 +308,36 @@ class TreeNodeTest {
         }
 
         @Test
+        void kingShuffleStillDetectedWhenChildStateIsAfterMove() {
+            // In search trees (MCTS/A*), a node's state is typically AFTER applying its move.
+            // Ensure useless-king classification is still correct by using the parent's pre-move state.
+            Solitaire before = new Solitaire(new Deck());
+            TestGameStateBuilder.clearTableau(before);
+            TestGameStateBuilder.clearFoundations(before);
+            TestGameStateBuilder.seedStockAndTalon(before, Collections.emptyList(), Collections.emptyList());
+
+            // T2 has a single king and 0 face-downs.
+            TestGameStateBuilder.seedTableauStack(before, 1, new Card(Rank.KING, Suit.DIAMONDS));
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(before);
+
+            // Child state is AFTER moving the king from T2 to empty T7.
+            Solitaire after = before.copy();
+            boolean success = after.moveCard("T2", "K♦", "T7");
+            assertTrue(success, "Test setup requires move T2 K♦ T7 to be legal");
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(after);
+            child.setMove("move T2 K♦ T7");
+
+            assertTrue(
+                    child.isUselessKingMove(),
+                    "Useless king shuffles should be detected even when the node's state is post-move");
+        }
+
+        @Test
         void kingTableauToTableauWithFaceDownsReturnsFalse() {
             // King in T1 with face-down cards beneath - moving reveals a card (useful)
             Solitaire solitaire = new Solitaire(new Deck());
@@ -341,6 +371,33 @@ class TreeNodeTest {
         }
 
         @Test
+        void kingToFoundationNotMisclassifiedWhenChildStateIsAfterMove() {
+            // Regression-style: ensure king-to-foundation moves never get swept into useless-king pruning.
+            Solitaire before = new Solitaire(new Deck());
+            TestGameStateBuilder.clearTableau(before);
+            TestGameStateBuilder.clearFoundations(before);
+            TestGameStateBuilder.seedStockAndTalon(before, Collections.emptyList(), Collections.emptyList());
+            TestGameStateBuilder.seedFoundationPartial(before, 2, Suit.SPADES, Rank.QUEEN); // F3 has Q♠
+            TestGameStateBuilder.seedTableauStack(before, 5, new Card(Rank.KING, Suit.SPADES)); // T6 has K♠
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(before);
+
+            Solitaire after = before.copy();
+            boolean success = after.moveCard("T6", "K♠", "F3");
+            assertTrue(success, "Test setup requires move T6 K♠ F3 to be legal");
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(after);
+            child.setMove("move T6 K♠ F3");
+
+            assertFalse(
+                    child.isUselessKingMove(),
+                    "King to foundation should not be classified as a useless king move, even post-move");
+        }
+
+        @Test
         void nonKingMoveReturnsFalse() {
             // Non-king moves are not affected by this check
             Solitaire solitaire = new Solitaire(new Deck());
@@ -371,6 +428,54 @@ class TreeNodeTest {
             node.setMove("move T1 K♠ T7");
 
             assertFalse(node.isUselessKingMove(), "Null state should not be useless king move");
+        }
+
+        @Test
+        void mctsStyleChildNodeUsesParentStateForUselessKingDetection() {
+            // This mimics how MCTS constructs nodes:
+            // - parent holds the pre-move state
+            // - child holds the post-move state (after applying the move)
+            // The useless-king classifier must still work even if the source pile becomes empty.
+            Solitaire solitaire = new Solitaire(new Deck());
+            TestGameStateBuilder.clearTableau(solitaire);
+            TestGameStateBuilder.clearFoundations(solitaire);
+            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+            // Single-card king pile with 0 facedowns.
+            TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.KING, Suit.DIAMONDS)); // T2
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire.copy());
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(solitaire.copy());
+            child.applyMove("move T2 K♦ T7");
+
+            assertTrue(child.isUselessKingMove(),
+                    "Child nodes storing post-move state should still detect useless king shuffles");
+        }
+
+        @Test
+        void mctsStyleChildNodeKingToFoundationIsNeverUseless() {
+            Solitaire solitaire = new Solitaire(new Deck());
+            TestGameStateBuilder.clearTableau(solitaire);
+            TestGameStateBuilder.clearFoundations(solitaire);
+            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+
+            // Make K♠ -> F3 legal by seeding spades foundation up to Q♠.
+            TestGameStateBuilder.seedFoundationPartial(solitaire, 2, Suit.SPADES, Rank.QUEEN);
+            TestGameStateBuilder.seedTableauStack(solitaire, 5, new Card(Rank.KING, Suit.SPADES)); // T6
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire.copy());
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(solitaire.copy());
+            child.applyMove("move T6 K♠ F3");
+
+            assertFalse(child.isUselessKingMove(), "King to foundation should not be flagged as useless");
         }
     }
 
