@@ -9,31 +9,31 @@ Run player benchmarks with copy-paste commands.
 ./gradlew test --tests "ai.games.results.**"
 
 # A* Search
-./gradlew test --tests "ai.games.results.AStarPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.AStarPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # Greedy Search
-./gradlew test --tests "ai.games.results.GreedySearchPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.GreedySearchPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # Beam Search
-./gradlew test --tests "ai.games.results.BeamSearchPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.BeamSearchPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # Hill Climber
-./gradlew test --tests "ai.games.results.HillClimberPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.HillClimberPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # Monte Carlo
-./gradlew test --tests "ai.games.results.MonteCarloPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.MonteCarloPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # Rule-Based Heuristics
-./gradlew test --tests "ai.games.results.RuleBasedHeuristicsPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.RuleBasedHeuristicsPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # OpenAI GPT
-./gradlew test --tests "ai.games.results.OpenAIPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.OpenAIPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # Ollama Local
-./gradlew test --tests "ai.games.results.OllamaPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.OllamaPlayerResultsTest" --rerun-tasks -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 
 # AlphaSolitaire
-./gradlew test --tests "ai.games.results.AlphaSolitairePlayerResultsTest" --rerun-tasks -Dalphasolitaire.tests=true -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=10 -Dtest.games=100
+./gradlew test --tests "ai.games.results.AlphaSolitairePlayerResultsTest" --rerun-tasks -Dalphasolitaire.tests=true -Dtest.max.moves.per.game=1000 -Dtest.progress.log.interval=1 -Dtest.games=100
 ```
 
 ## Configuration

@@ -1,7 +1,6 @@
 package ai.games.player.ai.mcts;
 
 import ai.games.player.ai.tree.TreeNode;
-import java.util.List;
 
 /**
  * Monte Carlo Tree Node specialisation for MCTS-based search.
@@ -139,6 +138,14 @@ public class MonteCarloTreeNode extends TreeNode {
      */
     public int getVisits() {
         return visits;
+    }
+
+    /**
+     *  Resets the visit count and total reward for this node. 
+     */
+    public void resetStats() {
+        this.visits = 0;
+        this.totalReward = 0.0;
     }
 
     /**

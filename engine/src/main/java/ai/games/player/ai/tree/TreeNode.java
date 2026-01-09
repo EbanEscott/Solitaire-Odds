@@ -143,11 +143,35 @@ public abstract class TreeNode {
 
     /**
      * Set the move string that led to this node.
-     * 
+     *
      * @param move the move string
      */
     public void setMove(String move) {
         this.move = move;
+    }
+
+    /**
+     * Applies a move command to a Solitaire state.
+     *
+     * @param move the move command ("turn" or "move X [card] Y")
+     */
+    public void applyMove(String move) {
+        if (move == null || state == null) {
+            throw new IllegalArgumentException("Move and state cannot be null");
+        }
+        String trimmed = move.trim();
+        if (trimmed.equalsIgnoreCase("turn")) {
+            state.turnThree();
+            return;
+        }
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
+            if (parts.length == 4) {
+                state.moveCard(parts[1], parts[2], parts[3]);
+            } else {
+                state.moveCard(parts[1], null, parts[2]);
+            }
+        }
     }
 
     /**

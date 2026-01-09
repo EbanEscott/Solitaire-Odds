@@ -204,12 +204,11 @@ public class AStarPlayer extends AIPlayer {
 
                 // Create child state by copying and applying move
                 Solitaire childState = node.copyState();
-                applyMove(childState, moveCmd);
-
-                // Create child node
+ 
+                // Create child node amd apply move
                 AStarTreeNode child = new AStarTreeNode();
                 child.setState(childState);
-                child.setMove(moveCmd);
+                child.applyMove(moveCmd);
                 child.setParent(node);
                 node.addChild(moveCmd, child);
 
@@ -305,31 +304,6 @@ public class AStarPlayer extends AIPlayer {
         }
 
         return selectedMove != null ? selectedMove : "quit";
-    }
-
-    /**
-     * Applies a move command to a Solitaire state.
-     *
-     * @param solitaire the state to modify
-     * @param move      the move command ("turn" or "move X [card] Y")
-     */
-    private void applyMove(Solitaire solitaire, String move) {
-        if (move == null || solitaire == null) {
-            return;
-        }
-        String trimmed = move.trim();
-        if (trimmed.equalsIgnoreCase("turn")) {
-            solitaire.turnThree();
-            return;
-        }
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
-            if (parts.length == 4) {
-                solitaire.moveCard(parts[1], parts[2], parts[3]);
-            } else {
-                solitaire.moveCard(parts[1], null, parts[2]);
-            }
-        }
     }
 
     /**
