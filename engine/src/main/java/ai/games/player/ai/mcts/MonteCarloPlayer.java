@@ -204,7 +204,6 @@ public class MonteCarloPlayer extends AIPlayer {
         List<MonteCarloTreeNode> possibles = new ArrayList<>();
         do {
             List<String> legalMoves = LegalMovesHelper.listLegalMoves(leaf.getState());
-            legalMoves.removeIf(m -> m.equalsIgnoreCase("quit"));
             for(String move : legalMoves) {
                 MonteCarloTreeNode possible = new MonteCarloTreeNode();
                 possible.setParent(leaf);
@@ -212,7 +211,7 @@ public class MonteCarloPlayer extends AIPlayer {
                 possible.applyMove(move);
 
                 // Filter out undesirable moves
-                if(!possible.isCycleDetected() && !possible.isUselessKingMove()) {
+                if(!possible.isQuit() &&!possible.isCycleDetected() && !possible.isUselessKingMove()) {
                     possibles.add(possible);
                 }
             }
@@ -224,6 +223,10 @@ public class MonteCarloPlayer extends AIPlayer {
             // Randomly select one of the possible moves
             int idx = (int)(Math.random() * possibles.size());
             MonteCarloTreeNode selected = possibles.get(idx);
+            if(log.isTraceEnabled()) {
+                List<String> moveStrings = possibles.stream().map(MonteCarloTreeNode::getMove).toList();
+                log.trace("Move: {} [{}]", selected.getMove(), moveStrings);
+            }
             possibles.clear();
             // Advance leaf but keep building the tree for cycle detection
             leaf.addChild(selected.getMove(), selected);

@@ -159,6 +159,7 @@ public abstract class TreeNode {
         if (move == null || state == null) {
             throw new IllegalArgumentException("Move and state cannot be null");
         }
+        this.move = move;
         String trimmed = move.trim();
         if (trimmed.equalsIgnoreCase("turn")) {
             state.turnThree();
