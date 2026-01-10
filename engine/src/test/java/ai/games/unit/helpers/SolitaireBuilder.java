@@ -198,7 +198,7 @@ public final class SolitaireBuilder {
         // Reflectively seed internal state (tests only).
         setSolitaireStateViaReflection(s);
 
-        validate(s);
+        assertValidGameState(s);
         return s;
     }
 
@@ -223,7 +223,14 @@ public final class SolitaireBuilder {
      * <p><strong>Why strict?</strong> If a test fails because the setup was illegal, you want the
      * failure to be immediate and obvious, not a downstream "move failed" that wastes time.
      */
-    private void validate(Solitaire s) {
+    /**
+     * Validates a Solitaire state with the same strict invariants enforced by {@link #build()}.
+     *
+     * <p><strong>Why public?</strong> Many tests start from a real dealt game (or apply additional
+     * mutations like reverse-moves) and still want the same "complete, coherent, 52-unique-cards"
+     * validation without going through the builder.
+     */
+    public static void assertValidGameState(Solitaire s) {
         if (s.getMode() != Solitaire.GameMode.GAME) {
             throw new IllegalStateException("Builder only produces GAME mode states.");
         }
@@ -363,7 +370,7 @@ public final class SolitaireBuilder {
      * <p><strong>Why:</strong> auto-filled cards should be predictable so tests are reproducible.
      * This is intentionally not shuffled.
      */
-    private static List<Card> fullDeckInStableOrder() {
+    static List<Card> fullDeckInStableOrder() {
         List<Card> deck = new ArrayList<>(52);
         for (Suit suit : Suit.values()) {
             if (suit == Suit.UNKNOWN) {
@@ -417,7 +424,7 @@ public final class SolitaireBuilder {
     * directly into {@code Solitaire.attemptMove(...)} and relies on {@code Card.shortName()} matching.
     * Keeping test parsing consistent avoids having tests accept inputs the real game would reject.
      */
-    private static Card parseCard(String shortName) {
+    static Card parseCard(String shortName) {
         if (shortName == null || shortName.trim().isEmpty()) {
             throw new IllegalArgumentException("Empty card");
         }

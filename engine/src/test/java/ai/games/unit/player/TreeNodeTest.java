@@ -3,17 +3,10 @@ package ai.games.unit.player;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.games.game.Card;
-import ai.games.game.Deck;
-import ai.games.game.Rank;
-import ai.games.game.Suit;
 import ai.games.game.Solitaire;
 import ai.games.player.ai.mcts.MonteCarloTreeNode;
-import ai.games.unit.helpers.SolitaireTestHelper;
-import ai.games.unit.helpers.TestGameStateBuilder;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import ai.games.unit.helpers.SolitaireBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -43,8 +36,7 @@ class TreeNodeTest {
 
         @Test
         void emptyFoundationsReturnsFalse() {
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearFoundations(solitaire);
+            Solitaire solitaire = SolitaireFactory.stockOnly();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -54,11 +46,11 @@ class TreeNodeTest {
 
         @Test
         void partialFoundationsReturnsFalse() {
-            Solitaire solitaire = new Solitaire(new Deck());
-            // Seed F1 with A♠ through K♠ (13 cards)
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.SPADES, Rank.KING);
-            // Seed F2 with A♥ through 5♥ (5 cards)
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 1, Suit.HEARTS, Rank.FIVE);
+            Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .foundation("F1", SolitaireFactory.foundationUpTo(ai.games.game.Suit.SPADES, ai.games.game.Rank.KING))
+                    .foundation("F2", SolitaireFactory.foundationUpTo(ai.games.game.Suit.HEARTS, ai.games.game.Rank.FIVE))
+                    .build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -68,15 +60,7 @@ class TreeNodeTest {
 
         @Test
         void allFourFoundationsCompleteReturnsTrue() {
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-
-            // Complete all four foundations (13 cards each = 52 total)
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.SPADES, Rank.KING);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 1, Suit.HEARTS, Rank.KING);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 2, Suit.DIAMONDS, Rank.KING);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 3, Suit.CLUBS, Rank.KING);
+            Solitaire solitaire = SolitaireFactory.wonGame();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -103,13 +87,7 @@ class TreeNodeTest {
 
         @Test
         void wonGameReturnsTrue() {
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.SPADES, Rank.KING);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 1, Suit.HEARTS, Rank.KING);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 2, Suit.DIAMONDS, Rank.KING);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 3, Suit.CLUBS, Rank.KING);
+            Solitaire solitaire = SolitaireFactory.wonGame();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -120,12 +98,8 @@ class TreeNodeTest {
         @Test
         void gameWithLegalMovesReturnsFalse() {
             // Create a simple game with at least one legal move
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
             // Put A♠ in T1 - can move to empty foundation
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.ACE, Suit.SPADES));
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+            Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "A♠").build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -139,17 +113,11 @@ class TreeNodeTest {
             // Note: LegalMovesHelper always includes "quit" as a legal command,
             // so isTerminal() will return false even when no progress moves exist.
             // This test documents this behavior.
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-
-            // Put cards that cannot make any progress moves:
-            // 2♠ and 3♠ in different columns - they can't stack (same color),
-            // can't go to foundation (no Ace), can't go to empty columns (not Kings).
-            // Stock is empty, so no "turn" either. Only "quit" is available.
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.TWO, Suit.SPADES));
-            TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.THREE, Suit.SPADES));
+            Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .tableau("T1", "2♠")
+                    .tableau("T2", "3♠")
+                    .build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -294,11 +262,7 @@ class TreeNodeTest {
         @Test
         void kingTableauToTableauWithNoFaceDownsReturnsTrue() {
             // King in T1 with 0 face-downs, moving to empty T7 is useless
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.KING, Suit.SPADES));
-            // T1 now has K♠ face-up, 0 face-down cards beneath
+            Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "K♠").build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -311,13 +275,8 @@ class TreeNodeTest {
         void kingShuffleStillDetectedWhenChildStateIsAfterMove() {
             // In search trees (MCTS/A*), a node's state is typically AFTER applying its move.
             // Ensure useless-king classification is still correct by using the parent's pre-move state.
-            Solitaire before = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(before);
-            TestGameStateBuilder.clearFoundations(before);
-            TestGameStateBuilder.seedStockAndTalon(before, Collections.emptyList(), Collections.emptyList());
-
             // T2 has a single king and 0 face-downs.
-            TestGameStateBuilder.seedTableauStack(before, 1, new Card(Rank.KING, Suit.DIAMONDS));
+            Solitaire before = SolitaireBuilder.newGame().tableau("T2", "K♦").build();
 
             MonteCarloTreeNode parent = new MonteCarloTreeNode();
             parent.setState(before);
@@ -340,13 +299,10 @@ class TreeNodeTest {
         @Test
         void kingTableauToTableauWithFaceDownsReturnsFalse() {
             // King in T1 with face-down cards beneath - moving reveals a card (useful)
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            // Put K♠ on top with a face-down card beneath
-            TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 0, 1,
-                    new Card(Rank.ACE, Suit.HEARTS),  // face-down
-                    new Card(Rank.KING, Suit.SPADES)); // face-up
+            Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .tableau("T1", 1, "A♥", "K♠")
+                .build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -358,10 +314,11 @@ class TreeNodeTest {
         @Test
         void kingTableauToFoundationReturnsFalse() {
             // King to foundation is always useful (completes a suit)
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.SPADES, Rank.QUEEN);
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.KING, Suit.SPADES));
+            Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .foundation("F1", SolitaireFactory.foundationUpTo(ai.games.game.Suit.SPADES, ai.games.game.Rank.QUEEN))
+                    .tableau("T1", "K♠")
+                    .build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -373,12 +330,11 @@ class TreeNodeTest {
         @Test
         void kingToFoundationNotMisclassifiedWhenChildStateIsAfterMove() {
             // Regression-style: ensure king-to-foundation moves never get swept into useless-king pruning.
-            Solitaire before = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(before);
-            TestGameStateBuilder.clearFoundations(before);
-            TestGameStateBuilder.seedStockAndTalon(before, Collections.emptyList(), Collections.emptyList());
-            TestGameStateBuilder.seedFoundationPartial(before, 2, Suit.SPADES, Rank.QUEEN); // F3 has Q♠
-            TestGameStateBuilder.seedTableauStack(before, 5, new Card(Rank.KING, Suit.SPADES)); // T6 has K♠
+            Solitaire before = SolitaireBuilder
+                    .newGame()
+                    .foundation("F3", SolitaireFactory.foundationUpTo(ai.games.game.Suit.SPADES, ai.games.game.Rank.QUEEN))
+                    .tableau("T6", "K♠")
+                    .build();
 
             MonteCarloTreeNode parent = new MonteCarloTreeNode();
             parent.setState(before);
@@ -400,10 +356,11 @@ class TreeNodeTest {
         @Test
         void nonKingMoveReturnsFalse() {
             // Non-king moves are not affected by this check
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.QUEEN, Suit.SPADES));
-            TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.KING, Suit.HEARTS));
+            Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .tableau("T1", "Q♠")
+                    .tableau("T2", "K♥")
+                    .build();
 
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
@@ -414,7 +371,7 @@ class TreeNodeTest {
 
         @Test
         void nullMoveReturnsFalse() {
-            Solitaire solitaire = new Solitaire(new Deck());
+            Solitaire solitaire = SolitaireFactory.stockOnly();
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
             node.setMove(null);
@@ -436,13 +393,8 @@ class TreeNodeTest {
             // - parent holds the pre-move state
             // - child holds the post-move state (after applying the move)
             // The useless-king classifier must still work even if the source pile becomes empty.
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-
             // Single-card king pile with 0 facedowns.
-            TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.KING, Suit.DIAMONDS)); // T2
+            Solitaire solitaire = SolitaireBuilder.newGame().tableau("T2", "K♦").build();
 
             MonteCarloTreeNode parent = new MonteCarloTreeNode();
             parent.setState(solitaire.copy());
@@ -458,14 +410,12 @@ class TreeNodeTest {
 
         @Test
         void mctsStyleChildNodeKingToFoundationIsNeverUseless() {
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-
             // Make K♠ -> F3 legal by seeding spades foundation up to Q♠.
-            TestGameStateBuilder.seedFoundationPartial(solitaire, 2, Suit.SPADES, Rank.QUEEN);
-            TestGameStateBuilder.seedTableauStack(solitaire, 5, new Card(Rank.KING, Suit.SPADES)); // T6
+            Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .foundation("F3", SolitaireFactory.foundationUpTo(ai.games.game.Suit.SPADES, ai.games.game.Rank.QUEEN))
+                    .tableau("T6", "K♠")
+                    .build();
 
             MonteCarloTreeNode parent = new MonteCarloTreeNode();
             parent.setState(solitaire.copy());
@@ -560,29 +510,13 @@ class TreeNodeTest {
         @Test
         @DisplayName("Stock cycle: full cycle with interim move breaks the cycle")
         void stockCycleWithInterimMoveBreaksCycle() {
-            // Setup: Game with small stock AND a card that can be moved to foundation.
-            // If we cycle the stock but also make a progress move in between,
-            // the state is different and should NOT be detected as a cycle.
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-
-            // Put A♠ in T1 - can be moved to F1 later
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.ACE, Suit.SPADES));
-            // Put 2♠ in T2 - can be moved to F1 after Ace
-            TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.TWO, Suit.SPADES));
-
-            // Small stock for quick cycling (6 cards)
-            List<Card> stock = Arrays.asList(
-                    new Card(Rank.THREE, Suit.HEARTS),
-                    new Card(Rank.FOUR, Suit.HEARTS),
-                    new Card(Rank.FIVE, Suit.HEARTS),
-                    new Card(Rank.SIX, Suit.HEARTS),
-                    new Card(Rank.SEVEN, Suit.HEARTS),
-                    new Card(Rank.EIGHT, Suit.HEARTS)
-            );
-            SolitaireTestHelper.setStockpile(solitaire, stock);
-            SolitaireTestHelper.setTalon(solitaire, Collections.emptyList());
+            // Setup: stock cycling plus a progress move that changes state.
+            // We don't need the stock to be tiny here; we just need multiple turns and a move.
+            Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "A♠")
+                .tableau("T2", "2♠")
+                .build();
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
@@ -616,18 +550,11 @@ class TreeNodeTest {
             // Setup: red 7 on black 8 in T1, another black 8 in T2.
             // Move red 7 to T2, then back to T1 = same state as original.
             // Do it twice = cycle detected.
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-
-            // T1: 8♠ (black) with 7♥ (red) on top
-            TestGameStateBuilder.seedTableauStack(solitaire, 0,
-                    new Card(Rank.EIGHT, Suit.SPADES),
-                    new Card(Rank.SEVEN, Suit.HEARTS));
-            // T2: 8♣ (black) - can accept 7♥
-            TestGameStateBuilder.seedTableauStack(solitaire, 1,
-                    new Card(Rank.EIGHT, Suit.CLUBS));
+                Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .tableau("T1", "8♠", "7♥")
+                    .tableau("T2", "8♣")
+                    .build();
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
@@ -650,16 +577,11 @@ class TreeNodeTest {
         void tableauFirstRoundTripNotCycle() {
             // Same setup as above, but only one round-trip (A→B→A).
             // This is the first occurrence of the original state, so no cycle yet.
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
-
-            TestGameStateBuilder.seedTableauStack(solitaire, 0,
-                    new Card(Rank.EIGHT, Suit.SPADES),
-                    new Card(Rank.SEVEN, Suit.HEARTS));
-            TestGameStateBuilder.seedTableauStack(solitaire, 1,
-                    new Card(Rank.EIGHT, Suit.CLUBS));
+                Solitaire solitaire = SolitaireBuilder
+                    .newGame()
+                    .tableau("T1", "8♠", "7♥")
+                    .tableau("T2", "8♣")
+                    .build();
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
@@ -721,7 +643,7 @@ class TreeNodeTest {
 
         @Test
         void noAncestorsReturnsFalse() {
-            Solitaire solitaire = new Solitaire(new Deck());
+            Solitaire solitaire = SolitaireFactory.stockOnly();
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
             root.setMove("turn");
@@ -740,7 +662,7 @@ class TreeNodeTest {
 
         @Test
         void nullMoveReturnsFalse() {
-            Solitaire solitaire = new Solitaire(new Deck());
+            Solitaire solitaire = SolitaireFactory.stockOnly();
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
             // move is null by default
@@ -753,12 +675,8 @@ class TreeNodeTest {
         void deepTreeWithoutCycleReturnsFalse() {
             // Build a tree with progress at each step (no cycles)
             // Create a simple game and make a progress move (Ace to foundation)
-            Solitaire solitaire = new Solitaire(new Deck());
-            TestGameStateBuilder.clearTableau(solitaire);
-            TestGameStateBuilder.clearFoundations(solitaire);
-            TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
             // Put A♠ in T1 - can move to F1
-            TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.ACE, Suit.SPADES));
+            Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "A♠").build();
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
@@ -783,38 +701,17 @@ class TreeNodeTest {
      * @return a Solitaire game with the specified stock size
      */
     private Solitaire createSmallStockGame(int stockSize) {
-        Solitaire solitaire = new Solitaire(new Deck());
-        List<Card> deck = SolitaireTestHelper.fullDeck();
-
-        // Take cards for stock
-        List<Card> stock = new java.util.ArrayList<>();
-        for (int i = 0; i < stockSize && !deck.isEmpty(); i++) {
-            stock.add(deck.remove(0));
+        String[] stock;
+        if (stockSize == 3) {
+            stock = new String[] {"A♣", "2♣", "3♣"};
+        } else if (stockSize == 6) {
+            stock = new String[] {"A♣", "2♣", "3♣", "4♣", "5♣", "6♣"};
+        } else {
+            throw new IllegalArgumentException("Unsupported stockSize=" + stockSize + " (expected 3 or 6)");
         }
 
-        // Clear tableau
-        TestGameStateBuilder.clearTableau(solitaire);
-        
-        // Put remaining cards in foundations (simplified - just stuff them in)
-        // This isn't a valid game state but works for cycle detection testing
-        List<List<Card>> foundations = Arrays.asList(
-                new java.util.ArrayList<>(),
-                new java.util.ArrayList<>(),
-                new java.util.ArrayList<>(),
-                new java.util.ArrayList<>()
-        );
-        int idx = 0;
-        for (Card c : deck) {
-            foundations.get(idx % 4).add(c);
-            idx++;
-        }
-        SolitaireTestHelper.setFoundation(solitaire, foundations);
-        
-        // Set stock and empty talon
-        SolitaireTestHelper.setStockpile(solitaire, stock);
-        SolitaireTestHelper.setTalon(solitaire, Collections.emptyList());
-
-        return solitaire;
+        // Keep stock exact, dump the remaining cards into tableau T7.
+        return SolitaireFactory.withExactStockAndWaste(stock, new String[] {});
     }
 
     /**

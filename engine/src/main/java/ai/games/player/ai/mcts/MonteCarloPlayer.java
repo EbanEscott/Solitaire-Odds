@@ -239,7 +239,7 @@ public class MonteCarloPlayer extends AIPlayer {
         // The possible moves from current state
         List<MonteCarloTreeNode> possibles = new ArrayList<>();
         int steps = 0;
-        do {
+        while (!leaf.isTerminal()) {
             List<String> legalMoves = LegalMovesHelper.listLegalMoves(leaf.getState());
             for(String move : legalMoves) {
                 MonteCarloTreeNode possible = new MonteCarloTreeNode();
@@ -277,7 +277,7 @@ public class MonteCarloPlayer extends AIPlayer {
                 }
                 break;
             }   
-        } while (!leaf.isTerminal());
+        }
 
 
         // Get the score and normalise it
