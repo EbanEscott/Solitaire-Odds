@@ -4,8 +4,8 @@ import ai.games.Game;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
 import ai.games.player.ai.astar.AStarPlayer;
-import ai.games.training.ReverseMovesApplier;
-import ai.games.unit.helpers.SolitaireTestHelper;
+import ai.games.unit.helpers.SolitaireBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,8 +94,8 @@ public class WalkthroughGameTest {
         log.info("Reconstructing game with {} reverse moves", reverseMoves.size());
 
         // Start with a completely won board
-        Solitaire board = createCompletelyWonBoard();
-        SolitaireTestHelper.assertFullDeckState(board);
+        Solitaire board = SolitaireFactory.wonGame();
+        SolitaireBuilder.assertValidGameState(board);
 
         // Apply the reverse moves to reconstruct the game state
         for (int i = 0; i < reverseMoves.size(); i++) {
@@ -122,47 +122,12 @@ public class WalkthroughGameTest {
     }
 
     /**
-     * Creates a Solitaire board with all 52 cards on foundations (completely won state).
-     * Copied from TrainingOpponent for convenience.
-     */
-    private Solitaire createCompletelyWonBoard() {
-        List<List<ai.games.game.Card>> foundationPiles = new ArrayList<>();
-        for (ai.games.game.Suit suit : ai.games.game.Suit.values()) {
-            List<ai.games.game.Card> suitPile = new ArrayList<>();
-            for (ai.games.game.Rank rank : ai.games.game.Rank.values()) {
-                suitPile.add(new ai.games.game.Card(rank, suit));
-            }
-            foundationPiles.add(suitPile);
-        }
-
-        Solitaire dummy = new Solitaire(new ai.games.game.Deck());
-
-        SolitaireTestHelper.setTableau(dummy,
-                List.of(
-                        SolitaireTestHelper.emptyPile(),
-                        SolitaireTestHelper.emptyPile(),
-                        SolitaireTestHelper.emptyPile(),
-                        SolitaireTestHelper.emptyPile(),
-                        SolitaireTestHelper.emptyPile(),
-                        SolitaireTestHelper.emptyPile(),
-                        SolitaireTestHelper.emptyPile()
-                ),
-                List.of(0, 0, 0, 0, 0, 0, 0)
-        );
-        SolitaireTestHelper.setFoundation(dummy, foundationPiles);
-        SolitaireTestHelper.setTalon(dummy, SolitaireTestHelper.emptyPile());
-        SolitaireTestHelper.setStockpile(dummy, SolitaireTestHelper.emptyPile());
-
-        return dummy;
-    }
-
-    /**
      * Logs the current board state for reference.
      */
     private void logBoardState(Solitaire solitaire) {
         log.info("Board state:");
         log.info("  Foundations: {}", stripAnsi(solitaire.getFoundation().toString()));
-        log.info("  Tableau visible: {}", stripAnsi(solitaire.getTableau().toString()));
+        log.info("  Tableau visible: {}", stripAnsi(solitaire.getVisibleTableau().toString()));
         log.info("  Talon: {}", stripAnsi(solitaire.getTalon().toString()));
         log.info("  Stock size: {}", solitaire.getStockpile().size());
     }

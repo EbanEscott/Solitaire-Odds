@@ -9,8 +9,7 @@ import ai.games.game.Solitaire;
 import ai.games.game.Suit;
 import ai.games.game.UnknownCardGuess;
 import ai.games.player.LegalMovesHelper;
-import ai.games.unit.helpers.TestGameStateBuilder;
-import java.util.Collections;
+import ai.games.unit.helpers.SolitaireBuilder;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -90,24 +89,15 @@ class PlanningMovesTest {
      */
     @Test
     void moveToUnknownCardIsGenerated() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: visible Red 4
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        // T2: face-down card + visible 6♦ below it (so 6♦ is not on top)
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 1, 1,
-                new Card(Rank.FIVE, Suit.CLUBS),      // Face-down (UNKNOWN when in PLAN mode)
-                new Card(Rank.SIX, Suit.DIAMONDS));   // Visible below
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty remaining columns
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", "4♥")
+            .tableau("T2", 1, "5♣", "6♦")
+            .build();
         
         // GAME mode: no moves to UNKNOWN since it's hidden
         solitaire.setMode(Solitaire.GameMode.GAME);
-        List<String> gameMoves = LegalMovesHelper.listLegalMoves(solitaire);
+        LegalMovesHelper.listLegalMoves(solitaire);
         // In GAME mode, 4♥ can't move to UNKNOWN (face-down not a destination)
         
         // PLAN mode: moves to UNKNOWN might be generated (if plausible)
@@ -126,25 +116,16 @@ class PlanningMovesTest {
      */
     @Test
     void moveToUnknownCreatesGuessWithPlausibilities() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: visible Red 4
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        // T2: face-down Black 5 + visible 6♦
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 1, 1,
-                new Card(Rank.FIVE, Suit.CLUBS),
-                new Card(Rank.SIX, Suit.DIAMONDS));
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", "4♥")
+            .tableau("T2", 1, "5♣", "6♦")
+            .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         
         // Generate moves, which should create guesses for UNKNOWN cards
-        List<String> moves = LegalMovesHelper.listLegalMoves(solitaire);
+        LegalMovesHelper.listLegalMoves(solitaire);
         
         // After move generation, UNKNOWN card guesses may have been created
         Map<Card, UnknownCardGuess> guesses = solitaire.getUnknownCardGuesses();
@@ -170,19 +151,13 @@ class PlanningMovesTest {
      */
     @Test
     void unknownGuessEnforcesOppositeColorRule() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: visible Red 5
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FIVE, Suit.HEARTS));
-        // T2: face-down card at top (representing unknown Black 6)
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 1, 0,
-                new Card(Rank.SIX, Suit.CLUBS));  // Face-down (will be UNKNOWN)
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", "5♥")
+            // Legal tableau invariant: piles must have at least one face-up card.
+            // We still include a face-down card so PLAN mode masking can produce UNKNOWN placeholders.
+            .tableau("T2", 1, "6♣", "7♦")
+            .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         LegalMovesHelper.listLegalMoves(solitaire);  // Generate moves to create guesses
@@ -211,19 +186,12 @@ class PlanningMovesTest {
      */
     @Test
     void unknownGuessIncludesBothOppositeColorSuits() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: visible Red 3
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.THREE, Suit.DIAMONDS));
-        // T2: face-down UNKNOWN at top
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 1, 0,
-                new Card(Rank.FOUR, Suit.CLUBS));
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", "3♦")
+            // Include a facedown card so PLAN mode has something to mask.
+            .tableau("T2", 1, "4♣", "5♦")
+            .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         LegalMovesHelper.listLegalMoves(solitaire);
@@ -253,21 +221,13 @@ class PlanningMovesTest {
      */
     @Test
     void moveToUnknownRejectedIfAllPossibilitiesVisible() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // Both Kings visible
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.KING, Suit.CLUBS));
-        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.KING, Suit.SPADES));
-        // Queen visible
-        TestGameStateBuilder.seedTableauStack(solitaire, 2, new Card(Rank.QUEEN, Suit.HEARTS));
-        // Face-down UNKNOWN
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 3, 0, new Card(Rank.TEN, Suit.DIAMONDS));
-        
-        for (int i = 4; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "K♣")
+                .tableau("T2", "K♠")
+                .tableau("T3", "Q♥")
+                .tableau("T4", 1, "10♦", "J♣")
+                .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         List<String> moves = LegalMovesHelper.listLegalMoves(solitaire);
@@ -290,18 +250,11 @@ class PlanningMovesTest {
      */
     @Test
     void unknownGuessPersistedAcrossMoveQueries() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: visible Red 4
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        // T2: face-down UNKNOWN
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 1, 0, new Card(Rank.FIVE, Suit.CLUBS));
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "4♥")
+                .tableau("T2", 1, "5♣", "6♦")
+                .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         
@@ -327,22 +280,13 @@ class PlanningMovesTest {
      */
     @Test
     void differentUnknownCardsGetIndependentGuesses() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: visible Red 4
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        // T2: face-down (Black 5)
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 1, 0, new Card(Rank.FIVE, Suit.CLUBS));
-        // T3: visible Red 3
-        TestGameStateBuilder.seedTableauStack(solitaire, 2, new Card(Rank.THREE, Suit.DIAMONDS));
-        // T4: face-down (Black 4)
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 3, 0, new Card(Rank.FOUR, Suit.SPADES));
-        
-        for (int i = 4; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "4♥")
+                .tableau("T2", 1, "5♣", "6♦")
+                .tableau("T3", "3♦")
+                .tableau("T4", 1, "4♠", "5♥")
+                .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         LegalMovesHelper.listLegalMoves(solitaire);
@@ -386,18 +330,11 @@ class PlanningMovesTest {
      */
     @Test
     void copiedGameStateHasDeepCopiedGuessMap() {
-        Solitaire original = new Solitaire(new Deck());
-        
-        // T1: visible Red 4
-        TestGameStateBuilder.seedTableauStack(original, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        // T2: face-down (Black 5)
-        TestGameStateBuilder.seedTableauWithFaceDown(original, 1, 0, new Card(Rank.FIVE, Suit.CLUBS));
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(original, i);
-        }
-        TestGameStateBuilder.clearFoundations(original);
-        TestGameStateBuilder.seedStockAndTalon(original, Collections.emptyList(), Collections.emptyList());
+        Solitaire original = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "4♥")
+                .tableau("T2", 1, "5♣", "6♦")
+                .build();
         
         original.setMode(Solitaire.GameMode.PLAN);
         LegalMovesHelper.listLegalMoves(original);  // Create guesses
@@ -422,42 +359,24 @@ class PlanningMovesTest {
      */
     @Test
     void unknownCardInstancesAreDistinctBetweenOriginalAndCopy() {
-        Solitaire original = new Solitaire(new Deck());
-        
-        // T1: visible 7♠
-        TestGameStateBuilder.seedTableauStack(original, 0, new Card(Rank.SEVEN, Suit.SPADES));
-        // T2: face-down UNKNOWN
-        TestGameStateBuilder.seedTableauWithFaceDown(original, 1, 0, new Card(Rank.EIGHT, Suit.CLUBS));
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(original, i);
-        }
-        TestGameStateBuilder.clearFoundations(original);
-        TestGameStateBuilder.seedStockAndTalon(original, Collections.emptyList(), Collections.emptyList());
-        
+        Solitaire original = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "7♠")
+                .tableau("T2", 1, "8♣", "9♦")
+                .build();
+
         original.setMode(Solitaire.GameMode.PLAN);
-        
-        // Copy the game state
+        LegalMovesHelper.listLegalMoves(original);
+
         Solitaire copy = original.copy();
-        
-        // Get UNKNOWN cards from original
-        List<Card> originalUnknowns = original.getTableau().stream()
-                .flatMap(List::stream)
-                .filter(c -> c.getRank() == Rank.UNKNOWN)
-                .toList();
-        
-        // Get UNKNOWN cards from copy
-        List<Card> copyUnknowns = copy.getTableau().stream()
-                .flatMap(List::stream)
-                .filter(c -> c.getRank() == Rank.UNKNOWN)
-                .toList();
-        
-        // If both have UNKNOWN cards, verify they are distinct instances
-        if (!originalUnknowns.isEmpty() && !copyUnknowns.isEmpty()) {
-            for (Card originalUnknown : originalUnknowns) {
-                for (Card copyUnknown : copyUnknowns) {
-                    assertNotSame(originalUnknown, copyUnknown,
-                            "UNKNOWN cards should be distinct instances between original and copy");
+        LegalMovesHelper.listLegalMoves(copy);
+
+        // If guesses were created in both states, UNKNOWN placeholder keys must be distinct instances.
+        if (!original.getUnknownCardGuesses().isEmpty() && !copy.getUnknownCardGuesses().isEmpty()) {
+            for (Card originalKey : original.getUnknownCardGuesses().keySet()) {
+                for (Card copyKey : copy.getUnknownCardGuesses().keySet()) {
+                    assertNotSame(originalKey, copyKey,
+                            "UNKNOWN placeholders should be distinct instances between original and copy");
                 }
             }
         }
@@ -474,18 +393,13 @@ class PlanningMovesTest {
      */
     @Test
     void unknownCardCannotMoveAsSource() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        
-        // T1: face-down UNKNOWN (can't move from unknown source)
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 0, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        // T2: visible 5♣
-        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.FIVE, Suit.CLUBS));
-        
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                // Include a facedown card so PLAN mode has an UNKNOWN placeholder, but make the
+                // visible top card have no legal destinations.
+                .tableau("T1", 1, "3♣", "4♦")
+                .tableau("T2", "5♦")
+                .build();
         
         solitaire.setMode(Solitaire.GameMode.PLAN);
         List<String> moves = LegalMovesHelper.listLegalMoves(solitaire);

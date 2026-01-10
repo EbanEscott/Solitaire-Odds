@@ -3,16 +3,8 @@ package ai.games.unit.game;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.games.game.Card;
-import ai.games.game.Deck;
-import ai.games.game.Rank;
-import ai.games.game.Suit;
 import ai.games.game.Solitaire;
-import ai.games.unit.helpers.SolitaireTestHelper;
-import ai.games.unit.helpers.TestGameStateBuilder;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import ai.games.unit.helpers.SolitaireBuilder;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -41,9 +33,7 @@ class IllegalMovesTest {
     @Test
     void movingFromEmptyTableauFails() {
         // T1 empty, foundation empty; moving from T1 should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        seedTableau(solitaire, Collections.nCopies(7, empty()), Arrays.asList(0, 0, 0, 0, 0, 0, 0));
-        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+        Solitaire solitaire = SolitaireBuilder.newGame().build();
 
         assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
@@ -51,10 +41,11 @@ class IllegalMovesTest {
     @Test
     void wrongSuitToFoundationFails() {
         // Foundation F1 has A♥; trying to place 2♣ (wrong suit) should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        seedTableau(solitaire, Arrays.asList(pile(new Card(Rank.TWO, Suit.CLUBS)), empty(), empty(), empty(), empty(), empty(), empty()),
-                Arrays.asList(1, 0, 0, 0, 0, 0, 0));
-        seedFoundation(solitaire, Arrays.asList(pile(new Card(Rank.ACE, Suit.HEARTS)), empty(), empty(), empty()));
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .foundation("F1", "A♥")
+            .tableau("T1", "2♣")
+            .build();
 
         assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
@@ -62,33 +53,30 @@ class IllegalMovesTest {
     @Test
     void nonAceToEmptyFoundationFails() {
         // Empty foundation; attempting to move Q♣ onto it is illegal.
-        Solitaire solitaire = new Solitaire(new Deck());
-        seedTableau(solitaire, Arrays.asList(pile(new Card(Rank.QUEEN, Suit.CLUBS)), empty(), empty(), empty(), empty(), empty(), empty()),
-                Arrays.asList(1, 0, 0, 0, 0, 0, 0));
-        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+        Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "Q♣").build();
 
         assertFalse(solitaire.moveCard("T1", null, "F1"));
     }
 
     @Test
     void faceDownCardCannotMove() {
-        // T1 has K♠ but face-up count is 0; moving it should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        seedTableau(solitaire, Arrays.asList(pile(new Card(Rank.KING, Suit.SPADES)), empty(), empty(), empty(), empty(), empty(), empty()),
-                Arrays.asList(0, 0, 0, 0, 0, 0, 0));
-        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+        // T1 has K♠ face-down beneath a visible Q♥; trying to move the facedown K♠ should fail.
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", 1, "K♠", "Q♥")
+            .build();
 
-        assertFalse(solitaire.moveCard("T1", null, "F1"));
+        assertFalse(solitaire.moveCard("T1", "K♠", "T2"));
     }
 
     @Test
     void incorrectColorSequenceOnTableauFails() {
         // T1 top is 5♥, T2 top is 4♦ (same color); stacking should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        seedTableau(solitaire,
-                Arrays.asList(pile(new Card(Rank.FIVE, Suit.HEARTS)), pile(new Card(Rank.FOUR, Suit.DIAMONDS)), empty(), empty(), empty(), empty(), empty()),
-                Arrays.asList(1, 1, 0, 0, 0, 0, 0));
-        seedFoundation(solitaire, Arrays.asList(empty(), empty(), empty(), empty()));
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", "5♥")
+            .tableau("T2", "4♦")
+            .build();
 
         assertFalse(solitaire.moveCard("T1", null, "T2"));
     }
@@ -96,13 +84,11 @@ class IllegalMovesTest {
     @Test
     void nonConsecutiveRankOnFoundation() {
         // F1 has A♥, 2♥; T1 has 4♥ (skipping rank 3); should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.HEARTS, Rank.TWO);
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FOUR, Suit.HEARTS));
-        for (int i = 1; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
-        }
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .foundation("F1", "A♥", "2♥")
+                .tableau("T1", "4♥")
+                .build();
 
         assertFalse(solitaire.moveCard("T1", null, "F1"), "4♥ cannot go on 2♥ - rank 3 is missing");
     }
@@ -110,16 +96,10 @@ class IllegalMovesTest {
     @Test
     void nonKingStackOnEmptyTableau() {
         // T1 has Q♠, J♣ (valid internal sequence but Queen-led); T2 is empty; should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        TestGameStateBuilder.seedTableauStack(solitaire, 0,
-                new Card(Rank.QUEEN, Suit.SPADES),
-                new Card(Rank.JACK, Suit.CLUBS));
-        TestGameStateBuilder.seedTableauStack(solitaire, 1);  // Empty
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", "Q♠", "J♣")
+            .build();
 
         assertFalse(solitaire.moveCard("T1", "Q♠", "T2"), "Non-King stacks cannot move to empty columns");
     }
@@ -128,18 +108,11 @@ class IllegalMovesTest {
     void movingNonTopWasteCard() {
         // Waste mechanics: only top card is accessible. This test validates that
         // the top card can move but earlier seeding of non-top cards is prevented.
-        Solitaire solitaire = new Solitaire(new Deck());
-        TestGameStateBuilder.clearTableau(solitaire);
-        TestGameStateBuilder.clearFoundations(solitaire);
-        // Talon stack with only top card (7♥) visible for moves
-        SolitaireTestHelper.setTalon(solitaire, 
-            pile(new Card(Rank.FIVE, Suit.SPADES), 
-                 new Card(Rank.SIX, Suit.CLUBS), 
-                 new Card(Rank.SEVEN, Suit.HEARTS)));
-        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
-        
-        // Only the top waste card (7♥) should be movable to a valid destination (8♠ in T1)
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.EIGHT, Suit.SPADES));
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .waste("5♠", "6♣", "7♥")
+            .tableau("T1", "8♠")
+            .build();
         
         // This move should succeed (7♥ on 8♠)
         assertTrue(solitaire.moveCard("W", null, "T1"), "Top waste card should be movable");
@@ -148,14 +121,11 @@ class IllegalMovesTest {
     @Test
     void sameColorSameRankOnTableau() {
         // T1 has 5♥, T2 has 5♦ (same rank, both red = same color); move should fail.
-        Solitaire solitaire = new Solitaire(new Deck());
-        TestGameStateBuilder.seedTableauStack(solitaire, 0, new Card(Rank.FIVE, Suit.HEARTS));
-        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.FIVE, Suit.DIAMONDS));
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+                .newGame()
+                .tableau("T1", "5♥")
+                .tableau("T2", "5♦")
+                .build();
 
         assertFalse(solitaire.moveCard("T1", null, "T2"), "Same rank same color (5♥ on 5♦) should fail");
     }
@@ -163,34 +133,14 @@ class IllegalMovesTest {
     @Test
     void faceDownStackAttempt() {
         // T1 has [5♠(facedown), 6♣(faceup)]; try to move from the facedown card.
-        Solitaire solitaire = new Solitaire(new Deck());
-        TestGameStateBuilder.seedTableauWithFaceDown(solitaire, 0, 1,
-                new Card(Rank.FIVE, Suit.SPADES),
-                new Card(Rank.SIX, Suit.CLUBS));
-        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.SEVEN, Suit.HEARTS));
-        for (int i = 2; i < 7; i++) {
-            TestGameStateBuilder.seedTableauStack(solitaire, i);  // Empty
-        }
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, Collections.emptyList(), Collections.emptyList());
+        Solitaire solitaire = SolitaireBuilder
+            .newGame()
+            .tableau("T1", 1, "5♠", "6♣")
+            .tableau("T2", "7♥")
+            .build();
 
         // Trying to move from facedown card (5♠) should fail - card not visible
         assertFalse(solitaire.moveCard("T1", "5♠", "T2"), "Face-down card 5♠ is not visible");
     }
 
-    private static List<Card> empty() {
-        return SolitaireTestHelper.emptyPile();
-    }
-
-    private static List<Card> pile(Card... cards) {
-        return SolitaireTestHelper.pile(cards);
-    }
-
-    private static void seedTableau(Solitaire solitaire, List<List<Card>> piles, List<Integer> faceUpCounts) {
-        SolitaireTestHelper.setTableau(solitaire, piles, faceUpCounts);
-    }
-
-    private static void seedFoundation(Solitaire solitaire, List<List<Card>> piles) {
-        SolitaireTestHelper.setFoundation(solitaire, piles);
-    }
 }

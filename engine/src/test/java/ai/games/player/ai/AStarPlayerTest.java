@@ -8,7 +8,7 @@ import ai.games.player.LegalMovesHelper;
 import ai.games.player.ai.astar.AStarPlayer;
 import ai.games.player.ai.astar.AStarTreeNode;
 import ai.games.unit.helpers.FoundationCountHelper;
-import ai.games.unit.helpers.TestGameStateBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +34,7 @@ class AStarPlayerTest {
      */
     @Test
     void aStarImprovesNearlyWonGame() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
         AStarPlayer ai = new AStarPlayer();
 
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
@@ -83,7 +83,7 @@ class AStarPlayerTest {
     @Test
     void heuristicDecreasesAsFoundationGrows() {
         Solitaire fresh = new Solitaire(new Deck());
-        Solitaire nearlyWon = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire nearlyWon = SolitaireFactory.oneMoveFromWin();
 
         double freshH = AStarTreeNode.computeHeuristic(fresh);
         double nearlyWonH = AStarTreeNode.computeHeuristic(nearlyWon);
@@ -98,14 +98,9 @@ class AStarPlayerTest {
      */
     @Test
     void heuristicIsZeroForWonGame() {
-        // Create a game state where all 52 cards are in foundation
-        // This is a simplified test - in practice we'd need to set up a full won state
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
-        
-        // The nearly-won game has 51 cards in foundation
-        // Just verify heuristic is very low
-        double h = AStarTreeNode.computeHeuristic(solitaire);
-        assertTrue(h < 10, "Nearly-won game should have very low heuristic: " + h);
+        Solitaire solitaire = SolitaireFactory.wonGame();
+
+        assertEquals(0.0, AStarTreeNode.computeHeuristic(solitaire), 0.0001, "Won game heuristic should be zero");
     }
 
     /**
@@ -145,7 +140,7 @@ class AStarPlayerTest {
      */
     @Test
     void treeNodeIdentifiesTerminalStates() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
         AStarTreeNode node = new AStarTreeNode(solitaire.copy());
 
         // Nearly-won game should not be terminal (has legal moves)
@@ -160,7 +155,7 @@ class AStarPlayerTest {
      */
     @Test
     void probabilityIsOneForKnownDestinations() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
         List<String> moves = LegalMovesHelper.listLegalMoves(solitaire);
 
         for (String move : moves) {

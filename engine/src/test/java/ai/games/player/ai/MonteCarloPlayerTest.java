@@ -3,7 +3,6 @@ package ai.games.player.ai;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Deck;
-import ai.games.game.Card;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
@@ -11,7 +10,8 @@ import ai.games.player.Player;
 import ai.games.player.ai.mcts.MonteCarloPlayer;
 import ai.games.player.ai.mcts.MonteCarloTreeNode;
 import ai.games.unit.helpers.FoundationCountHelper;
-import ai.games.unit.helpers.TestGameStateBuilder;
+import ai.games.unit.helpers.SolitaireBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import ai.games.player.LegalMovesHelper;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -30,7 +30,7 @@ class MonteCarloPlayerTest {
 
     @Test
     void monteCarloAdvancesOnSimpleNearlyWonGame() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
         Player ai = new MonteCarloPlayer();
 
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
@@ -66,7 +66,7 @@ class MonteCarloPlayerTest {
 
     @Test
     void reusesTreeAndAdvancesCurrentWhileRootStaysFixed() throws Exception {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.twoMovesFromWin();
         MonteCarloPlayer ai = new MonteCarloPlayer();
 
         String firstMove = ai.nextCommand(solitaire, "", "");
@@ -87,7 +87,7 @@ class MonteCarloPlayerTest {
 
     @Test
     void throwsWhenMoveNotAppliedBetweenTurns() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.twoMovesFromWin();
         MonteCarloPlayer ai = new MonteCarloPlayer();
 
         String firstMove = ai.nextCommand(solitaire, "", "");
@@ -99,7 +99,7 @@ class MonteCarloPlayerTest {
 
     @Test
     void throwsWhenDifferentMoveAppliedBetweenTurns() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.twoMovesFromWin();
         MonteCarloPlayer ai = new MonteCarloPlayer();
 
         String chosenMove = ai.nextCommand(solitaire, "", "");
@@ -120,7 +120,7 @@ class MonteCarloPlayerTest {
 
     @Test
     void acceptsPlanModeAndClearsExpectedKeyOnValidation() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.twoMovesFromWin();
         solitaire.setMode(Solitaire.GameMode.PLAN);
         MonteCarloPlayer ai = new MonteCarloPlayer();
 
@@ -196,23 +196,17 @@ class MonteCarloPlayerTest {
      * Tableau: T2 has K♦, T6 has K♠, all other piles empty. Stock/talon empty.
      */
     private Solitaire seedLoggedGameStateMove249() {
-        Solitaire solitaire = new Solitaire(new Deck());
-
-        TestGameStateBuilder.clearTableau(solitaire);
-        TestGameStateBuilder.clearFoundations(solitaire);
-        TestGameStateBuilder.seedStockAndTalon(solitaire, List.of(), List.of());
-
-        // Foundations are 0-indexed in builder: 0=F1 .. 3=F4
-        TestGameStateBuilder.seedFoundationPartial(solitaire, 0, Suit.DIAMONDS, Rank.QUEEN); // Q♦
-        TestGameStateBuilder.seedFoundationPartial(solitaire, 1, Suit.CLUBS, Rank.KING); // K♣
-        TestGameStateBuilder.seedFoundationPartial(solitaire, 2, Suit.SPADES, Rank.QUEEN); // Q♠
-        TestGameStateBuilder.seedFoundationPartial(solitaire, 3, Suit.HEARTS, Rank.KING); // K♥
-
-        // Tableau columns are 0-indexed: 1=T2, 5=T6
-        TestGameStateBuilder.seedTableauStack(solitaire, 1, new Card(Rank.KING, Suit.DIAMONDS));
-        TestGameStateBuilder.seedTableauStack(solitaire, 5, new Card(Rank.KING, Suit.SPADES));
-
-        return solitaire;
+        return SolitaireBuilder
+                .newGame()
+                .foundation("F1", SolitaireFactory.foundationUpTo(Suit.DIAMONDS, Rank.QUEEN))
+                .foundation("F2", SolitaireFactory.foundationUpTo(Suit.CLUBS, Rank.KING))
+                .foundation("F3", SolitaireFactory.foundationUpTo(Suit.SPADES, Rank.QUEEN))
+                .foundation("F4", SolitaireFactory.foundationUpTo(Suit.HEARTS, Rank.KING))
+                .tableau("T2", "K♦")
+                .tableau("T6", "K♠")
+                .stock()
+                .waste()
+                .build();
     }
 
     private boolean isTerminal(Solitaire solitaire) {

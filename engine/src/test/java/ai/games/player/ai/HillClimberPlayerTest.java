@@ -6,7 +6,7 @@ import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.Player;
 import ai.games.unit.helpers.FoundationCountHelper;
-import ai.games.unit.helpers.TestGameStateBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,7 @@ class HillClimberPlayerTest {
 
     @Test
     void hillClimberAdvancesOnSimpleNearlyWonGame() {
-        Solitaire solitaire = TestGameStateBuilder.seedNearlyWonGameVariant();
+        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
         Player ai = new HillClimberPlayer(123L);
 
         int startFoundation = FoundationCountHelper.totalFoundation(solitaire);

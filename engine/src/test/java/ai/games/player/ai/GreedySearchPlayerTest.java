@@ -4,15 +4,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Card;
 import ai.games.game.Deck;
-import ai.games.game.Rank;
 import ai.games.game.Solitaire;
-import ai.games.game.Suit;
 import ai.games.player.Player;
 import ai.games.player.LegalMovesHelper;
-import ai.games.unit.helpers.SolitaireTestHelper;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
+import ai.games.unit.helpers.SolitaireBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -144,106 +140,20 @@ class GreedySearchPlayerTest {
     }
 
     private Solitaire seedNearlyWonGame() {
-        Solitaire solitaire = new Solitaire(new Deck());
-
-        // Build a full 52-card deck and allocate specific cards to tableau/foundation.
-        List<Card> deck = SolitaireTestHelper.fullDeck();
-
-        // Tableau: final card K♥ to play; others empty.
-        Card kHearts = SolitaireTestHelper.takeCard(deck, Rank.KING, Suit.HEARTS);
-        List<List<Card>> tableau = Arrays.asList(
-                SolitaireTestHelper.pile(kHearts),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile()
-        );
-        List<Integer> faceUp = Arrays.asList(1, 0, 0, 0, 0, 0, 0);
-        SolitaireTestHelper.setTableau(solitaire, tableau, faceUp);
-
-        // Foundation:
-        // - F1 has hearts A..Q (K♥ reserved on tableau).
-        // - F2–F4 take the remaining cards split evenly.
-        List<Card> hearts = new ArrayList<>();
-        for (Rank rank : Rank.values()) {
-            if (rank == Rank.KING) {
-                continue;
-            }
-            hearts.add(SolitaireTestHelper.takeCard(deck, rank, Suit.HEARTS));
-        }
-        List<List<Card>> foundation = new ArrayList<>();
-        foundation.add(hearts);
-
-        // Distribute remaining cards into three foundation piles.
-        List<Card> f2 = new ArrayList<>();
-        List<Card> f3 = new ArrayList<>();
-        List<Card> f4 = new ArrayList<>();
-        List<List<Card>> targets = Arrays.asList(f2, f3, f4);
-        int idx = 0;
-        for (Card c : deck) {
-            targets.get(idx % 3).add(c);
-            idx++;
-        }
-        foundation.add(f2);
-        foundation.add(f3);
-        foundation.add(f4);
-
-        SolitaireTestHelper.setFoundation(solitaire, foundation);
-
-        // No stock or talon: all cards allocated to tableau/foundation.
-        SolitaireTestHelper.setTalon(solitaire, Collections.emptyList());
-        SolitaireTestHelper.setStockpile(solitaire, Collections.emptyList());
-
-        SolitaireTestHelper.assertFullDeckState(solitaire);
-        return solitaire;
+        return SolitaireFactory.oneMoveFromWin();
     }
 
     private Solitaire seedMidGameWinnable() {
-        Solitaire solitaire = new Solitaire(new Deck());
-
-        // Start from a full deck and carve out a specific mid-game layout.
-        List<Card> deck = SolitaireTestHelper.fullDeck();
-
-        // Tableau with a mix of face-up cards that can progress to foundation.
-        List<List<Card>> tableau = Arrays.asList(
-                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.THREE, Suit.SPADES)),
-                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.TWO, Suit.SPADES)),
-                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.KING, Suit.HEARTS)),
-                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.JACK, Suit.CLUBS)),
-                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.QUEEN, Suit.DIAMONDS)),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile()
-        );
-        List<Integer> faceUp = Arrays.asList(1, 1, 1, 1, 1, 0, 0);
-        SolitaireTestHelper.setTableau(solitaire, tableau, faceUp);
-
-        // Foundation has A♠ to allow progression of spades.
-        List<List<Card>> foundation = Arrays.asList(
-                SolitaireTestHelper.pile(SolitaireTestHelper.takeCard(deck, Rank.ACE, Suit.SPADES)),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile()
-        );
-        SolitaireTestHelper.setFoundation(solitaire, foundation);
-
-        // Talon gives the next spade.
-        SolitaireTestHelper.setTalon(solitaire, SolitaireTestHelper.pile(
-                SolitaireTestHelper.takeCard(deck, Rank.FOUR, Suit.SPADES)));
-        // Remaining cards go to stockpile.
-        SolitaireTestHelper.setStockpile(solitaire, new ArrayList<>(deck));
-
-        SolitaireTestHelper.assertFullDeckState(solitaire);
-        return solitaire;
-    }
-
-    private List<Card> fillerPile(int count) {
-        List<Card> pile = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            pile.add(new Card(Rank.ACE, Suit.CLUBS));
-        }
-        return pile;
+        return SolitaireBuilder
+            .newGame()
+            .foundation("F1", "A♠")
+            .tableau("T1", "3♠")
+            .tableau("T2", "2♠")
+            .tableau("T3", "K♥")
+            .tableau("T4", "J♣")
+            .tableau("T5", "Q♦")
+            .waste("4♠")
+            .build();
     }
 
     private int totalFoundation(Solitaire solitaire) {

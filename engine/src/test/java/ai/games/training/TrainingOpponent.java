@@ -1,16 +1,13 @@
 package ai.games.training;
 
 import ai.games.game.Card;
-import ai.games.game.Rank;
 import ai.games.game.Solitaire;
-import ai.games.game.Suit;
-import ai.games.training.ReverseMovesApplier;
-import ai.games.unit.helpers.SolitaireTestHelper;
+import ai.games.unit.helpers.SolitaireBuilder;
+import ai.games.unit.helpers.SolitaireFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
@@ -88,7 +85,7 @@ public class TrainingOpponent {
         
         // Level 1: single completely won board
         Solitaire level1 = createCompletelyWonBoard();
-        SolitaireTestHelper.assertFullDeckState(level1);
+        SolitaireBuilder.assertValidGameState(level1);
         List<Solitaire> currentLevelGames = new ArrayList<>();
         currentLevelGames.add(level1);
         
@@ -214,7 +211,7 @@ public class TrainingOpponent {
         if (difficultyLevel == 1) {
             // Level 1: Single trivial position (all foundations full)
             Solitaire game = createCompletelyWonBoard();
-            SolitaireTestHelper.assertFullDeckState(game);
+            SolitaireBuilder.assertValidGameState(game);
             seededGames.add(new SeededGame(game, new ArrayList<>()));
             if (log.isDebugEnabled()) {
                 log.debug("Generated 1 Level 1 game (all foundations full)");
@@ -247,7 +244,7 @@ public class TrainingOpponent {
         // Start with Level 1: completely won board (all 52 on foundations)
         List<SeededGame> currentLevelGames = new ArrayList<>();
         Solitaire level1 = createCompletelyWonBoard();
-        SolitaireTestHelper.assertFullDeckState(level1);
+        SolitaireBuilder.assertValidGameState(level1);
         currentLevelGames.add(new SeededGame(level1, new ArrayList<>()));
         
         // Generate games for levels 2 through target difficulty (only target level games returned)
@@ -300,7 +297,7 @@ public class TrainingOpponent {
                     
                     // Create a game at the next difficulty level
                     Solitaire game = baseSeededGame.game.copy();
-                    SolitaireTestHelper.assertFullDeckState(game);
+                    SolitaireBuilder.assertValidGameState(game);
                     
                     // Apply the reverse move
                     applyMove(game, reverseMove);
@@ -374,7 +371,7 @@ public class TrainingOpponent {
         if (difficultyLevel == 1) {
             // Level 1: Single trivial position (all foundations full)
             Solitaire game = createCompletelyWonBoard();
-            SolitaireTestHelper.assertFullDeckState(game);
+            SolitaireBuilder.assertValidGameState(game);
             games.add(game);
             if (log.isDebugEnabled()) {
                 log.debug("Generated 1 Level 1 game (all foundations full)");
@@ -385,7 +382,7 @@ public class TrainingOpponent {
         // Start with Level 1: completely won board (all 52 on foundations)
         List<Solitaire> currentLevelGames = new ArrayList<>();
         Solitaire level1 = createCompletelyWonBoard();
-        SolitaireTestHelper.assertFullDeckState(level1);
+        SolitaireBuilder.assertValidGameState(level1);
         currentLevelGames.add(level1);
         
         // Generate games for levels 2 through target difficulty
@@ -422,7 +419,7 @@ public class TrainingOpponent {
                     
                     // Create a game at the next difficulty level
                     Solitaire game = baseGame.copy();
-                    SolitaireTestHelper.assertFullDeckState(game);
+                    SolitaireBuilder.assertValidGameState(game);
                     
                     // Apply the reverse move
                     applyMove(game, reverseMove);
@@ -483,40 +480,7 @@ public class TrainingOpponent {
      * Creates a Solitaire board with all 52 cards on foundations (completely won state).
      */
     private Solitaire createCompletelyWonBoard() {
-        // Build foundations: organize cards by suit, each in ascending order (A-K)
-        // Note: skip UNKNOWN rank and suit as they are only used for PLAN mode masking
-        List<List<Card>> foundationPiles = new ArrayList<>();
-        for (Suit suit : Suit.values()) {
-            if (suit == Suit.UNKNOWN) continue;  // Skip UNKNOWN suit
-            List<Card> suitPile = new ArrayList<>();
-            for (Rank rank : Rank.values()) {
-                if (rank == Rank.UNKNOWN) continue;  // Skip UNKNOWN rank
-                suitPile.add(new Card(rank, suit));
-            }
-            foundationPiles.add(suitPile);
-        }
-
-        // Create a dummy game just to get the Solitaire structure initialized
-        Solitaire dummy = new Solitaire(new ai.games.game.Deck());
-        
-        // Clear and rebuild state using test helper
-        SolitaireTestHelper.setTableau(dummy, 
-            List.of(
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile(),
-                SolitaireTestHelper.emptyPile()
-            ),
-            List.of(0, 0, 0, 0, 0, 0, 0)
-        );
-        SolitaireTestHelper.setFoundation(dummy, foundationPiles);
-        SolitaireTestHelper.setTalon(dummy, SolitaireTestHelper.emptyPile());
-        SolitaireTestHelper.setStockpile(dummy, SolitaireTestHelper.emptyPile());
-
-        return dummy;
+        return SolitaireFactory.wonGame();
     }
 
     /**
