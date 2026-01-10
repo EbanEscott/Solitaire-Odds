@@ -119,8 +119,11 @@ public abstract class TreeNode {
      * @param state the Solitaire state
      */
     public void setState(Solitaire state) {
+        if(state == null) {
+            throw new IllegalArgumentException("State cannot be null");
+        }
         this.state = state;
-        this.stateKey = state != null ? state.getStateKey() : 0L;
+        this.stateKey = state.getStateKey();
     }
 
     /**
