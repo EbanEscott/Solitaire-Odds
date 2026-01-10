@@ -140,7 +140,7 @@ class TreeNodeTest {
         @Test
         void nullMoveReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove(null);
+            // move is null by default
 
             assertFalse(node.isQuit(), "Null move should not be quit");
         }
@@ -148,7 +148,8 @@ class TreeNodeTest {
         @Test
         void exactQuitReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("quit");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("quit");
 
             assertTrue(node.isQuit(), "'quit' should be detected as quit");
         }
@@ -156,7 +157,8 @@ class TreeNodeTest {
         @Test
         void uppercaseQuitReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("QUIT");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("QUIT");
 
             assertTrue(node.isQuit(), "'QUIT' (uppercase) should be detected as quit");
         }
@@ -164,7 +166,8 @@ class TreeNodeTest {
         @Test
         void mixedCaseQuitReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("QuIt");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("QuIt");
 
             assertTrue(node.isQuit(), "'QuIt' (mixed case) should be detected as quit");
         }
@@ -172,7 +175,8 @@ class TreeNodeTest {
         @Test
         void quitWithWhitespaceReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("  quit  ");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("  quit  ");
 
             assertTrue(node.isQuit(), "'  quit  ' (with whitespace) should be detected as quit");
         }
@@ -180,7 +184,8 @@ class TreeNodeTest {
         @Test
         void quitAsPrefixReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("quit game");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("quit game");
 
             assertFalse(node.isQuit(), "'quit game' should not be detected as quit (exact match required)");
         }
@@ -188,7 +193,8 @@ class TreeNodeTest {
         @Test
         void otherCommandReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("turn");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("turn");
 
             assertFalse(node.isQuit(), "'turn' should not be detected as quit");
         }
@@ -205,7 +211,7 @@ class TreeNodeTest {
         @Test
         void nullMoveReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove(null);
+            // move is null by default
 
             assertFalse(node.isTurn(), "Null move should not be turn");
         }
@@ -213,7 +219,8 @@ class TreeNodeTest {
         @Test
         void exactTurnReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("turn");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("turn");
 
             assertTrue(node.isTurn(), "'turn' should be detected as turn");
         }
@@ -221,7 +228,8 @@ class TreeNodeTest {
         @Test
         void uppercaseTurnReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("TURN");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("TURN");
 
             assertTrue(node.isTurn(), "'TURN' (uppercase) should be detected as turn");
         }
@@ -229,7 +237,8 @@ class TreeNodeTest {
         @Test
         void turnWithNumberReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("turn 3");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("turn 3");
 
             assertTrue(node.isTurn(), "'turn 3' should be detected as turn");
         }
@@ -237,7 +246,8 @@ class TreeNodeTest {
         @Test
         void turnWithWhitespaceReturnsTrue() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("  turn  ");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("  turn  ");
 
             assertTrue(node.isTurn(), "'  turn  ' (with whitespace) should be detected as turn");
         }
@@ -245,7 +255,8 @@ class TreeNodeTest {
         @Test
         void moveCommandReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("move T1 K♠ T7");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("move T1 K♠ T7");
 
             assertFalse(node.isTurn(), "'move T1 K♠ T7' should not be detected as turn");
         }
@@ -264,11 +275,15 @@ class TreeNodeTest {
             // King in T1 with 0 face-downs, moving to empty T7 is useless
             Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "K♠").build();
 
-            MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setState(solitaire);
-            node.setMove("move T1 K♠ T7");
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire);
 
-            assertTrue(node.isUselessKingMove(), "King T→T with 0 face-downs should be useless");
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(solitaire.copy());
+            child.applyMove("move T1 K♠ T7");
+
+            assertTrue(child.isUselessKingMove(), "King T→T with 0 face-downs should be useless");
         }
 
         @Test
@@ -281,15 +296,11 @@ class TreeNodeTest {
             MonteCarloTreeNode parent = new MonteCarloTreeNode();
             parent.setState(before);
 
-            // Child state is AFTER moving the king from T2 to empty T7.
-            Solitaire after = before.copy();
-            boolean success = after.moveCard("T2", "K♦", "T7");
-            assertTrue(success, "Test setup requires move T2 K♦ T7 to be legal");
-
+            // Child state is AFTER applying the move from the parent's pre-move state.
             MonteCarloTreeNode child = new MonteCarloTreeNode();
             child.setParent(parent);
-            child.setState(after);
-            child.setMove("move T2 K♦ T7");
+            child.setState(before.copy());
+            child.applyMove("move T2 K♦ T7");
 
             assertTrue(
                     child.isUselessKingMove(),
@@ -304,11 +315,15 @@ class TreeNodeTest {
                 .tableau("T1", 1, "A♥", "K♠")
                 .build();
 
-            MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setState(solitaire);
-            node.setMove("move T1 K♠ T7");
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire);
 
-            assertFalse(node.isUselessKingMove(), "King T→T with face-downs should be useful (reveals card)");
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(solitaire.copy());
+            child.applyMove("move T1 K♠ T7");
+
+            assertFalse(child.isUselessKingMove(), "King T→T with face-downs should be useful (reveals card)");
         }
 
         @Test
@@ -320,11 +335,15 @@ class TreeNodeTest {
                     .tableau("T1", "K♠")
                     .build();
 
-            MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setState(solitaire);
-            node.setMove("move T1 K♠ F1");
+                MonteCarloTreeNode parent = new MonteCarloTreeNode();
+                parent.setState(solitaire);
 
-            assertFalse(node.isUselessKingMove(), "King T→F should not be useless");
+                MonteCarloTreeNode child = new MonteCarloTreeNode();
+                child.setParent(parent);
+                child.setState(solitaire.copy());
+                child.applyMove("move T1 K♠ F1");
+
+                assertFalse(child.isUselessKingMove(), "King T→F should not be useless");
         }
 
         @Test
@@ -339,14 +358,10 @@ class TreeNodeTest {
             MonteCarloTreeNode parent = new MonteCarloTreeNode();
             parent.setState(before);
 
-            Solitaire after = before.copy();
-            boolean success = after.moveCard("T6", "K♠", "F3");
-            assertTrue(success, "Test setup requires move T6 K♠ F3 to be legal");
-
             MonteCarloTreeNode child = new MonteCarloTreeNode();
             child.setParent(parent);
-            child.setState(after);
-            child.setMove("move T6 K♠ F3");
+            child.setState(before.copy());
+            child.applyMove("move T6 K♠ F3");
 
             assertFalse(
                     child.isUselessKingMove(),
@@ -362,11 +377,15 @@ class TreeNodeTest {
                     .tableau("T2", "K♥")
                     .build();
 
-            MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setState(solitaire);
-            node.setMove("move T1 Q♠ T2");
+                MonteCarloTreeNode parent = new MonteCarloTreeNode();
+                parent.setState(solitaire);
 
-            assertFalse(node.isUselessKingMove(), "Non-king move should not be flagged as useless king move");
+                MonteCarloTreeNode child = new MonteCarloTreeNode();
+                child.setParent(parent);
+                child.setState(solitaire.copy());
+                child.applyMove("move T1 Q♠ T2");
+
+                assertFalse(child.isUselessKingMove(), "Non-king move should not be flagged as useless king move");
         }
 
         @Test
@@ -374,7 +393,7 @@ class TreeNodeTest {
             Solitaire solitaire = SolitaireFactory.stockOnly();
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(solitaire);
-            node.setMove(null);
+            // move is null by default
 
             assertFalse(node.isUselessKingMove(), "Null move should not be useless king move");
         }
@@ -382,7 +401,9 @@ class TreeNodeTest {
         @Test
         void nullStateReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("move T1 K♠ T7");
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("move T1 K♠ T7");
+            node.setState(null);
 
             assertFalse(node.isUselessKingMove(), "Null state should not be useless king move");
         }
@@ -753,7 +774,7 @@ class TreeNodeTest {
             Solitaire solitaire = SolitaireFactory.stockOnly();
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
-            root.setMove("turn");
+            root.applyMove("turn");
 
             assertFalse(root.isCycleDetected(), "Root node with no ancestors should not detect cycle");
         }
@@ -761,8 +782,9 @@ class TreeNodeTest {
         @Test
         void nullStateReturnsFalse() {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setMove("turn");
-            // state is null by default
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("turn");
+            node.setState(null);
 
             assertFalse(node.isCycleDetected(), "Node with null state should not detect cycle");
         }
