@@ -142,15 +142,6 @@ public abstract class TreeNode {
     }   
 
     /**
-     * Set the move string that led to this node.
-     *
-     * @param move the move string
-     */
-    public void setMove(String move) {
-        this.move = move;
-    }
-
-    /**
      * Applies a move command to a Solitaire state.
      *
      * @param move the move command ("turn" or "move X [card] Y")
