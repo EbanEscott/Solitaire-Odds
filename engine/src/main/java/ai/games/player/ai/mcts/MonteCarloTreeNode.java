@@ -1,5 +1,6 @@
 package ai.games.player.ai.mcts;
 
+import ai.games.game.Solitaire;
 import ai.games.player.ai.tree.TreeNode;
 
 /**
@@ -35,6 +36,14 @@ public class MonteCarloTreeNode extends TreeNode {
      */
     public MonteCarloTreeNode() {
         super();
+    }
+
+    /**
+     * Creates a new MonteCarloTreeNode with the given state.
+     */
+    public MonteCarloTreeNode(Solitaire state) {
+        super();
+        setState(state);
     }
 
     /**
