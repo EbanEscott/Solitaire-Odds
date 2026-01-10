@@ -199,6 +199,7 @@ public abstract class TreeNode {
             throw new IllegalArgumentException("Move and child cannot be null");
         }
 
+        child.setParent(this);
         children.put(move, child);
     }
 

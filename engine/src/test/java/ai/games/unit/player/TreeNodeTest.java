@@ -447,13 +447,19 @@ class TreeNodeTest {
             // Setup: 6 cards in stock, empty talon. Need 2 turns to see all, then
             // 1 more turn to recycle, then 2 more turns to return to original state.
             // After just 1 turn, no cycle yet.
-            Solitaire solitaire = createSmallStockGame(6);
+            Solitaire solitaire = SolitaireFactory.withExactStockAndWaste(
+                new String[] {"A♣", "2♣", "3♣", "4♣", "5♣", "6♣"},
+                new String[] {}
+            );
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
 
             // Apply first turn
-            MonteCarloTreeNode child1 = applyTurn(root);
+            MonteCarloTreeNode child1 = new MonteCarloTreeNode();
+            child1.setState(root.getState().copy());
+            child1.applyMove("turn");
+            root.addChild("turn", child1);
 
             assertFalse(child1.isCycleDetected(), "After 1 turn, no cycle should be detected");
         }
@@ -470,17 +476,39 @@ class TreeNodeTest {
             // 
             // State after turn 3 should match state after turn 1 (first occurrence)
             // State after turn 5 should match both turn 1 and turn 3 (second occurrence = cycle!)
-            Solitaire solitaire = createSmallStockGame(6);
+            Solitaire solitaire = SolitaireFactory.withExactStockAndWaste(
+                new String[] {"A♣", "2♣", "3♣", "4♣", "5♣", "6♣"},
+                new String[] {}
+            );
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
 
             // Build tree: root -> turn1 -> turn2 -> turn3 -> turn4 -> turn5
-            MonteCarloTreeNode turn1 = applyTurn(root);
-            MonteCarloTreeNode turn2 = applyTurn(turn1);
-            MonteCarloTreeNode turn3 = applyTurn(turn2);
-            MonteCarloTreeNode turn4 = applyTurn(turn3);
-            MonteCarloTreeNode turn5 = applyTurn(turn4);
+            MonteCarloTreeNode turn1 = new MonteCarloTreeNode();
+            turn1.setState(root.getState().copy());
+            turn1.applyMove("turn");
+            root.addChild("turn", turn1);
+
+            MonteCarloTreeNode turn2 = new MonteCarloTreeNode();
+            turn2.setState(turn1.getState().copy());
+            turn2.applyMove("turn");
+            turn1.addChild("turn", turn2);
+
+            MonteCarloTreeNode turn3 = new MonteCarloTreeNode();
+            turn3.setState(turn2.getState().copy());
+            turn3.applyMove("turn");
+            turn2.addChild("turn", turn3);
+
+            MonteCarloTreeNode turn4 = new MonteCarloTreeNode();
+            turn4.setState(turn3.getState().copy());
+            turn4.applyMove("turn");
+            turn3.addChild("turn", turn4);
+
+            MonteCarloTreeNode turn5 = new MonteCarloTreeNode();
+            turn5.setState(turn4.getState().copy());
+            turn5.applyMove("turn");
+            turn4.addChild("turn", turn5);
 
             // After turn5, we should have cycled back twice
             // The cycle detection requires 2+ occurrences in ancestors
@@ -493,14 +521,28 @@ class TreeNodeTest {
         void stockCycleFirstReturnNotCycle() {
             // With 6 cards: after 3 turns we return to a state similar to turn 1.
             // This is the FIRST occurrence, so should NOT trigger cycle detection.
-            Solitaire solitaire = createSmallStockGame(6);
+            Solitaire solitaire = SolitaireFactory.withExactStockAndWaste(
+                new String[] {"A♣", "2♣", "3♣", "4♣", "5♣", "6♣"},
+                new String[] {}
+            );
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
 
-            MonteCarloTreeNode turn1 = applyTurn(root);
-            MonteCarloTreeNode turn2 = applyTurn(turn1);
-            MonteCarloTreeNode turn3 = applyTurn(turn2);
+            MonteCarloTreeNode turn1 = new MonteCarloTreeNode();
+            turn1.setState(root.getState().copy());
+            turn1.applyMove("turn");
+            root.addChild("turn", turn1);
+
+            MonteCarloTreeNode turn2 = new MonteCarloTreeNode();
+            turn2.setState(turn1.getState().copy());
+            turn2.applyMove("turn");
+            turn1.addChild("turn", turn2);
+
+            MonteCarloTreeNode turn3 = new MonteCarloTreeNode();
+            turn3.setState(turn2.getState().copy());
+            turn3.applyMove("turn");
+            turn2.addChild("turn", turn3);
 
             // turn3 state may match turn1 state (first occurrence), but not a cycle yet
             assertFalse(turn3.isCycleDetected(), 
@@ -522,16 +564,38 @@ class TreeNodeTest {
             root.setState(solitaire);
 
             // Cycle 1: turn -> turn (stock cycles through)
-            MonteCarloTreeNode turn1 = applyTurn(root);
-            MonteCarloTreeNode turn2 = applyTurn(turn1);
+            MonteCarloTreeNode turn1 = new MonteCarloTreeNode();
+            turn1.setState(root.getState().copy());
+            turn1.applyMove("turn");
+            root.addChild("turn", turn1);
+
+            MonteCarloTreeNode turn2 = new MonteCarloTreeNode();
+            turn2.setState(turn1.getState().copy());
+            turn2.applyMove("turn");
+            turn1.addChild("turn", turn2);
 
             // Make a PROGRESS move: move A♠ to F1 (this changes the state!)
-            MonteCarloTreeNode progress = applyMove(turn2, "T1", "A♠", "F1");
+            String progressMove = "move T1 A♠ F1";
+            MonteCarloTreeNode progress = new MonteCarloTreeNode();
+            progress.setState(turn2.getState().copy());
+            progress.applyMove(progressMove);
+            turn2.addChild(progressMove, progress);
 
             // Cycle 2: turn -> turn -> turn (more turns to potentially create a "cycle")
-            MonteCarloTreeNode turn3 = applyTurn(progress);
-            MonteCarloTreeNode turn4 = applyTurn(turn3);
-            MonteCarloTreeNode turn5 = applyTurn(turn4);
+            MonteCarloTreeNode turn3 = new MonteCarloTreeNode();
+            turn3.setState(progress.getState().copy());
+            turn3.applyMove("turn");
+            progress.addChild("turn", turn3);
+
+            MonteCarloTreeNode turn4 = new MonteCarloTreeNode();
+            turn4.setState(turn3.getState().copy());
+            turn4.applyMove("turn");
+            turn3.addChild("turn", turn4);
+
+            MonteCarloTreeNode turn5 = new MonteCarloTreeNode();
+            turn5.setState(turn4.getState().copy());
+            turn5.applyMove("turn");
+            turn4.addChild("turn", turn5);
 
             // Even though we've done many turns, the progress move changed the state,
             // so the stock cycling after the Ace move creates NEW states, not repeats.
@@ -560,13 +624,29 @@ class TreeNodeTest {
             root.setState(solitaire);
 
             // Move 7♥ from T1 to T2
-            MonteCarloTreeNode move1 = applyMove(root, "T1", "7♥", "T2");
+            String move1Str = "move T1 7♥ T2";
+            MonteCarloTreeNode move1 = new MonteCarloTreeNode();
+            move1.setState(root.getState().copy());
+            move1.applyMove(move1Str);
+            root.addChild(move1Str, move1);
             // Move 7♥ back from T2 to T1 (state returns to root state)
-            MonteCarloTreeNode move2 = applyMove(move1, "T2", "7♥", "T1");
+            String move2Str = "move T2 7♥ T1";
+            MonteCarloTreeNode move2 = new MonteCarloTreeNode();
+            move2.setState(move1.getState().copy());
+            move2.applyMove(move2Str);
+            move1.addChild(move2Str, move2);
             // Repeat: Move 7♥ from T1 to T2 again
-            MonteCarloTreeNode move3 = applyMove(move2, "T1", "7♥", "T2");
+            String move3Str = "move T1 7♥ T2";
+            MonteCarloTreeNode move3 = new MonteCarloTreeNode();
+            move3.setState(move2.getState().copy());
+            move3.applyMove(move3Str);
+            move2.addChild(move3Str, move3);
             // Move 7♥ back from T2 to T1 again (second cycle!)
-            MonteCarloTreeNode move4 = applyMove(move3, "T2", "7♥", "T1");
+            String move4Str = "move T2 7♥ T1";
+            MonteCarloTreeNode move4 = new MonteCarloTreeNode();
+            move4.setState(move3.getState().copy());
+            move4.applyMove(move4Str);
+            move3.addChild(move4Str, move4);
 
             assertTrue(move4.isCycleDetected(), 
                     "2-move ping-pong repeated twice should be detected as cycle");
@@ -586,8 +666,17 @@ class TreeNodeTest {
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
 
-            MonteCarloTreeNode move1 = applyMove(root, "T1", "7♥", "T2");
-            MonteCarloTreeNode move2 = applyMove(move1, "T2", "7♥", "T1");
+            String move1Str = "move T1 7♥ T2";
+            MonteCarloTreeNode move1 = new MonteCarloTreeNode();
+            move1.setState(root.getState().copy());
+            move1.applyMove(move1Str);
+            root.addChild(move1Str, move1);
+
+            String move2Str = "move T2 7♥ T1";
+            MonteCarloTreeNode move2 = new MonteCarloTreeNode();
+            move2.setState(move1.getState().copy());
+            move2.applyMove(move2Str);
+            move1.addChild(move2Str, move2);
 
             assertFalse(move2.isCycleDetected(), 
                     "First round-trip back to original state should not be flagged as cycle");
@@ -621,17 +710,35 @@ class TreeNodeTest {
             // and create a simpler 4-move test with stock + tableau mix.
 
             // Simpler: 4 turn moves that cycle the stock
-            Solitaire solitaire = createSmallStockGame(3);  // 3 cards = 1 turn cycles
+            Solitaire solitaire = SolitaireFactory.withExactStockAndWaste(
+                new String[] {"A♣", "2♣", "3♣"},
+                new String[] {}
+            ); // 3 cards = 1 turn cycles
 
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
 
             // With 3 cards: turn puts all 3 in talon. Next turn recycles and puts all 3 back.
             // So after 2 turns we're back to start. After 4 turns, we've done it twice = cycle.
-            MonteCarloTreeNode t1 = applyTurn(root);
-            MonteCarloTreeNode t2 = applyTurn(t1);  // Back to root-like state
-            MonteCarloTreeNode t3 = applyTurn(t2);
-            MonteCarloTreeNode t4 = applyTurn(t3);  // Back again = second occurrence = cycle!
+            MonteCarloTreeNode t1 = new MonteCarloTreeNode();
+            t1.setState(root.getState().copy());
+            t1.applyMove("turn");
+            root.addChild("turn", t1);
+
+            MonteCarloTreeNode t2 = new MonteCarloTreeNode();
+            t2.setState(t1.getState().copy());
+            t2.applyMove("turn");
+            t1.addChild("turn", t2);  // Back to root-like state
+
+            MonteCarloTreeNode t3 = new MonteCarloTreeNode();
+            t3.setState(t2.getState().copy());
+            t3.applyMove("turn");
+            t2.addChild("turn", t3);
+
+            MonteCarloTreeNode t4 = new MonteCarloTreeNode();
+            t4.setState(t3.getState().copy());
+            t4.applyMove("turn");
+            t3.addChild("turn", t4);  // Back again = second occurrence = cycle!
 
             assertTrue(t4.isCycleDetected(), 
                     "4-move cycle (2 full stock rotations) should be detected");
@@ -682,71 +789,14 @@ class TreeNodeTest {
             root.setState(solitaire);
 
             // Moving A♠ to F1 is progress, not a cycle
-            MonteCarloTreeNode move1 = applyMove(root, "T1", "A♠", "F1");
+            String move1Str = "move T1 A♠ F1";
+            MonteCarloTreeNode move1 = new MonteCarloTreeNode();
+            move1.setState(root.getState().copy());
+            move1.applyMove(move1Str);
+            root.addChild(move1Str, move1);
 
             assertFalse(move1.isCycleDetected(), 
                     "Progress moves should not be detected as cycles");
         }
-    }
-
-    // ========================================================================
-    // Helper methods
-    // ========================================================================
-
-    /**
-     * Creates a game with a small stock for predictable cycling tests.
-     * All cards except stock are placed in foundations to simplify the game state.
-     *
-     * @param stockSize number of cards in the stock (should be small, e.g., 3, 6, 9)
-     * @return a Solitaire game with the specified stock size
-     */
-    private Solitaire createSmallStockGame(int stockSize) {
-        String[] stock;
-        if (stockSize == 3) {
-            stock = new String[] {"A♣", "2♣", "3♣"};
-        } else if (stockSize == 6) {
-            stock = new String[] {"A♣", "2♣", "3♣", "4♣", "5♣", "6♣"};
-        } else {
-            throw new IllegalArgumentException("Unsupported stockSize=" + stockSize + " (expected 3 or 6)");
-        }
-
-        // Keep stock exact, dump the remaining cards into tableau T7.
-        return SolitaireFactory.withExactStockAndWaste(stock, new String[] {});
-    }
-
-    /**
-     * Applies a "turn" command and creates a child node.
-     */
-    private MonteCarloTreeNode applyTurn(MonteCarloTreeNode parent) {
-        Solitaire nextState = parent.getState().copy();
-        nextState.turnThree();
-
-        MonteCarloTreeNode child = new MonteCarloTreeNode();
-        child.setState(nextState);
-        child.setMove("turn");
-        child.setParent(parent);
-        parent.addChild("turn", child);
-
-        return child;
-    }
-
-    /**
-     * Applies a move command and creates a child node.
-     */
-    private MonteCarloTreeNode applyMove(MonteCarloTreeNode parent, String from, String card, String to) {
-        Solitaire nextState = parent.getState().copy();
-        boolean success = nextState.moveCard(from, card, to);
-        if (!success) {
-            throw new IllegalStateException("Move failed: " + from + " " + card + " " + to);
-        }
-
-        String moveStr = "move " + from + " " + card + " " + to;
-        MonteCarloTreeNode child = new MonteCarloTreeNode();
-        child.setState(nextState);
-        child.setMove(moveStr);
-        child.setParent(parent);
-        parent.addChild(moveStr, child);
-
-        return child;
     }
 }
