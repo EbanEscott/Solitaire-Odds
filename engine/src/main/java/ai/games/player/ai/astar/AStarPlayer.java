@@ -3,6 +3,7 @@ package ai.games.player.ai.astar;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
+import ai.games.player.ai.tree.PruneReason;
 import ai.games.player.ai.tree.TreeNode;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -198,26 +199,11 @@ public class AStarPlayer extends AIPlayer {
                 child.setParent(node);
                 node.addChild(moveCmd, child);
 
-                // ----- Pruning: Ping-pong detection (immediate inverse) -----
-                if (child.isInverseOfParentMove()) {
+                // ----- Pruning: unified detectors -----
+                if (child.doPruning()) {
                     if (log.isTraceEnabled()) {
-                        log.trace("Skipping ping-pong move: {}", moveCmd);
-                    }
-                    child.markPruned();
-                    continue;
-                }
-
-                // ----- Pruning: Useless king moves -----
-                if (child.isUselessKingMove()) {
-                    child.markPruned();
-                    continue;
-                }
-
-                // ----- Pruning: Cycle detection -----
-                if (child.isCycleDetected()) {
-                    child.markPruned();
-                    if (log.isTraceEnabled()) {
-                        log.trace("Cycle detected for move: {}", moveCmd);
+                        PruneReason reason = child.getPruneReason();
+                        log.trace("Pruned move: {} (reason={})", moveCmd, reason);
                     }
                     continue;
                 }
