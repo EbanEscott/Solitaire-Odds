@@ -724,10 +724,10 @@ public abstract class TreeNode {
     /**
      * Resolves a sibling node's {@link Move} for symmetry comparison.
      *
-      * <p>The canonical path is that child nodes call {@link #applyMove(String)} which stores a
-      * structured {@link Move}. However, some code (including tests and legacy callers) may populate
-      * {@link #children} directly with a move string key and a node that never parsed it. This helper
-      * keeps that fallback contained so {@link #isSimilarSibling()} remains readable.
+     * <p>The canonical path is that child nodes call {@link #applyMove(String)} which stores a
+     * structured {@link Move}. However, some code (including tests and legacy callers) may populate
+     * {@link #children} directly with a move string key and a node that never parsed it. This helper
+     * keeps that fallback contained so {@link #isSimilarSibling()} remains readable.
      */
     private static Move resolveSiblingMove(TreeNode sibling, String fallbackCommand) {
         if (sibling != null && sibling.move != null) {
@@ -756,8 +756,8 @@ public abstract class TreeNode {
     /**
      * Canonical key representing the equivalence class for a move under symmetry.
      *
-      * <p>Two moves are considered "similar siblings" when they represent the same strategic choice,
-      * differing only by which symmetric destination pile was chosen. For that, we keep:
+     * <p>Two moves are considered "similar siblings" when they represent the same strategic choice,
+     * differing only by which symmetric destination pile was chosen. For that, we keep:
      * <ul>
      *   <li>{@code kind}: which symmetry rule matched</li>
      *   <li>{@code from}: the source pile (the strategic decision starts here)</li>
@@ -769,8 +769,8 @@ public abstract class TreeNode {
     /**
      * Computes the symmetry key for a move, or null if the move has no symmetric-equivalence rule.
      *
-      * <p>This is the single place where we encode "which moves are symmetric" in a way that is
-      * semantic (based on piles/cards and board state), not syntactic (string parsing).
+     * <p>This is the single place where we encode "which moves are symmetric" in a way that is
+     * semantic (based on piles/cards and board state), not syntactic (string parsing).
      */
     private static MoveSymmetryKey symmetryKeyForMove(Move move, Solitaire referenceState) {
         if (move == null || referenceState == null || !move.isMove()) {
@@ -802,9 +802,9 @@ public abstract class TreeNode {
     /**
      * Resolves the card being moved.
      *
-      * <p>The engine sometimes emits 3-token moves like {@code move W F1} without an explicit card
-      * token. For symmetry classification we still need to know whether that implicit move is, for
-      * example, an Ace-to-foundation.
+     * <p>The engine sometimes emits 3-token moves like {@code move W F1} without an explicit card
+     * token. For symmetry classification we still need to know whether that implicit move is, for
+     * example, an Ace-to-foundation.
      */
     private static Move.CardRef resolveCardForMove(Move move, Solitaire referenceState, Move.PileRef from) {
         Move.CardRef card = move.card();
