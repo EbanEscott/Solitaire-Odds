@@ -275,25 +275,22 @@ public final class Move {
      * @throws IllegalArgumentException if parsing fails
      */
     public static Move parse(String command) {
-        Move m = tryParse(command);
-        if (m == null) {
-            throw new IllegalArgumentException("Unrecognised move command: " + command);
-        }
-        return m;
+        return tryParse(command);
     }
 
     /**
      * Attempts to parse a command string into a {@link Move}.
      *
-     * @return a Move if parsing succeeds; otherwise null
+     * @return a Move if parsing succeeds
+     * @throws IllegalArgumentException if parsing fails
      */
     public static Move tryParse(String command) {
         if (command == null) {
-            return null;
+            throw new IllegalArgumentException("Command cannot be null");
         }
         String trimmed = command.trim();
         if (trimmed.isEmpty()) {
-            return null;
+            throw new IllegalArgumentException("Command cannot be blank");
         }
 
         String lower = trimmed.toLowerCase(Locale.ROOT);
@@ -307,10 +304,10 @@ public final class Move {
 
         String[] parts = trimmed.split("\\s+");
         if (parts.length < 3) {
-            return null;
+            throw new IllegalArgumentException("Unrecognised move command: " + command);
         }
         if (!parts[0].equalsIgnoreCase("move")) {
-            return null;
+            throw new IllegalArgumentException("Unrecognised move command: " + command);
         }
 
         if (parts.length == 3) {
@@ -318,7 +315,7 @@ public final class Move {
             PileRef from = tryParsePile(parts[1]);
             PileRef to = tryParsePile(parts[2]);
             if (from == null || to == null) {
-                return null;
+                throw new IllegalArgumentException("Unrecognised move command: " + command);
             }
             return new Move(Type.MOVE, from, to, null);
         }
@@ -328,12 +325,12 @@ public final class Move {
             CardRef card = tryParseCard(parts[2]);
             PileRef to = tryParsePile(parts[3]);
             if (from == null || to == null || card == null) {
-                return null;
+                throw new IllegalArgumentException("Unrecognised move command: " + command);
             }
             return new Move(Type.MOVE, from, to, card);
         }
 
-        return null;
+        throw new IllegalArgumentException("Unrecognised move command: " + command);
     }
 
     private static PileRef tryParsePile(String token) {

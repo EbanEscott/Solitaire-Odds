@@ -205,7 +205,10 @@ public class MonteCarloPlayer extends AIPlayer {
      */
     private double simulate(MonteCarloTreeNode node) {
         if(log.isTraceEnabled()) {
-            log.trace("Simulating move: {} from parent: {}", node.getMove(), node.getParent().getMove() != null ? node.getParent().getMove() : "ROOT");
+            log.trace(
+                "Simulating move: {} from parent: {}",
+                node.getMove(),
+                node.getParent().getMove() != null ? node.getParent().getMove() : "ROOT");
         }
 
         // Skip quitting
@@ -263,12 +266,21 @@ public class MonteCarloPlayer extends AIPlayer {
             int idx = (int)(Math.random() * possibles.size());
             MonteCarloTreeNode selected = possibles.get(idx);
             if(log.isTraceEnabled()) {
-                List<String> moveStrings = possibles.stream().map(MonteCarloTreeNode::getMove).toList();
-                log.trace("Move: {} [{}]", selected.getMove(), moveStrings);
+                List<String> moveStrings = possibles.stream()
+                        .map(n -> n.getMove() != null ? n.getMove().toCommandString() : null)
+                        .toList();
+                log.trace(
+                    "Move: {} [{}]",
+                    selected.getMove() != null ? selected.getMove().toCommandString() : null,
+                    moveStrings);
             }
             possibles.clear();
             // Advance leaf but keep building the tree for cycle detection
-            leaf.addChild(selected.getMove(), selected);
+            String moveCmd = selected.getMove() != null ? selected.getMove().toCommandString() : null;
+            if (moveCmd == null) {
+                break;
+            }
+            leaf.addChild(moveCmd, selected);
             leaf = selected;
             steps++;
             if(steps >= MAX_SIMULATION_STEPS) {

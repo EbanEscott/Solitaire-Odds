@@ -23,13 +23,13 @@ class MoveTest {
     class ParsingTests {
 
         @Test
-        void tryParseNullReturnsNull() {
-            assertNull(Move.tryParse(null));
+        void tryParseNullThrows() {
+            assertThrows(IllegalArgumentException.class, () -> Move.tryParse(null));
         }
 
         @Test
-        void tryParseBlankReturnsNull() {
-            assertNull(Move.tryParse("   ")); 
+        void tryParseBlankThrows() {
+            assertThrows(IllegalArgumentException.class, () -> Move.tryParse("   "));
         }
 
         @Test
@@ -186,7 +186,7 @@ class MoveTest {
 
         @Test
         void tryParseRejectsCardWithoutSuit() {
-            assertFalse(Move.tryParse("move T1 A F1") != null);
+            assertThrows(IllegalArgumentException.class, () -> Move.tryParse("move T1 A F1"));
         }
     }
 }
