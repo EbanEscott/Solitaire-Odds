@@ -496,4 +496,189 @@ public abstract class TreeNode {
         }
         return state.getUnknownCards();
     }
+
+    /**
+     * Checks whether this node's move is effectively equivalent to any other child move
+     * under the same parent.
+     *
+     * <p><b>Purpose:</b> Some legal moves create multiple destination choices that lead to
+     * strategically identical outcomes (symmetry). For example:
+     * <ul>
+     *   <li>Moving an Ace to any empty foundation pile (F1–F4)</li>
+     *   <li>Moving a King to any empty tableau pile (T1–T7)</li>
+     * </ul>
+     *
+     * <p>This method compares the current node against its siblings (other children of its
+     * parent) and returns true if at least one sibling represents a similar move.
+     */
+    public boolean isSimilarSibling() {
+        if (parent == null || move == null) {
+            return false;
+        }
+
+        // Similarity should be judged based on the pre-move position.
+        Solitaire referenceState = (parent.state != null) ? parent.state : state;
+        if (referenceState == null) {
+            return false;
+        }
+
+        String thisKey = similarityKeyForMove(move, referenceState);
+        if (thisKey == null) {
+            return false;
+        }
+
+        for (Map.Entry<String, TreeNode> entry : parent.children.entrySet()) {
+            TreeNode sibling = entry.getValue();
+            if (sibling == null || sibling == this) {
+                continue;
+            }
+
+            String siblingMove = (sibling.move != null) ? sibling.move : entry.getKey();
+            if (siblingMove == null) {
+                continue;
+            }
+
+            String siblingKey = similarityKeyForMove(siblingMove, referenceState);
+            if (thisKey.equals(siblingKey)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static String similarityKeyForMove(String rawMove, Solitaire referenceState) {
+        if (rawMove == null || referenceState == null) {
+            return null;
+        }
+        String trimmed = rawMove.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        // Only "move ..." commands can currently have detectable symmetry.
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length < 3 || !parts[0].equalsIgnoreCase("move")) {
+            return null;
+        }
+
+        String from = parts[1].toUpperCase();
+        String to = parts[parts.length - 1].toUpperCase();
+
+        Card movingCard = null;
+        String movingToken = null;
+
+        if (parts.length == 4) {
+            movingToken = parts[2];
+        } else if (parts.length == 3) {
+            movingCard = inferMovingCard(referenceState, from);
+            if (movingCard == null) {
+                return null;
+            }
+            movingToken = movingCard.shortName();
+        } else {
+            return null;
+        }
+
+        // 1) Ace -> any empty foundation (F1..F4)
+        if (to.startsWith("F") && isAceToken(movingToken, movingCard)) {
+            int foundationIndex = parsePileIndex(to);
+            if (foundationIndex < 0) {
+                return null;
+            }
+            List<List<Card>> foundations = referenceState.getFoundation();
+            if (foundationIndex >= foundations.size()) {
+                return null;
+            }
+            if (!foundations.get(foundationIndex).isEmpty()) {
+                // If the destination isn't empty, then this isn't one of the symmetric Ace-start moves.
+                return null;
+            }
+            return "move " + from + " " + movingToken + " F*";
+        }
+
+        // 2) King -> any empty tableau (T1..T7)
+        if (to.startsWith("T") && isKingToken(movingToken, movingCard)) {
+            int tableauIndex = parsePileIndex(to);
+            if (tableauIndex < 0) {
+                return null;
+            }
+            List<List<Card>> tableau = referenceState.getVisibleTableau();
+            if (tableauIndex >= tableau.size()) {
+                return null;
+            }
+            if (!tableau.get(tableauIndex).isEmpty()) {
+                // Only empty-destination tableau moves are symmetric.
+                return null;
+            }
+            return "move " + from + " " + movingToken + " T*";
+        }
+
+        return null;
+    }
+
+    private static int parsePileIndex(String code) {
+        if (code == null || code.length() < 2) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(code.substring(1)) - 1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static boolean isAceToken(String token, Card movingCard) {
+        if (movingCard != null) {
+            return movingCard.getRank() == Rank.ACE;
+        }
+        return token != null && token.trim().toUpperCase().startsWith("A");
+    }
+
+    private static boolean isKingToken(String token, Card movingCard) {
+        if (movingCard != null) {
+            return movingCard.getRank() == Rank.KING;
+        }
+        return token != null && token.trim().toUpperCase().startsWith("K");
+    }
+
+    private static Card inferMovingCard(Solitaire referenceState, String from) {
+        if (referenceState == null || from == null) {
+            return null;
+        }
+        String normalized = from.toUpperCase();
+
+        if (normalized.equals("W")) {
+            List<Card> talon = referenceState.getTalon();
+            return talon.isEmpty() ? null : talon.get(talon.size() - 1);
+        }
+
+        if (normalized.startsWith("F")) {
+            int idx = parsePileIndex(normalized);
+            if (idx < 0) {
+                return null;
+            }
+            List<List<Card>> foundations = referenceState.getFoundation();
+            if (idx >= foundations.size()) {
+                return null;
+            }
+            List<Card> pile = foundations.get(idx);
+            return pile.isEmpty() ? null : pile.get(pile.size() - 1);
+        }
+
+        if (normalized.startsWith("T")) {
+            int idx = parsePileIndex(normalized);
+            if (idx < 0) {
+                return null;
+            }
+            List<List<Card>> tableau = referenceState.getVisibleTableau();
+            if (idx >= tableau.size()) {
+                return null;
+            }
+            List<Card> pile = tableau.get(idx);
+            return pile.isEmpty() ? null : pile.get(pile.size() - 1);
+        }
+
+        return null;
+    }
 }

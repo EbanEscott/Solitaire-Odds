@@ -7,6 +7,7 @@ import ai.games.game.Solitaire;
 import ai.games.player.ai.mcts.MonteCarloTreeNode;
 import ai.games.unit.helpers.SolitaireBuilder;
 import ai.games.unit.helpers.SolitaireFactory;
+import java.lang.reflect.Field;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -400,10 +401,18 @@ class TreeNodeTest {
 
         @Test
         void nullStateReturnsFalse() {
+            // TreeNode.setState does not allow null; simulate a null state via reflection.
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(SolitaireFactory.stockOnly());
             node.applyMove("move T1 K♠ T7");
-            node.setState(null);
+
+            try {
+                Field stateField = ai.games.player.ai.tree.TreeNode.class.getDeclaredField("state");
+                stateField.setAccessible(true);
+                stateField.set(node, null);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
 
             assertFalse(node.isUselessKingMove(), "Null state should not be useless king move");
         }
@@ -447,6 +456,147 @@ class TreeNodeTest {
             child.applyMove("move T6 K♠ F3");
 
             assertFalse(child.isUselessKingMove(), "King to foundation should not be flagged as useless");
+        }
+    }
+
+    // ========================================================================
+    // isSimilarSibling tests
+    // ========================================================================
+
+    @Nested
+    @DisplayName("isSimilarSibling")
+    class IsSimilarSiblingTests {
+
+        @Test
+        void nullParentReturnsFalse() {
+            MonteCarloTreeNode node = new MonteCarloTreeNode();
+            node.setState(SolitaireFactory.stockOnly());
+            node.applyMove("move T6 A♠ F1");
+
+            assertFalse(node.isSimilarSibling(), "Node with no parent cannot have similar siblings");
+        }
+
+        @Test
+        void nullMoveReturnsFalse() {
+            Solitaire solitaire = SolitaireFactory.stockOnly();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire);
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(solitaire.copy());
+            // move remains null
+
+            assertFalse(child.isSimilarSibling(), "Null move cannot be similar to siblings");
+        }
+
+        @Test
+        void aceToAnyEmptyFoundationHasSimilarSiblings() {
+            // With empty foundations, an Ace can be moved to any F1..F4, which are effectively equivalent.
+            Solitaire before = SolitaireBuilder.newGame().tableau("T6", "A♠").build();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(before);
+
+            MonteCarloTreeNode f1 = new MonteCarloTreeNode();
+            f1.setParent(parent);
+            f1.setState(before.copy());
+            f1.applyMove("move T6 A♠ F1");
+            parent.addChild("move T6 A♠ F1", f1);
+
+            MonteCarloTreeNode f2 = new MonteCarloTreeNode();
+            f2.setParent(parent);
+            f2.setState(before.copy());
+            f2.applyMove("move T6 A♠ F2");
+            parent.addChild("move T6 A♠ F2", f2);
+
+            MonteCarloTreeNode f3 = new MonteCarloTreeNode();
+            f3.setParent(parent);
+            f3.setState(before.copy());
+            f3.applyMove("move T6 A♠ F3");
+            parent.addChild("move T6 A♠ F3", f3);
+
+            MonteCarloTreeNode f4 = new MonteCarloTreeNode();
+            f4.setParent(parent);
+            f4.setState(before.copy());
+            f4.applyMove("move T6 A♠ F4");
+            parent.addChild("move T6 A♠ F4", f4);
+
+            assertTrue(f1.isSimilarSibling(), "Ace-to-foundation should have similar siblings when multiple foundations are empty");
+            assertTrue(f4.isSimilarSibling(), "Ace-to-foundation should have similar siblings when multiple foundations are empty");
+        }
+
+        @Test
+        void talonAceToAnyEmptyFoundationHasSimilarSiblings() {
+            // Talon-to-foundation moves omit the card token: "move W F1".
+            // With an Ace on top of the talon and empty foundations, F1..F4 are equivalent.
+            Solitaire before = SolitaireBuilder.newGame().waste("A♠").build();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(before);
+
+            MonteCarloTreeNode f1 = new MonteCarloTreeNode();
+            f1.setParent(parent);
+            f1.setState(before.copy());
+            f1.applyMove("move W F1");
+            parent.addChild("move W F1", f1);
+
+            MonteCarloTreeNode f2 = new MonteCarloTreeNode();
+            f2.setParent(parent);
+            f2.setState(before.copy());
+            f2.applyMove("move W F2");
+            parent.addChild("move W F2", f2);
+
+            assertTrue(f1.isSimilarSibling(), "Talon Ace-to-foundation should have similar siblings when multiple foundations are empty");
+            assertTrue(f2.isSimilarSibling(), "Talon Ace-to-foundation should have similar siblings when multiple foundations are empty");
+        }
+
+        @Test
+        void aceToSingleEmptyFoundationIsNotSimilar() {
+            // If only one foundation is empty, an Ace has only one possible foundation destination.
+            Solitaire before = SolitaireBuilder
+                    .newGame()
+                    .foundation("F1", "A♥")
+                    .foundation("F2", "A♦")
+                    .foundation("F3", "A♣")
+                    .tableau("T6", "A♠")
+                    .build();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(before);
+
+            MonteCarloTreeNode only = new MonteCarloTreeNode();
+            only.setParent(parent);
+            only.setState(before.copy());
+            only.applyMove("move T6 A♠ F4");
+            parent.addChild("move T6 A♠ F4", only);
+
+            assertFalse(only.isSimilarSibling(), "With only one empty foundation, the move should not be considered similar");
+        }
+
+        @Test
+        void kingToAnyEmptyTableauHasSimilarSiblings() {
+            // If multiple tableau piles are empty, moving a King stack to any empty pile is effectively equivalent.
+            Solitaire before = SolitaireBuilder.newGame().tableau("T1", "K♠").build();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(before);
+
+            MonteCarloTreeNode t2 = new MonteCarloTreeNode();
+            t2.setParent(parent);
+            t2.setState(before.copy());
+            t2.applyMove("move T1 K♠ T2");
+            parent.addChild("move T1 K♠ T2", t2);
+
+            MonteCarloTreeNode t7 = new MonteCarloTreeNode();
+            t7.setParent(parent);
+            t7.setState(before.copy());
+            t7.applyMove("move T1 K♠ T7");
+            parent.addChild("move T1 K♠ T7", t7);
+
+            assertTrue(t2.isSimilarSibling(), "King-to-empty-tableau should have similar siblings when multiple tableau piles are empty");
+            assertTrue(t7.isSimilarSibling(), "King-to-empty-tableau should have similar siblings when multiple tableau piles are empty");
         }
     }
 
@@ -784,7 +934,14 @@ class TreeNodeTest {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
             node.setState(SolitaireFactory.stockOnly());
             node.applyMove("turn");
-            node.setState(null);
+
+            try {
+                Field stateField = ai.games.player.ai.tree.TreeNode.class.getDeclaredField("state");
+                stateField.setAccessible(true);
+                stateField.set(node, null);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
 
             assertFalse(node.isCycleDetected(), "Node with null state should not detect cycle");
         }
