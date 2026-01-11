@@ -61,19 +61,19 @@ public abstract class TreeNode {
 
     /**
      * Why this node was pruned.
-        *
-        * <p><b>Why this exists:</b> When pruning affects behaviour or performance, it is otherwise
-        * difficult to tell whether a branch was never explored or was explored and then eliminated.
-        * Recording a reason makes debugging and search tuning much easier.
+      *
+      * <p>When pruning affects behaviour or performance, it is otherwise difficult to tell whether a
+      * branch was never explored or was explored and then eliminated. Recording a reason makes
+      * debugging and search tuning much easier.
      */
     protected PruneReason pruneReason = PruneReason.NONE;
 
     /**
      * Optional debugging notes explaining the prune (kept null by default).
-        *
-        * <p><b>Why this exists:</b> A reason enum is often enough, but in practice you sometimes need
-        * context (e.g. the command that triggered pruning, or a short explanation). This field is
-        * deliberately nullable so we don't allocate strings for every node.
+      *
+      * <p>A reason enum is often enough, but in practice you sometimes need context (e.g. the command
+      * that triggered pruning, or a short explanation). This field is deliberately nullable so we
+      * don't allocate strings for every node.
      */
     protected String pruneNotes = null;
 
@@ -306,8 +306,8 @@ public abstract class TreeNode {
     /**
      * Mark this node as pruned with an explicit reason.
      *
-     * <p><b>Why this exists:</b> Call sites can prune in a consistent way while leaving behind a
-     * machine-readable explanation that helps with tuning and post-mortems.
+     * <p>This gives call sites a consistent pruning mechanism while leaving behind a machine-readable
+     * explanation that helps with tuning and post-mortems.
      */
     public void markPruned(PruneReason reason) {
         markPruned(reason, null);
@@ -316,8 +316,8 @@ public abstract class TreeNode {
     /**
      * Mark this node as pruned with an explicit reason and optional notes.
      *
-     * <p><b>Why this exists:</b> Notes are an escape hatch for rare cases where a reason alone
-     * isn't enough to understand the prune during debugging.
+     * <p>Notes are an escape hatch for rare cases where a reason alone isn't enough to understand
+     * the prune during debugging.
      */
     public void markPruned(PruneReason reason, String notes) {
         this.pruned = true;
@@ -328,8 +328,8 @@ public abstract class TreeNode {
     /**
      * Gets the reason this node was pruned.
      *
-     * <p><b>Why this exists:</b> Exposes pruning decisions to tests, logs, and future debugging
-     * tooling without requiring ad-hoc string inspection.
+     * <p>This exposes pruning decisions to tests, logs, and future debugging tooling without
+     * requiring ad-hoc string inspection.
      */
     public PruneReason getPruneReason() {
         return pruneReason;
@@ -338,8 +338,8 @@ public abstract class TreeNode {
     /**
      * Gets any prune notes recorded for debugging.
      *
-     * <p><b>Why this exists:</b> Notes are optional and may be null; this accessor makes it easy
-     * to surface them in logs or debugging UIs when present.
+     * <p>Notes are optional and may be null; this accessor makes it easy to surface them in logs or
+     * debugging UIs when present.
      */
     public String getPruneNotes() {
         return pruneNotes;
@@ -347,10 +347,10 @@ public abstract class TreeNode {
 
     /**
      * Runs all prune detectors for this node and prunes it if any match.
-        *
-        * <p><b>Why this exists:</b> Pruning previously had multiple call sites each manually invoking
-        * detectors and setting flags. Centralising the policy here keeps pruning behaviour consistent
-        * across different search algorithms and makes it much harder to forget a detector.
+      *
+      * <p>Pruning previously had multiple call sites each manually invoking detectors and setting
+      * flags. Centralising the policy here keeps pruning behaviour consistent across different search
+      * algorithms and makes it much harder to forget a detector.
      *
      * @return true if the node is now pruned, false otherwise
      */
@@ -724,10 +724,10 @@ public abstract class TreeNode {
     /**
      * Resolves a sibling node's {@link Move} for symmetry comparison.
      *
-     * <p><b>Why this exists:</b> The canonical path is that child nodes call {@link #applyMove(String)}
-     * which stores a structured {@link Move}. However, some code (including tests and legacy callers)
-     * may populate {@link #children} directly with a move string key and a node that never parsed it.
-     * This helper keeps that fallback contained so {@link #isSimilarSibling()} remains readable.
+      * <p>The canonical path is that child nodes call {@link #applyMove(String)} which stores a
+      * structured {@link Move}. However, some code (including tests and legacy callers) may populate
+      * {@link #children} directly with a move string key and a node that never parsed it. This helper
+      * keeps that fallback contained so {@link #isSimilarSibling()} remains readable.
      */
     private static Move resolveSiblingMove(TreeNode sibling, String fallbackCommand) {
         if (sibling != null && sibling.move != null) {
@@ -745,8 +745,8 @@ public abstract class TreeNode {
     /**
      * The symmetry class for a move.
      *
-     * <p><b>Why this exists:</b> We don't want "stringy" wildcard keys; we want a small set of
-     * explicit rules that document which symmetries we consider strategically equivalent.
+     * <p>We keep symmetries as a small, explicit set of rules (not wildcard strings) so it's clear
+     * exactly which move families we consider strategically equivalent.
      */
     private enum MoveSymmetryKind {
         ACE_TO_EMPTY_FOUNDATION,
@@ -756,9 +756,8 @@ public abstract class TreeNode {
     /**
      * Canonical key representing the equivalence class for a move under symmetry.
      *
-     * <p><b>Why this exists:</b> Two moves are considered "similar siblings" when they represent
-     * the same strategic choice, differing only by which symmetric destination pile was chosen.
-     * For that, we keep:
+      * <p>Two moves are considered "similar siblings" when they represent the same strategic choice,
+      * differing only by which symmetric destination pile was chosen. For that, we keep:
      * <ul>
      *   <li>{@code kind}: which symmetry rule matched</li>
      *   <li>{@code from}: the source pile (the strategic decision starts here)</li>
@@ -770,8 +769,8 @@ public abstract class TreeNode {
     /**
      * Computes the symmetry key for a move, or null if the move has no symmetric-equivalence rule.
      *
-     * <p><b>Why this exists:</b> This is the single place where we encode "which moves are symmetric"
-     * in a way that is semantic (based on piles/cards and board state), not syntactic (string parsing).
+      * <p>This is the single place where we encode "which moves are symmetric" in a way that is
+      * semantic (based on piles/cards and board state), not syntactic (string parsing).
      */
     private static MoveSymmetryKey symmetryKeyForMove(Move move, Solitaire referenceState) {
         if (move == null || referenceState == null || !move.isMove()) {
@@ -803,9 +802,9 @@ public abstract class TreeNode {
     /**
      * Resolves the card being moved.
      *
-     * <p><b>Why this exists:</b> The engine sometimes emits 3-token moves like {@code move W F1}
-     * without an explicit card token. For symmetry classification we still need to know whether
-     * that implicit move is, for example, an Ace-to-foundation.
+      * <p>The engine sometimes emits 3-token moves like {@code move W F1} without an explicit card
+      * token. For symmetry classification we still need to know whether that implicit move is, for
+      * example, an Ace-to-foundation.
      */
     private static Move.CardRef resolveCardForMove(Move move, Solitaire referenceState, Move.PileRef from) {
         Move.CardRef card = move.card();
@@ -823,8 +822,8 @@ public abstract class TreeNode {
     /**
      * Symmetry rule: moving an Ace to any empty foundation pile is equivalent.
      *
-     * <p><b>Why this exists:</b> Empty foundations are symmetric; choosing F1 vs F2 for the first Ace
-     * doesn't change future possibilities in a meaningful way, so we keep only one representative.
+     * <p>Empty foundations are symmetric; choosing F1 vs F2 for the first Ace doesn't change future
+     * possibilities in a meaningful way, so we keep only one representative.
      */
     private static MoveSymmetryKey aceToEmptyFoundationKey(
             Move.PileRef from, Move.PileRef to, Move.CardRef card, Solitaire referenceState) {
@@ -847,8 +846,8 @@ public abstract class TreeNode {
     /**
      * Symmetry rule: moving a King (or king-led run) to any empty tableau column is equivalent.
      *
-     * <p><b>Why this exists:</b> Empty tableau columns are symmetric; if multiple empty columns exist,
-     * the first placement choice is usually interchangeable and explodes branching without adding value.
+     * <p>Empty tableau columns are symmetric; if multiple empty columns exist, the first placement
+     * choice is usually interchangeable and explodes branching without adding value.
      */
     private static MoveSymmetryKey kingToEmptyTableauKey(
             Move.PileRef from, Move.PileRef to, Move.CardRef card, Solitaire referenceState) {
@@ -871,9 +870,8 @@ public abstract class TreeNode {
     /**
      * Infers the moved card for move strings that omit an explicit card token.
      *
-     * <p><b>Why this exists:</b> Some engine commands intentionally omit the card for brevity.
-     * For classification and pruning, we can infer the card as "the top card" of the source pile
-     * in the pre-move position.
+      * <p>Some engine commands intentionally omit the card for brevity. For classification and
+      * pruning, we can infer the card as "the top card" of the source pile in the pre-move position.
      */
     private static Card inferMovingCard(Solitaire referenceState, Move.PileRef from) {
         if (referenceState == null || from == null) {
