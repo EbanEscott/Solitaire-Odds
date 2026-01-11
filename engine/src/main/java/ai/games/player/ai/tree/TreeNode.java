@@ -61,11 +61,19 @@ public abstract class TreeNode {
 
     /**
      * Why this node was pruned.
+        *
+        * <p><b>Why this exists:</b> When pruning affects behaviour or performance, it is otherwise
+        * difficult to tell whether a branch was never explored or was explored and then eliminated.
+        * Recording a reason makes debugging and search tuning much easier.
      */
     protected PruneReason pruneReason = PruneReason.NONE;
 
     /**
      * Optional debugging notes explaining the prune (kept null by default).
+        *
+        * <p><b>Why this exists:</b> A reason enum is often enough, but in practice you sometimes need
+        * context (e.g. the command that triggered pruning, or a short explanation). This field is
+        * deliberately nullable so we don't allocate strings for every node.
      */
     protected String pruneNotes = null;
 
@@ -297,6 +305,9 @@ public abstract class TreeNode {
 
     /**
      * Mark this node as pruned with an explicit reason.
+     *
+     * <p><b>Why this exists:</b> Call sites can prune in a consistent way while leaving behind a
+     * machine-readable explanation that helps with tuning and post-mortems.
      */
     public void markPruned(PruneReason reason) {
         markPruned(reason, null);
@@ -304,6 +315,9 @@ public abstract class TreeNode {
 
     /**
      * Mark this node as pruned with an explicit reason and optional notes.
+     *
+     * <p><b>Why this exists:</b> Notes are an escape hatch for rare cases where a reason alone
+     * isn't enough to understand the prune during debugging.
      */
     public void markPruned(PruneReason reason, String notes) {
         this.pruned = true;
@@ -313,6 +327,9 @@ public abstract class TreeNode {
 
     /**
      * Gets the reason this node was pruned.
+     *
+     * <p><b>Why this exists:</b> Exposes pruning decisions to tests, logs, and future debugging
+     * tooling without requiring ad-hoc string inspection.
      */
     public PruneReason getPruneReason() {
         return pruneReason;
@@ -320,6 +337,9 @@ public abstract class TreeNode {
 
     /**
      * Gets any prune notes recorded for debugging.
+     *
+     * <p><b>Why this exists:</b> Notes are optional and may be null; this accessor makes it easy
+     * to surface them in logs or debugging UIs when present.
      */
     public String getPruneNotes() {
         return pruneNotes;
@@ -327,6 +347,10 @@ public abstract class TreeNode {
 
     /**
      * Runs all prune detectors for this node and prunes it if any match.
+        *
+        * <p><b>Why this exists:</b> Pruning previously had multiple call sites each manually invoking
+        * detectors and setting flags. Centralising the policy here keeps pruning behaviour consistent
+        * across different search algorithms and makes it much harder to forget a detector.
      *
      * @return true if the node is now pruned, false otherwise
      */
@@ -658,13 +682,14 @@ public abstract class TreeNode {
             return false;
         }
 
-        // Similarity should be judged based on the pre-move position.
+        // IMPORTANT: Symmetry must be evaluated against the pre-move state.
+        // Tree nodes typically store post-move state, so prefer parent.state where available.
         Solitaire referenceState = (parent.state != null) ? parent.state : state;
         if (referenceState == null) {
             return false;
         }
 
-        String thisKey = similarityKeyForMove(move.toCommandString(), referenceState);
+        MoveSymmetryKey thisKey = symmetryKeyForMove(move, referenceState);
         if (thisKey == null) {
             return false;
         }
@@ -675,12 +700,12 @@ public abstract class TreeNode {
                 continue;
             }
 
-            String siblingMove = (sibling.move != null) ? sibling.move.toCommandString() : entry.getKey();
+            Move siblingMove = resolveSiblingMove(sibling, entry.getKey());
             if (siblingMove == null) {
                 continue;
             }
 
-            String siblingKey = similarityKeyForMove(siblingMove, referenceState);
+            MoveSymmetryKey siblingKey = symmetryKeyForMove(siblingMove, referenceState);
             if (thisKey.equals(siblingKey)) {
                 return true;
             }
@@ -689,138 +714,189 @@ public abstract class TreeNode {
         return false;
     }
 
-    private static String similarityKeyForMove(String rawMove, Solitaire referenceState) {
-        if (rawMove == null || referenceState == null) {
+    /**
+     * Resolves a sibling node's {@link Move} for symmetry comparison.
+     *
+     * <p><b>Why this exists:</b> The canonical path is that child nodes call {@link #applyMove(String)}
+     * which stores a structured {@link Move}. However, some code (including tests and legacy callers)
+     * may populate {@link #children} directly with a move string key and a node that never parsed it.
+     * This helper keeps that fallback contained so {@link #isSimilarSibling()} remains readable.
+     */
+    private static Move resolveSiblingMove(TreeNode sibling, String fallbackCommand) {
+        if (sibling != null && sibling.move != null) {
+            return sibling.move;
+        }
+
+        // Fallback for callers that populated parent.children directly without applyMove().
+        try {
+            return Move.tryParse(fallbackCommand);
+        } catch (IllegalArgumentException e) {
             return null;
         }
-        String trimmed = rawMove.trim();
-        if (trimmed.isEmpty()) {
+    }
+
+    /**
+     * The symmetry class for a move.
+     *
+     * <p><b>Why this exists:</b> We don't want "stringy" wildcard keys; we want a small set of
+     * explicit rules that document which symmetries we consider strategically equivalent.
+     */
+    private enum MoveSymmetryKind {
+        ACE_TO_EMPTY_FOUNDATION,
+        KING_TO_EMPTY_TABLEAU
+    }
+
+    /**
+     * Canonical key representing the equivalence class for a move under symmetry.
+     *
+     * <p><b>Why this exists:</b> Two moves are considered "similar siblings" when they represent
+     * the same strategic choice, differing only by which symmetric destination pile was chosen.
+     * For that, we keep:
+     * <ul>
+     *   <li>{@code kind}: which symmetry rule matched</li>
+     *   <li>{@code from}: the source pile (the strategic decision starts here)</li>
+     *   <li>{@code card}: the moved card (to avoid over-grouping different moves)</li>
+     * </ul>
+     */
+    private record MoveSymmetryKey(MoveSymmetryKind kind, Move.PileRef from, Move.CardRef card) {}
+
+    /**
+     * Computes the symmetry key for a move, or null if the move has no symmetric-equivalence rule.
+     *
+     * <p><b>Why this exists:</b> This is the single place where we encode "which moves are symmetric"
+     * in a way that is semantic (based on piles/cards and board state), not syntactic (string parsing).
+     */
+    private static MoveSymmetryKey symmetryKeyForMove(Move move, Solitaire referenceState) {
+        if (move == null || referenceState == null || !move.isMove()) {
             return null;
         }
 
-        // Only "move ..." commands can currently have detectable symmetry.
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length < 3 || !parts[0].equalsIgnoreCase("move")) {
+        Move.PileRef from = move.from();
+        Move.PileRef to = move.to();
+        if (from == null || to == null) {
             return null;
         }
 
-        String from = parts[1].toUpperCase();
-        String to = parts[parts.length - 1].toUpperCase();
-
-        Card movingCard = null;
-        String movingToken = null;
-
-        if (parts.length == 4) {
-            movingToken = parts[2];
-        } else if (parts.length == 3) {
-            movingCard = inferMovingCard(referenceState, from);
-            if (movingCard == null) {
-                return null;
-            }
-            movingToken = movingCard.shortName();
-        } else {
+        Move.CardRef card = resolveCardForMove(move, referenceState, from);
+        if (card == null) {
             return null;
         }
 
-        // 1) Ace -> any empty foundation (F1..F4)
-        if (to.startsWith("F") && isAceToken(movingToken, movingCard)) {
-            int foundationIndex = parsePileIndex(to);
-            if (foundationIndex < 0) {
-                return null;
-            }
-            List<List<Card>> foundations = referenceState.getFoundation();
-            if (foundationIndex >= foundations.size()) {
-                return null;
-            }
-            if (!foundations.get(foundationIndex).isEmpty()) {
-                // If the destination isn't empty, then this isn't one of the symmetric Ace-start moves.
-                return null;
-            }
-            return "move " + from + " " + movingToken + " F*";
+        MoveSymmetryKey key;
+        if ((key = aceToEmptyFoundationKey(from, to, card, referenceState)) != null) {
+            return key;
         }
-
-        // 2) King -> any empty tableau (T1..T7)
-        if (to.startsWith("T") && isKingToken(movingToken, movingCard)) {
-            int tableauIndex = parsePileIndex(to);
-            if (tableauIndex < 0) {
-                return null;
-            }
-            List<List<Card>> tableau = referenceState.getVisibleTableau();
-            if (tableauIndex >= tableau.size()) {
-                return null;
-            }
-            if (!tableau.get(tableauIndex).isEmpty()) {
-                // Only empty-destination tableau moves are symmetric.
-                return null;
-            }
-            return "move " + from + " " + movingToken + " T*";
+        if ((key = kingToEmptyTableauKey(from, to, card, referenceState)) != null) {
+            return key;
         }
 
         return null;
     }
 
-    private static int parsePileIndex(String code) {
-        if (code == null || code.length() < 2) {
-            return -1;
+    /**
+     * Resolves the card being moved.
+     *
+     * <p><b>Why this exists:</b> The engine sometimes emits 3-token moves like {@code move W F1}
+     * without an explicit card token. For symmetry classification we still need to know whether
+     * that implicit move is, for example, an Ace-to-foundation.
+     */
+    private static Move.CardRef resolveCardForMove(Move move, Solitaire referenceState, Move.PileRef from) {
+        Move.CardRef card = move.card();
+        if (card != null) {
+            return card;
         }
-        try {
-            return Integer.parseInt(code.substring(1)) - 1;
-        } catch (NumberFormatException e) {
-            return -1;
+
+        Card inferred = inferMovingCard(referenceState, from);
+        if (inferred == null) {
+            return null;
         }
+        return new Move.CardRef(inferred.getRank(), inferred.getSuit());
     }
 
-    private static boolean isAceToken(String token, Card movingCard) {
-        if (movingCard != null) {
-            return movingCard.getRank() == Rank.ACE;
+    /**
+     * Symmetry rule: moving an Ace to any empty foundation pile is equivalent.
+     *
+     * <p><b>Why this exists:</b> Empty foundations are symmetric; choosing F1 vs F2 for the first Ace
+     * doesn't change future possibilities in a meaningful way, so we keep only one representative.
+     */
+    private static MoveSymmetryKey aceToEmptyFoundationKey(
+            Move.PileRef from, Move.PileRef to, Move.CardRef card, Solitaire referenceState) {
+        if (to.type() != Move.PileType.FOUNDATION || card.rank() != Rank.ACE) {
+            return null;
         }
-        return token != null && token.trim().toUpperCase().startsWith("A");
+
+        int idx = to.index();
+        List<List<Card>> foundations = referenceState.getFoundation();
+        if (idx < 0 || idx >= foundations.size()) {
+            return null;
+        }
+        if (!foundations.get(idx).isEmpty()) {
+            return null;
+        }
+
+        return new MoveSymmetryKey(MoveSymmetryKind.ACE_TO_EMPTY_FOUNDATION, from, card);
     }
 
-    private static boolean isKingToken(String token, Card movingCard) {
-        if (movingCard != null) {
-            return movingCard.getRank() == Rank.KING;
+    /**
+     * Symmetry rule: moving a King (or king-led run) to any empty tableau column is equivalent.
+     *
+     * <p><b>Why this exists:</b> Empty tableau columns are symmetric; if multiple empty columns exist,
+     * the first placement choice is usually interchangeable and explodes branching without adding value.
+     */
+    private static MoveSymmetryKey kingToEmptyTableauKey(
+            Move.PileRef from, Move.PileRef to, Move.CardRef card, Solitaire referenceState) {
+        if (to.type() != Move.PileType.TABLEAU || card.rank() != Rank.KING) {
+            return null;
         }
-        return token != null && token.trim().toUpperCase().startsWith("K");
+
+        int idx = to.index();
+        List<List<Card>> tableau = referenceState.getVisibleTableau();
+        if (idx < 0 || idx >= tableau.size()) {
+            return null;
+        }
+        if (!tableau.get(idx).isEmpty()) {
+            return null;
+        }
+
+        return new MoveSymmetryKey(MoveSymmetryKind.KING_TO_EMPTY_TABLEAU, from, card);
     }
 
-    private static Card inferMovingCard(Solitaire referenceState, String from) {
+    /**
+     * Infers the moved card for move strings that omit an explicit card token.
+     *
+     * <p><b>Why this exists:</b> Some engine commands intentionally omit the card for brevity.
+     * For classification and pruning, we can infer the card as "the top card" of the source pile
+     * in the pre-move position.
+     */
+    private static Card inferMovingCard(Solitaire referenceState, Move.PileRef from) {
         if (referenceState == null || from == null) {
             return null;
         }
-        String normalized = from.toUpperCase();
 
-        if (normalized.equals("W")) {
-            List<Card> talon = referenceState.getTalon();
-            return talon.isEmpty() ? null : talon.get(talon.size() - 1);
-        }
-
-        if (normalized.startsWith("F")) {
-            int idx = parsePileIndex(normalized);
-            if (idx < 0) {
-                return null;
+        return switch (from.type()) {
+            case WASTE -> {
+                List<Card> talon = referenceState.getTalon();
+                yield talon.isEmpty() ? null : talon.get(talon.size() - 1);
             }
-            List<List<Card>> foundations = referenceState.getFoundation();
-            if (idx >= foundations.size()) {
-                return null;
+            case STOCK -> null;
+            case FOUNDATION -> {
+                int idx = from.index();
+                List<List<Card>> foundations = referenceState.getFoundation();
+                if (idx < 0 || idx >= foundations.size()) {
+                    yield null;
+                }
+                List<Card> pile = foundations.get(idx);
+                yield pile.isEmpty() ? null : pile.get(pile.size() - 1);
             }
-            List<Card> pile = foundations.get(idx);
-            return pile.isEmpty() ? null : pile.get(pile.size() - 1);
-        }
-
-        if (normalized.startsWith("T")) {
-            int idx = parsePileIndex(normalized);
-            if (idx < 0) {
-                return null;
+            case TABLEAU -> {
+                int idx = from.index();
+                List<List<Card>> tableau = referenceState.getVisibleTableau();
+                if (idx < 0 || idx >= tableau.size()) {
+                    yield null;
+                }
+                List<Card> pile = tableau.get(idx);
+                yield pile.isEmpty() ? null : pile.get(pile.size() - 1);
             }
-            List<List<Card>> tableau = referenceState.getVisibleTableau();
-            if (idx >= tableau.size()) {
-                return null;
-            }
-            List<Card> pile = tableau.get(idx);
-            return pile.isEmpty() ? null : pile.get(pile.size() - 1);
-        }
-
-        return null;
+        };
     }
 }
