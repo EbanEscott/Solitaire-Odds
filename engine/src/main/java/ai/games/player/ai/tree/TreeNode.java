@@ -324,6 +324,47 @@ public abstract class TreeNode {
     }
 
     /**
+     * Checks whether this node's move is the exact inverse of its parent's move.
+     *
+     * <p><b>Purpose:</b> Prevent immediate ping-ponging where we make a move and then undo it
+     * on the very next step.
+     *
+     * <p><b>Definition:</b> Two moves are considered inverses if they swap source and destination
+     * piles. When both moves explicitly specify a card token, the card must also match.
+     *
+     * @return true if this move is the inverse of the parent's move, false otherwise
+     */
+    public boolean isInverseOfParentMove() {
+        if (parent == null || parent.move == null || move == null) {
+            return false;
+        }
+        if (!parent.move.isMove() || !move.isMove()) {
+            return false;
+        }
+
+        Move.PileRef parentFrom = parent.move.from();
+        Move.PileRef parentTo = parent.move.to();
+        Move.PileRef from = move.from();
+        Move.PileRef to = move.to();
+
+        if (parentFrom == null || parentTo == null || from == null || to == null) {
+            return false;
+        }
+
+        boolean swapped = from.equals(parentTo) && to.equals(parentFrom);
+        if (!swapped) {
+            return false;
+        }
+
+        // If both moves specify a card, require an exact match.
+        if (parent.move.card() != null && move.card() != null) {
+            return parent.move.card().equals(move.card());
+        }
+
+        return true;
+    }
+
+    /**
      * Prunes moves that shift a king between tableau columns without revealing new cards.
      *
      * <p><b>What does this prune?</b> If there are no face-down cards beneath a king in one
