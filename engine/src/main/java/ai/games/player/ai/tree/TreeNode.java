@@ -501,9 +501,10 @@ public abstract class TreeNode {
      *
      * <p><b>Implementation:</b>
      * <ol>
-     *   <li>Parse the move string (from this.move) to extract source column and card
+     *   <li>Use the structured {@link Move} (from {@code this.move}) to extract source/destination piles
      *   <li>Verify both source and destination are tableau columns
-     *   <li>Find the card being moved and check it's a king
+     *   <li>Resolve the moved card (explicit card token, or inferred from the pre-move state)
+     *   <li>Confirm the moved card is a king (and, when explicit, that it exists in the source pile)
      *   <li>Examine the source column's face-down count
      *   <li>Return true (prune) only if the move is T→T, is a king, and has no face-downs
      * </ol>
@@ -517,56 +518,62 @@ public abstract class TreeNode {
             return false;
         }
 
+        if (!move.isMove()) {
+            return false;
+        }
+
+        Move.PileRef from = move.from();
+        Move.PileRef to = move.to();
+        if (from == null || to == null) {
+            return false;
+        }
+
+        // Only prune tableau-to-tableau king moves.
+        // Allow king-to-foundation moves since they might enable other plays or be part of a winning sequence.
+        if (from.type() != Move.PileType.TABLEAU || to.type() != Move.PileType.TABLEAU) {
+            return false;
+        }
+
         // Classification must be based on the *pre-move* position.
         // In search (MCTS/A*), nodes typically store the state *after* applying `move`.
         // If we inspect `state` here, the source pile may already be empty, causing
         // single-card king shuffles (the common case) to be missed.
         Solitaire referenceState = (parent != null && parent.state != null) ? parent.state : state;
 
-        String trimmed = move.toCommandString().trim();
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length < 3) {
-            return false;
-        }
-        if (!parts[0].equalsIgnoreCase("move")) {
-            return false;
-        }
-        String from = parts[1];
-        String dest = parts[parts.length - 1].toUpperCase();
-        
-        // Only prune tableau-to-tableau king moves. Allow king-to-foundation moves since
-        // they might enable other plays or be part of a winning sequence.
-        if (!from.startsWith("T") || !dest.startsWith("T")) {
-            return false;
-        }
-        
-        int pileIndex;
-        try {
-            pileIndex = Integer.parseInt(from.substring(1)) - 1;
-        } catch (NumberFormatException e) {
-            return false;
-        }
+        int pileIndex = from.index();
         List<List<Card>> visibleTableau = referenceState.getVisibleTableau();
         if (pileIndex < 0 || pileIndex >= visibleTableau.size()) {
             return false;
         }
-
-        String cardToken = parts[2];
         List<Card> tableauPile = visibleTableau.get(pileIndex);
         if (tableauPile == null || tableauPile.isEmpty()) {
             return false;
         }
 
-        // Find the specific card being moved and verify it's a king.
-        Card moving = null;
-        for (Card c : tableauPile) {
-            if (cardToken.equalsIgnoreCase(c.shortName())) {
-                moving = c;
-                break;
+        // Resolve the moved card and verify it's a king.
+        // If the move explicitly specifies a card, be conservative and confirm that card exists
+        // in the source pile in the pre-move state.
+        if (move.card() != null) {
+            Move.CardRef card = move.card();
+            if (card.rank() != Rank.KING) {
+                return false;
             }
-        }
-        if (moving == null || moving.getRank() != Rank.KING) {
-            return false;
+
+            boolean found = false;
+            for (Card c : tableauPile) {
+                if (c != null && c.getRank() == card.rank() && c.getSuit() == card.suit()) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        } else {
+            Card inferred = inferMovingCard(referenceState, from);
+            if (inferred == null || inferred.getRank() != Rank.KING) {
+                return false;
+            }
         }
 
         // Check the face-down count beneath this pile. If it's zero, revealing nothing means
