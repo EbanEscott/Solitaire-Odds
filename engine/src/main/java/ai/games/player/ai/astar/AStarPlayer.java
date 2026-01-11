@@ -3,7 +3,6 @@ package ai.games.player.ai.astar;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
-import ai.games.player.ai.tree.MoveSignature;
 import ai.games.player.ai.tree.TreeNode;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -170,26 +169,12 @@ public class AStarPlayer extends AIPlayer {
                 log.trace("Expanding node with {} legal moves: {}", legalMoves.size(), legalMoves);
             }
 
-            // Get parent's move signature for ping-pong detection
-                MoveSignature parentSig = (node.getMove() != null)
-                    ? MoveSignature.tryParse(node.getMove().toCommandString())
-                    : null;
-
             // Expand children
             for (String moveCmd : legalMoves) {
                 // ----- Pruning: Skip quit moves -----
                 if (moveCmd.trim().equalsIgnoreCase("quit")) {
                     if (log.isTraceEnabled()) {
                         log.trace("Skipping quit move");
-                    }
-                    continue;
-                }
-
-                // ----- Pruning: Ping-pong detection -----
-                MoveSignature moveSig = MoveSignature.tryParse(moveCmd);
-                if (parentSig != null && moveSig != null && moveSig.isInverseOf(parentSig)) {
-                    if (log.isTraceEnabled()) {
-                        log.trace("Skipping ping-pong move: {}", moveCmd);
                     }
                     continue;
                 }
@@ -212,6 +197,15 @@ public class AStarPlayer extends AIPlayer {
                 child.applyMove(moveCmd);
                 child.setParent(node);
                 node.addChild(moveCmd, child);
+
+                // ----- Pruning: Ping-pong detection (immediate inverse) -----
+                if (child.isInverseOfParentMove()) {
+                    if (log.isTraceEnabled()) {
+                        log.trace("Skipping ping-pong move: {}", moveCmd);
+                    }
+                    child.markPruned();
+                    continue;
+                }
 
                 // ----- Pruning: Useless king moves -----
                 if (child.isUselessKingMove()) {
