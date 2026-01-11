@@ -1,10 +1,12 @@
 package ai.games.unit.player;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.games.game.Solitaire;
 import ai.games.player.ai.mcts.MonteCarloTreeNode;
+import ai.games.player.ai.tree.PruneReason;
 import ai.games.unit.helpers.SolitaireBuilder;
 import ai.games.unit.helpers.SolitaireFactory;
 import java.lang.reflect.Field;
@@ -456,6 +458,74 @@ class TreeNodeTest {
             child.applyMove("move T6 K♠ F3");
 
             assertFalse(child.isUselessKingMove(), "King to foundation should not be flagged as useless");
+        }
+    }
+
+    // ========================================================================
+    // doPruning tests
+    // ========================================================================
+
+    @Nested
+    @DisplayName("doPruning")
+    class DoPruningTests {
+
+        @Test
+        void uselessKingMoveIsPrunedWithReason() {
+            Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "K♠").build();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire);
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(solitaire.copy());
+            child.applyMove("move T1 K♠ T7");
+
+            assertTrue(child.doPruning(), "Useless king move should be pruned");
+            assertEquals(PruneReason.USELESS_KING_MOVE, child.getPruneReason());
+        }
+
+        @Test
+        void inverseOfParentMoveIsPrunedWithReason() {
+            Solitaire before = SolitaireBuilder.newGame().tableau("T1", "K♠").build();
+
+            MonteCarloTreeNode root = new MonteCarloTreeNode();
+            root.setState(before);
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setParent(root);
+            parent.setState(before.copy());
+            parent.applyMove("move T1 K♠ T7");
+
+            MonteCarloTreeNode child = new MonteCarloTreeNode();
+            child.setParent(parent);
+            child.setState(parent.getState().copy());
+            child.applyMove("move T7 K♠ T1");
+
+            assertTrue(child.doPruning(), "Immediate inverse move should be pruned");
+            assertEquals(PruneReason.INVERSE_OF_PARENT_MOVE, child.getPruneReason());
+        }
+
+        @Test
+        void similarSiblingIsPrunedWithReason() {
+            Solitaire solitaire = SolitaireBuilder.newGame().tableau("T1", "A♠").build();
+
+            MonteCarloTreeNode parent = new MonteCarloTreeNode();
+            parent.setState(solitaire);
+
+            MonteCarloTreeNode first = new MonteCarloTreeNode();
+            first.setState(solitaire.copy());
+            first.applyMove("move T1 A♠ F1");
+            parent.addChild("move T1 A♠ F1", first);
+            assertFalse(first.doPruning(), "First representative should not be pruned");
+
+            MonteCarloTreeNode second = new MonteCarloTreeNode();
+            second.setState(solitaire.copy());
+            second.applyMove("move T1 A♠ F2");
+            parent.addChild("move T1 A♠ F2", second);
+
+            assertTrue(second.doPruning(), "Similar sibling move should be pruned");
+            assertEquals(PruneReason.SIMILAR_SIBLING, second.getPruneReason());
         }
     }
 

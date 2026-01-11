@@ -59,6 +59,16 @@ public abstract class TreeNode {
      */
     protected boolean pruned = false;
 
+    /**
+     * Why this node was pruned.
+     */
+    protected PruneReason pruneReason = PruneReason.NONE;
+
+    /**
+     * Optional debugging notes explaining the prune (kept null by default).
+     */
+    protected String pruneNotes = null;
+
 
     /**
      * Current move being evaluated. Set before calling isCycleDetected() or isUselessKingMove().
@@ -74,6 +84,8 @@ public abstract class TreeNode {
         this.state = null;
         this.stateKey = 0L;
         this.pruned = false;
+        this.pruneReason = PruneReason.NONE;
+        this.pruneNotes = null;
         this.move = null;
     }
 
@@ -83,7 +95,17 @@ public abstract class TreeNode {
      * @return a string summarizing the node's state key and number of children
      */
     public String toString() {
-        return "TreeNode[stateKey=" + stateKey + ", move=" + getMove() + ", children=" + children.size() + "]";
+        return "TreeNode[stateKey="
+                + stateKey
+                + ", move="
+                + getMove()
+                + ", pruned="
+                + pruned
+                + ", pruneReason="
+                + pruneReason
+                + ", children="
+                + children.size()
+                + "]";
     }
 
     /**
@@ -247,6 +269,15 @@ public abstract class TreeNode {
     */
     public void setPruned(boolean pruned) {
         this.pruned = pruned;
+        if (!pruned) {
+            this.pruneReason = PruneReason.NONE;
+            this.pruneNotes = null;
+        } else {
+            // Preserve any existing reason, otherwise mark as manual.
+            if (this.pruneReason == null || this.pruneReason == PruneReason.NONE) {
+                this.pruneReason = PruneReason.MANUAL;
+            }
+        }
     }
 
     /**
@@ -261,7 +292,70 @@ public abstract class TreeNode {
      * a "learning" effect: the more moves the player makes, the more unproductive paths it avoids.
      */
     public void markPruned() {
+        markPruned(PruneReason.MANUAL, null);
+    }
+
+    /**
+     * Mark this node as pruned with an explicit reason.
+     */
+    public void markPruned(PruneReason reason) {
+        markPruned(reason, null);
+    }
+
+    /**
+     * Mark this node as pruned with an explicit reason and optional notes.
+     */
+    public void markPruned(PruneReason reason, String notes) {
         this.pruned = true;
+        this.pruneReason = (reason != null) ? reason : PruneReason.MANUAL;
+        this.pruneNotes = notes;
+    }
+
+    /**
+     * Gets the reason this node was pruned.
+     */
+    public PruneReason getPruneReason() {
+        return pruneReason;
+    }
+
+    /**
+     * Gets any prune notes recorded for debugging.
+     */
+    public String getPruneNotes() {
+        return pruneNotes;
+    }
+
+    /**
+     * Runs all prune detectors for this node and prunes it if any match.
+     *
+     * @return true if the node is now pruned, false otherwise
+     */
+    public boolean doPruning() {
+        if (pruned) {
+            return true;
+        }
+
+        if (isInverseOfParentMove()) {
+            markPruned(PruneReason.INVERSE_OF_PARENT_MOVE, move != null ? move.toCommandString() : null);
+            return true;
+        }
+
+        if (isUselessKingMove()) {
+            markPruned(PruneReason.USELESS_KING_MOVE, move != null ? move.toCommandString() : null);
+            return true;
+        }
+
+        if (isCycleDetected()) {
+            markPruned(PruneReason.CYCLE_DETECTED, move != null ? move.toCommandString() : null);
+            return true;
+        }
+
+        if (isSimilarSibling()) {
+            markPruned(PruneReason.SIMILAR_SIBLING, move != null ? move.toCommandString() : null);
+            return true;
+        }
+
+        return false;
     }
 
     /**
