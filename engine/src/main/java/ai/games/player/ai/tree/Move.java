@@ -8,8 +8,8 @@ import java.util.Objects;
 /**
  * Structured representation of a Solitaire command.
  *
- * <p><b>Why this exists:</b> Many search components treat moves as strings (e.g. "move T6 A♠ F2").
- * Parsing strings repeatedly is error-prone (multiple formats exist) and slow.
+ * <p>Many search components treat moves as strings (e.g. "move T6 A♠ F2"). Parsing strings
+ * repeatedly is error-prone (multiple formats exist) and slow.
  * This class provides:
  * <ul>
  *   <li>Fast equality/hash via a precomputed packed {@code long} key</li>
