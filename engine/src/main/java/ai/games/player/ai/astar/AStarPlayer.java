@@ -171,8 +171,9 @@ public class AStarPlayer extends AIPlayer {
             }
 
             // Get parent's move signature for ping-pong detection
-            MoveSignature parentSig = (node.getMove() != null) 
-                    ? MoveSignature.tryParse(node.getMove()) : null;
+                MoveSignature parentSig = (node.getMove() != null)
+                    ? MoveSignature.tryParse(node.getMove().toCommandString())
+                    : null;
 
             // Expand children
             for (String moveCmd : legalMoves) {
@@ -326,7 +327,7 @@ public class AStarPlayer extends AIPlayer {
                 break;
             }
         }
-        return child.getMove();
+        return child.getMove() != null ? child.getMove().toCommandString() : null;
     }
 
     /**

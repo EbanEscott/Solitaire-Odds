@@ -64,7 +64,7 @@ public abstract class TreeNode {
      * Current move being evaluated. Set before calling isCycleDetected() or isUselessKingMove().
      * These methods evaluate the move in the context of this node's state.
      */
-    protected String move = null;
+    protected Move move = null;
 
     /**
      * Protected constructor for subclasses.
@@ -83,7 +83,7 @@ public abstract class TreeNode {
      * @return a string summarizing the node's state key and number of children
      */
     public String toString() {
-        return "TreeNode[stateKey=" + stateKey + ", move=" + move + ", children=" + children.size() + "]";
+        return "TreeNode[stateKey=" + stateKey + ", move=" + getMove() + ", children=" + children.size() + "]";
     }
 
     /**
@@ -136,11 +136,11 @@ public abstract class TreeNode {
     }
 
     /**
-     * Get the move string that led to this node.
+     * Get the move that led to this node.
      *
-     * @return the move string
+     * @return the structured move (or null if no recognised move was applied)
      */
-    public String getMove() {
+    public Move getMove() {
         return move;
     }   
 
@@ -153,20 +153,27 @@ public abstract class TreeNode {
         if (move == null || state == null) {
             throw new IllegalArgumentException("Move and state cannot be null");
         }
-        this.move = move;
-        String trimmed = move.trim();
-        if (trimmed.equalsIgnoreCase("turn")) {
+
+        // Parse and store a structured representation for fast comparisons.
+        // Catch parsing failures so applyMove remains permissive (unknown commands do not mutate state).
+        this.move = null;
+        try {
+            this.move = Move.tryParse(move);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+
+        if (this.move.isTurn()) {
             state.turnThree();
             this.stateKey = state.getStateKey();
             return;
         }
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
-            if (parts.length == 4) {
-                state.moveCard(parts[1], parts[2], parts[3]);
-            } else {
-                state.moveCard(parts[1], null, parts[2]);
-            }
+
+        if (this.move.isMove()) {
+            String fromCode = this.move.from() != null ? this.move.from().toCode() : null;
+            String toCode = this.move.to() != null ? this.move.to().toCode() : null;
+            String cardToken = this.move.card() != null ? this.move.card().shortName() : null;
+            state.moveCard(fromCode, cardToken, toCode);
         }
 
         // Keep our cached key aligned with the mutated state.
@@ -304,7 +311,7 @@ public abstract class TreeNode {
      * @return true if the command is "quit" (case-insensitive), false otherwise
      */
     public boolean isQuit() {
-        return move != null && move.trim().equalsIgnoreCase("quit");
+        return move != null && move.isQuit();
     }
 
     /**
@@ -313,7 +320,7 @@ public abstract class TreeNode {
      * @return true if the command starts with "turn" (case-insensitive), false otherwise
      */
     public boolean isTurn() {
-        return move != null && move.trim().toLowerCase().startsWith("turn");
+        return move != null && move.isTurn();
     }
 
     /**
@@ -357,7 +364,7 @@ public abstract class TreeNode {
         // single-card king shuffles (the common case) to be missed.
         Solitaire referenceState = (parent != null && parent.state != null) ? parent.state : state;
 
-        String trimmed = move.trim();
+        String trimmed = move.toCommandString().trim();
         String[] parts = trimmed.split("\\s+");
         if (parts.length < 3) {
             return false;
@@ -522,7 +529,7 @@ public abstract class TreeNode {
             return false;
         }
 
-        String thisKey = similarityKeyForMove(move, referenceState);
+        String thisKey = similarityKeyForMove(move.toCommandString(), referenceState);
         if (thisKey == null) {
             return false;
         }
@@ -533,7 +540,7 @@ public abstract class TreeNode {
                 continue;
             }
 
-            String siblingMove = (sibling.move != null) ? sibling.move : entry.getKey();
+            String siblingMove = (sibling.move != null) ? sibling.move.toCommandString() : entry.getKey();
             if (siblingMove == null) {
                 continue;
             }
