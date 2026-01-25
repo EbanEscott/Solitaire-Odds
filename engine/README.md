@@ -182,11 +182,10 @@ Performance benchmarks (500 games each; slow):
 
 LLM player benchmarks (enable with flags):
 ```
-./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks -Dopenai.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true
-./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks -Dollama.tests=true \
-  -Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b
-./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks -Dalphasolitaire.tests=true
+./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks "-Dopenai.tests=true"
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks "-Dollama.tests=true"
+./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks "-Dollama.tests=true" "-Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b"
+./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks "-Dalphasolitaire.tests=true"
 ```
 
 Game tree analysis (state space exploration):

@@ -10,19 +10,19 @@ Use `EndgameTrainingDataGenerator` to create progressively harder endgame positi
 cd engine
 
 # Level 2: 1 card off foundations
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel2" --rerun-tasks --console=plain  -Dlog.episodes=true
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel2" --rerun-tasks --console=plain "-Dlog.episodes=true"
 
 # Level 4: 4 cards off foundations
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel4" --rerun-tasks --console=plain  -Dlog.episodes=true
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel4" --rerun-tasks --console=plain "-Dlog.episodes=true"
 
 # Level 5: 7 cards off foundations
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel5" --rerun-tasks --console=plain  -Dlog.episodes=true
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testEndgameLevel5" --rerun-tasks --console=plain "-Dlog.episodes=true"
 
 # Custom level (e.g., Level 10)
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" --rerun-tasks --console=plain  -Dlog.episodes=true -Dendgame.games.per.level=100 -Dendgame.games.difficulty.level=10 
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" --rerun-tasks --console=plain "-Dlog.episodes=true" "-Dendgame.games.per.level=100" "-Dendgame.games.difficulty.level=10"
 
 # All levels 1-5
-./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator" --rerun-tasks --console=plain  -Dlog.episodes=true
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator" --rerun-tasks --console=plain "-Dlog.episodes=true"
 ```
 
 ## 2. Test AlphaSolitaire Neural Player
@@ -41,19 +41,19 @@ Then run tests in the engine directory:
 cd engine
 
 # Level 2: 1 card off foundations
-./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponentLevel2" --rerun-tasks --console=plain -Dendgame.games.per.level=10
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponentLevel2" --rerun-tasks --console=plain "-Dendgame.games.per.level=10"
 
 # Level 4: 4 cards off foundations
-./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponentLevel4" --rerun-tasks --console=plain -Dendgame.games.per.level=10
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponentLevel4" --rerun-tasks --console=plain "-Dendgame.games.per.level=10"
 
 # Level 5: 7 cards off foundations
-./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponentLevel5" --rerun-tasks --console=plain -Dendgame.games.per.level=10 
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponentLevel5" --rerun-tasks --console=plain "-Dendgame.games.per.level=10"
 
 # Custom level (e.g., Level 10)
-./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponent" --rerun-tasks --console=plain -Dendgame.games.per.level=10 -Dendgame.games.difficulty.level=10
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponent" --rerun-tasks --console=plain "-Dendgame.games.per.level=10" "-Dendgame.games.difficulty.level=10"
 
 # All levels 2-5
-./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest" --rerun-tasks --console=plain -Dendgame.games.per.level=5
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest" --rerun-tasks --console=plain "-Dendgame.games.per.level=5"
 ```
 
 ## Difficulty Levels

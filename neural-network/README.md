@@ -38,12 +38,12 @@ Before training, you need episode logs from the Java engine. From the `engine/` 
 cd /Users/ebo/Code/solitaire/engine
 
 # Generate episodes from any AI player (examples below)
-./gradlew test --tests ai.games.results.AStarPlayerResultsTest -Dlog.episodes=true
-./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest -Dlog.episodes=true
-./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest -Dlog.episodes=true
+./gradlew test --tests ai.games.results.AStarPlayerResultsTest "-Dlog.episodes=true"
+./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest "-Dlog.episodes=true"
+./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest "-Dlog.episodes=true"
 
 # Or run all player benchmarks and generate episodes from each
-./gradlew test --tests "ai.games.results.**" -Dlog.episodes=true
+./gradlew test --tests "ai.games.results.**" "-Dlog.episodes=true"
 
 # Verify episodes were logged
 wc -l logs/episode.log

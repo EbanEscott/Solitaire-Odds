@@ -75,7 +75,7 @@ The trajectory labels make step 3 work: the network can see that "this move sequ
 ```bash
 # Generate a few test episodes (if not already done)
 cd /Users/ebo/Code/solitaire/engine
-./gradlew test --tests ai.games.results.AStarPlayerResultsTest -Dlog.episodes=true
+./gradlew test --tests ai.games.results.AStarPlayerResultsTest "-Dlog.episodes=true"
 
 # Switch to Python environment
 cd ../neural-network
