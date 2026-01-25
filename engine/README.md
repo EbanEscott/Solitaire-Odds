@@ -35,22 +35,22 @@ Exactly one player profile must be active at a time. Run with `-Dspring.profiles
 
 **Human player (CLI):**
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-human"
 ```
 
 **Human player with training mode** (undo enabled):
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-human" "-Dtraining.mode=true"
 ```
 
 **AI player with guidance mode disabled** (suppress recommended moves and feedback):
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar -Dguidance.mode=false
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-astar" "-Dguidance.mode=false"
 ```
 
 **Combined: training mode with guidance mode disabled:**
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-human -Dtraining.mode=true -Dguidance.mode=false
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-human" "-Dtraining.mode=true" "-Dguidance.mode=false"
 ```
 
 ### Configuration Properties
@@ -83,12 +83,12 @@ The engine supports the following runtime configuration options (passed via `-D<
 All search players use deterministic game-tree exploration with various strategies.
 
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-rule          # Rule-based heuristics (deterministic rules)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-greedy        # Greedy search (one-step lookahead)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-hill          # Hill-climbing search (state-hash driven)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-beam          # Beam search (fixed-depth, fixed-width)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-mcts          # Monte Carlo Tree Search (MCTS)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-astar         # A* search (heuristic-guided tree exploration)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-rule"          # Rule-based heuristics (deterministic rules)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-greedy"        # Greedy search (one-step lookahead)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-hill"          # Hill-climbing search (state-hash driven)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-beam"          # Beam search (fixed-depth, fixed-width)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-mcts"          # Monte Carlo Tree Search (MCTS)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-astar"         # A* search (heuristic-guided tree exploration)
 ```
 
 #### Neural Network Players
@@ -96,7 +96,7 @@ All search players use deterministic game-tree exploration with various strategi
 AlphaSolitaire combines Monte Carlo Tree Search with a learned policy-value network:
 
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-alpha-solitaire  # MCTS + neural network (requires Python service)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-alpha-solitaire"  # MCTS + neural network (requires Python service)
 ```
 
 See `../neural-network/README.md` for setup and training details.
@@ -106,14 +106,14 @@ See `../neural-network/README.md` for setup and training details.
 Large language model-backed players via remote APIs or local inference:
 
 ```bash
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama        # Ollama via Spring AI (requires local Ollama)
-./gradlew bootRun --console=plain -Dspring.profiles.active=ai-openai        # OpenAI via API (requires OPENAI_API_KEY or openai.apiKey)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama"        # Ollama via Spring AI (requires local Ollama)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-openai"        # OpenAI via API (requires OPENAI_API_KEY or openai.apiKey)
 ```
 
 Ollama model selection:
 - Default model is set in `src/main/resources/application.properties` (`ollama.model=llama3`).
-- Override per run: `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama -Dollama.model=mistral-large:123b`
-- Or set env: `OLLAMA_MODEL=mistral-large:123b ./gradlew bootRun --console=plain -Dspring.profiles.active=ai-ollama`
+- Override per run: `./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama" "-Dollama.model=mistral-large:123b"`
+- Or set env: `$env:OLLAMA_MODEL="mistral-large:123b"; ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama"`
 - Recommended benchmark models (configured in Ollama and passed via `ollama.model` or `ollama.models`):
   - `gpt-oss:120b`
   - `llama4:scout`
@@ -132,7 +132,7 @@ OpenAI setup:
   - `o3`, `o4-mini`
   - `gpt-4o`, `gpt-4o-realtime-preview`
 - Run the OpenAI-backed player with:  
-  `./gradlew bootRun --console=plain -Dspring.profiles.active=ai-openai`
+  `./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-openai"`
 
 ## Build & Test
 
@@ -198,16 +198,16 @@ To generate clean episode logs for the neural network training pipeline, run any
 
 ```bash
 # Generate episodes from A* player
-./gradlew test --tests ai.games.results.AStarPlayerResultsTest -Dlog.episodes=true
+./gradlew test --tests ai.games.results.AStarPlayerResultsTest "-Dlog.episodes=true"
 
 # Generate episodes from Greedy player
-./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest -Dlog.episodes=true
+./gradlew test --tests ai.games.results.GreedySearchPlayerResultsTest "-Dlog.episodes=true"
 
 # Generate episodes from Rule-based player
-./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest -Dlog.episodes=true
+./gradlew test --tests ai.games.results.RuleBasedHeuristicsPlayerResultsTest "-Dlog.episodes=true"
 
 # Generate episodes from any player and verify the output
-./gradlew test --tests "ai.games.results.**" -Dlog.episodes=true
+./gradlew test --tests "ai.games.results.**" "-Dlog.episodes=true"
 wc -l logs/episode.log
 head -1 logs/episode.log
 ```
