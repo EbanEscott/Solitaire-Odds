@@ -36,6 +36,9 @@ Exactly one player profile must be active at a time. Run with `-Dspring.profiles
 **Human player (CLI):**
 ```bash
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-human"
+
+# Windows: Run 'chcp 65001' first for Unicode symbols (♥, ♦, ♣, ♠)
+# Or use ASCII mode: add "-Dsuit.ascii=true" to display H, D, C, S instead
 ```
 
 **Human player with training mode** (undo enabled):

@@ -12,23 +12,28 @@ package ai.games.game;
  */
 public enum Suit {
     /** Unknown – placeholder for hidden cards in PLAN mode. */
-    UNKNOWN("?", false),
+    UNKNOWN("?", "?", false),
     /** Clubs – a black suit represented by the ♣ symbol. */
-    CLUBS("♣", false),
+    CLUBS("♣", "C", false),
     /** Diamonds – a red suit represented by the ♦ symbol. */
-    DIAMONDS("♦", true),
+    DIAMONDS("♦", "D", true),
     /** Hearts – a red suit represented by the ♥ symbol. */
-    HEARTS("♥", true),
+    HEARTS("♥", "H", true),
     /** Spades – a black suit represented by the ♠ symbol. */
-    SPADES("♠", false);
+    SPADES("♠", "S", false);
 
     /** ANSI escape code for red text output in terminals. */
     private static final String ANSI_RED = "\u001B[31m";
     /** ANSI escape code to reset text formatting in terminals. */
     private static final String ANSI_RESET = "\u001B[0m";
+    
+    /** Flag to use ASCII fallback for systems that don't support Unicode. */
+    private static final boolean USE_ASCII = Boolean.getBoolean("suit.ascii");
 
     /** The Unicode symbol representing this suit (e.g., "♣", "♦"). */
     private final String symbol;
+    /** The ASCII fallback character for this suit (e.g., "C", "D"). */
+    private final String asciiSymbol;
     /** {@code true} if this suit is red (Diamonds or Hearts); {@code false} if black (Clubs or Spades). */
     private final boolean red;
 
@@ -36,20 +41,22 @@ public enum Suit {
      * Constructs a Suit with the given symbol and color classification.
      *
      * @param symbol the Unicode symbol for the suit
+     * @param asciiSymbol the ASCII fallback character for the suit
      * @param red {@code true} if the suit is red; {@code false} if black
      */
-    Suit(String symbol, boolean red) {
+    Suit(String symbol, String asciiSymbol, boolean red) {
         this.symbol = symbol;
+        this.asciiSymbol = asciiSymbol;
         this.red = red;
     }
 
     /**
      * Returns the Unicode symbol of this suit.
      *
-     * @return the suit symbol (e.g., "♣", "♦", "♥", "♠")
+     * @return the suit symbol (e.g., "♣", "♦", "♥", "♠") or ASCII fallback if enabled
      */
     public String getSymbol() {
-        return symbol;
+        return USE_ASCII ? asciiSymbol : symbol;
     }
 
     /**
@@ -66,11 +73,11 @@ public enum Suit {
     /**
      * Returns the string representation of this suit's symbol.
      *
-     * @return the suit symbol
+     * @return the suit symbol (Unicode or ASCII fallback)
      */
     @Override
     public String toString() {
-        return symbol;
+        return USE_ASCII ? asciiSymbol : symbol;
     }
 
     /**
@@ -82,10 +89,11 @@ public enum Suit {
      * @return the coloured symbol (or uncoloured if black)
      */
     public String toColoredString() {
+        String displaySymbol = USE_ASCII ? asciiSymbol : symbol;
         if (red) {
-            return ANSI_RED + symbol + ANSI_RESET;
+            return ANSI_RED + displaySymbol + ANSI_RESET;
         }
-        return symbol;
+        return displaySymbol;
     }
 
     /**
