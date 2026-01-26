@@ -6,6 +6,8 @@ A well-shuffled 52-card deck has *52! permutations (about 8.1 × 10^67)*, so man
 
 This means testing every deck permutation is impossible. Instead, we lean on AI and solid engineering to run repeatable regression test suites over large batches of randomly shuffled games, so we can measure performance statistically rather than brute-forcing every possible deal. The goal is not to “solve” all of Solitaire, but to apply a range of AI algorithms that reliably solve as many deals as possible and, in doing so, reveal the true probability of winning under real rules.
 
+The current best player is *A\* search* with a win rate of 36.87% ± 0.95% across 10,000 games, with a performance at 4.009s per game and an 8-game win streak.
+
 ## Test Results
 
 The last test run was performed at Jan 26, 2026 9:44 PM AEST.
