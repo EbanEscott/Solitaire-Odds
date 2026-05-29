@@ -9,7 +9,7 @@ This directory contains the Python modeling stack for AlphaSolitaire. It turns l
 
 ## Setup
 
-From the Python project root (`/Users/ebo/Code/solitaire/neural-network`):
+From the Python project root (`/Users/ebo/Code/Solitaire-Odds/neural-network`):
 
 ```bash
 # (Optional but recommended) Create and activate a virtual environment
@@ -35,7 +35,7 @@ You should see a small training run for y = 2x + 1 and a prediction for a new x 
 Before training, you need episode logs from the Java engine. From the `engine/` directory, run a results test with the `-Dlog.episodes=true` flag to generate clean episode JSON lines:
 
 ```bash
-cd /Users/ebo/Code/solitaire/engine
+cd /Users/ebo/Code/Solitaire-Odds/engine
 
 # Generate episodes from any AI player (examples below)
 ./gradlew test --tests ai.games.results.AStarPlayerResultsTest "-Dlog.episodes=true"
@@ -54,14 +54,14 @@ Episodes are written to `engine/logs/episode.log`. Each line is a JSON object wi
 
 ## Use Java logs and run the training stub (Step 2)
 
-Once you have Solitaire games logged from the Java engine (for example at `/Users/ebo/Code/solitaire/engine/logs/episode.log` with `-Dlog.episodes=true` enabled), you can load them and run the minimal training stub module:
+Once you have Solitaire games logged from the Java engine (for example at `/Users/ebo/Code/Solitaire-Odds/engine/logs/episode.log` with `-Dlog.episodes=true` enabled), you can load them and run the minimal training stub module:
 
 ```bash
-cd /Users/ebo/Code/solitaire/neural-network
+cd /Users/ebo/Code/Solitaire-Odds/neural-network
 source .venv/bin/activate
 
 # Single file
-python -m src.train_stub /Users/ebo/Code/solitaire/engine/logs/episode.log
+python -m src.train_stub /Users/ebo/Code/Solitaire-Odds/engine/logs/episode.log
 
 # Multiple files
 python -m src.train_stub logs/episode.1.log logs/episode.2.log logs/episode.3.log
@@ -80,23 +80,23 @@ This will:
 To train a joint policy–value model with a validation split, run the full training script with configurable architecture:
 
 ```bash
-cd /Users/ebo/Code/solitaire/neural-network
+cd /Users/ebo/Code/Solitaire-Odds/neural-network
 source .venv/bin/activate
 
 # Default (256 hidden, 2 layers)
-python -m src.train_policy_value /Users/ebo/Code/solitaire/engine/logs/episode.log
+python -m src.train_policy_value /Users/ebo/Code/Solitaire-Odds/engine/logs/episode.log
 
 # Medium model (512 hidden, 3 layers) — recommended for full game tree training
 python -m src.train_policy_value \
   --hidden-dim 512 \
   --num-layers 3 \
-  /Users/ebo/Code/solitaire/engine/logs/episode.log
+  /Users/ebo/Code/Solitaire-Odds/engine/logs/episode.log
 
 # Large model (1024 hidden, 3 layers) — for 200k+ samples
 python -m src.train_policy_value \
   --hidden-dim 1024 \
   --num-layers 3 \
-  /Users/ebo/Code/solitaire/engine/logs/episode.log
+  /Users/ebo/Code/Solitaire-Odds/engine/logs/episode.log
 
 # Multiple files or glob patterns
 python -m src.train_policy_value "logs/episode*.log"
@@ -164,10 +164,56 @@ The checkpoint is now ready for use with the AlphaSolitaire service.
 For integration with the Java engine (an `AlphaSolitairePlayer` that calls into Python), run the HTTP service module:
 
 ```bash
-cd /Users/ebo/Code/solitaire/neural-network
+cd /Users/ebo/Code/Solitaire-Odds/neural-network
 source .venv/bin/activate
 python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
 ```
+
+## Evaluate the Current Checkpoint
+
+There are two different Java-side AlphaSolitaire test modes, and only one of them accepts a difficulty level.
+
+### Seeded Endgame Evaluation by Difficulty Level
+
+Use this when you want to answer questions like "how far beyond the training levels does the checkpoint generalize?"
+
+This path uses `AlphaSolitaireLevelTest` and supports:
+- `-Dendgame.games.difficulty.level=<N>`
+- `-Dendgame.games.per.level=<count>`
+
+Example:
+
+```bash
+cd /Users/ebo/Code/Solitaire-Odds/engine
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponent" \
+  --rerun-tasks --console=plain \
+  "-Dendgame.games.difficulty.level=20" \
+  "-Dendgame.games.per.level=10"
+```
+
+These tests do not start from a random shuffled deal. They seed a game by applying reverse moves from a solved board until the requested difficulty level is reached.
+
+### Random Full-Game Benchmark Sweep
+
+Use this when you want the true end-to-end win rate from fresh shuffled games.
+
+This path uses `AlphaSolitairePlayerResultsTest` and does not read `-Dendgame.games.difficulty.level`. It always runs full random games and instead supports the shared sweep properties:
+- `-Dalphasolitaire.tests=true`
+- `-Dtest.games=<count>`
+- `-Dtest.progress.log.interval=<count>`
+- `-Dtest.max.moves.per.game=<count>`
+
+Example:
+
+```bash
+cd /Users/ebo/Code/Solitaire-Odds/engine
+./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest \
+  --console=plain --rerun-tasks \
+  "-Dalphasolitaire.tests=true" \
+  "-Dtest.games=100"
+```
+
+Use the seeded level test for Phase 0 falloff work. Use the random full-game sweep for README-style benchmark numbers.
 
 The service exposes a single endpoint:
 

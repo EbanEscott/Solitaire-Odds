@@ -1,13 +1,15 @@
 # Neural Network Plan
 
-## Current Status (Jan 2, 2026)
+## Current Status (Updated May 29, 2026)
 
 ### MLP Baseline Achieved ✓
 - **Model:** PolicyValueNet (256 hidden, 2 layers)
 - **Training Data:** Levels 2-6 endgame positions (~864k samples, 88.9% accuracy)
 - **Performance:** 
-  - Level 20: 90% win rate (9/10 games) ✓
-  - Level 25+: **Testing needed** (reveals MLP architectural ceiling)
+  - Level 20: 95.00% win rate (19/20 games) in the Phase 0 sweep ✓
+  - Level 29: 70.00% win rate (14/20 games)
+  - Level 30: 10.53% win rate (2/19 games)
+  - Level 31+: 0.00% win rate in the current deterministic seeded sweep
 
 ### The Wall: Why MLP Plateaus
 MLP hit an architectural ceiling because:
@@ -17,7 +19,7 @@ MLP hit an architectural ceiling because:
 - **Solution:** GNN with tree input can learn these multi-step dependencies
 
 ### Confirmed Sequence Forward
-1. **Phase 0: Test MLP Falloff** (today/tomorrow): Map win rate across L20-50
+1. **Phase 0: Test MLP Falloff** ✓ COMPLETE: Mapped win rate across L20-50 and dense levels near the cliff
 2. **Phase 2: Add Tree Logging** (1-2 days): Update EpisodeLogger to capture A* trees
 3. **Phase 3: Build GNN** (3-5 days): Implement GNN on board + tree structure
 4. **Phase 4: Multi-Model** (1 day): Compare GNN vs MLP across difficulty range
@@ -25,7 +27,7 @@ MLP hit an architectural ceiling because:
 
 ---
 
-## Phase 0: Test MLP Falloff Curve
+## Phase 0: Test MLP Falloff Curve ✓ COMPLETE
 
 **Goal:** Quantify where MLP performance degrades (validates why GNN is needed)
 
@@ -35,15 +37,35 @@ MLP hit an architectural ceiling because:
 3. Record: win rate %, avg moves, failure modes
 4. Document in README.md with results table
 
-**Expected Output:**
-```
-Level 20: 90%   (current baseline ✓)
-Level 25: 70%   (noticeable drop)
-Level 30: 50%   (steep decline)
-Level 35: 25%   (severe drop)
-Level 40: 5%    (mostly fails)
-Level 50: <1%   (nearly unusable)
-```
+**Observed Results (May 29, 2026):**
+
+Primary Phase 0 sweep:
+
+| Level | Games Tested | Games Won | Win Rate | Avg Moves | Avg Time/Game |
+|-------|--------------|-----------|----------|-----------|---------------|
+| 20 | 20 | 19 | 95.00% | 18.65 | 0.193s |
+| 25 | 20 | 15 | 75.00% | 21.65 | 0.282s |
+| 30 | 19 | 2 | 10.53% | 32.42 | 0.779s |
+| 35 | 19 | 0 | 0.00% | 14.53 | 0.639s |
+| 40 | 19 | 0 | 0.00% | 14.53 | 0.638s |
+| 50 | 18 | 0 | 0.00% | 14.39 | 1.011s |
+
+Dense follow-up near the cliff:
+
+| Level | Games Tested | Games Won | Win Rate | Avg Moves | Avg Time/Game |
+|-------|--------------|-----------|----------|-----------|---------------|
+| 22 | 20 | 17 | 85.00% | 19.80 | 0.213s |
+| 24 | 20 | 16 | 80.00% | 21.20 | 0.258s |
+| 26 | 20 | 15 | 75.00% | 22.45 | 0.297s |
+| 28 | 20 | 15 | 75.00% | 24.05 | 0.324s |
+| 29 | 20 | 14 | 70.00% | 25.45 | 0.357s |
+| 31 | 19 | 0 | 0.00% | 14.63 | 0.545s |
+
+**Interpretation:**
+- The checkpoint stays strong through roughly Level 29.
+- The failure is not a smooth decline from Level 20 onward.
+- The collapse is abrupt between Levels 29 and 31, with Level 30 already near failure.
+- Deterministic seeded generation produced fewer than the requested 20 games at some deeper levels, so Level 30+ measurements used 18-19 games rather than the target 20.
 
 **Why This Validates the Plan:**
 - Proves MLP plateau is architectural (not just missing data)
@@ -52,7 +74,7 @@ Level 50: <1%   (nearly unusable)
 
 **Success Criteria:**
 - Clear monotonic decline visible
-- Confirms: GNN is necessary to go deeper than L20
+- Confirms: flat-board MLP hits a hard limit around Level 30/31 and richer search context is needed to go deeper
 
 ---
 
@@ -65,7 +87,7 @@ Level 50: <1%   (nearly unusable)
 - Tested on level 20: achieved 90% win rate
 
 **Key Finding:**
-Level 20 is the practical ceiling for flat-board MLP architecture. Performance degrades sharply beyond this point. This validates the core hypothesis: **tree structure is necessary for deeper levels**.
+The Phase 0 sweep showed that Level 20 is not the ceiling for the flat-board MLP. The checkpoint remains strong through roughly Level 29, then collapses sharply at Level 30/31. This still validates the core hypothesis: **tree structure is necessary for deeper levels**.
 
 **Checkpoint:** `policy_value_latest.pt` (or `policy_value_mpl_v1.pt` for archival)
 
@@ -372,9 +394,9 @@ Decision: Nested for clarity; rebuild during training
 ## Success Metrics
 
 ### Phase 0 (MLP Falloff Testing)
-- [ ] Performance measured at L20, 25, 30, 35, 40, 50
-- [ ] Clear monotonic decline visible
-- [ ] Confirms architectural limitation (gates Phase 2)
+- [x] Performance measured at L20, 25, 30, 35, 40, 50
+- [x] Clear monotonic decline visible
+- [x] Confirms architectural limitation (gates Phase 2)
 
 ### Phase 1 (MLP Baseline) ✓ COMPLETE
 - [x] Training data generated (L2-L6, ~864k samples)

@@ -27,11 +27,12 @@ cd engine
 
 ## 2. Test AlphaSolitaire Neural Player
 
-Use `AlphaSolitaireLevelTest` to evaluate the neural network player on different difficulty levels.
+Use `AlphaSolitaireLevelTest` to evaluate the neural network player on seeded endgame difficulty levels.
 
 **Prerequisites:** Start the neural service in a separate terminal:
 ```bash
 cd neural-network
+source .venv/bin/activate
 python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
 ```
 
@@ -55,6 +56,21 @@ cd engine
 # All levels 2-5
 ./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest" --rerun-tasks --console=plain "-Dendgame.games.per.level=5"
 ```
+
+### Important: This is not the full random-game benchmark
+
+`AlphaSolitaireLevelTest` seeds endgame positions using reverse moves from a solved board, then asks the neural player to finish those positions. The difficulty comes from the `-Dendgame.games.difficulty.level=<N>` property.
+
+If you want the full random-deal benchmark sweep instead, use `AlphaSolitairePlayerResultsTest` from the `results` package:
+
+```bash
+cd engine
+./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --rerun-tasks --console=plain \
+	"-Dalphasolitaire.tests=true" \
+	"-Dtest.games=100"
+```
+
+That results test does not read `-Dendgame.games.difficulty.level`. It always creates fresh shuffled games and only uses the shared sweep properties such as `-Dtest.games` and `-Dtest.max.moves.per.game`.
 
 ## Difficulty Levels
 
