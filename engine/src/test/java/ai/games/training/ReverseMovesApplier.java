@@ -153,6 +153,8 @@ public final class ReverseMovesApplier {
                 case TABLEAU:
                     List<List<Card>> tableauPiles = getInternalList(solitaire, "tableau");
                     List<Card> tableauPile = tableauPiles.get(from.index);
+                    List<Integer> faceUpCounts = getInternalList(solitaire, "tableauFaceUp");
+                    int originalFaceUpCount = faceUpCounts.get(from.index);
                     if (!tableauPile.isEmpty()) {
                         if (cardName != null) {
                             // Find card by name and extract from that point onwards
@@ -173,6 +175,8 @@ public final class ReverseMovesApplier {
                             // Extract just the top card
                             result.add(tableauPile.remove(tableauPile.size() - 1));
                         }
+
+                        updateSourceTableauFaceUpCount(faceUpCounts, from.index, originalFaceUpCount, tableauPile.size(), result.size());
                     }
                     break;
                     
@@ -200,10 +204,10 @@ public final class ReverseMovesApplier {
      * Get the internal mutable list from a Solitaire object by reflection.
      */
     @SuppressWarnings("unchecked")
-    private static List getInternalList(Solitaire solitaire, String fieldName) throws Exception {
+    private static <T> List<T> getInternalList(Solitaire solitaire, String fieldName) throws Exception {
         Field field = Solitaire.class.getDeclaredField(fieldName);
         field.setAccessible(true);
-        return (List) field.get(solitaire);
+        return (List<T>) field.get(solitaire);
     }
 
     /**
@@ -224,10 +228,10 @@ public final class ReverseMovesApplier {
                 case TABLEAU:
                     List<List<Card>> tableauPiles = getInternalList(solitaire, "tableau");
                     List<Card> tableauPile = tableauPiles.get(to.index);
-                    tableauPile.addAll(cards);
-                    // Update face-up count: cards coming from anywhere are now face-up
                     List<Integer> faceUpCounts = getInternalList(solitaire, "tableauFaceUp");
-                    faceUpCounts.set(to.index, tableauPile.size());
+                    int originalFaceUpCount = faceUpCounts.get(to.index);
+                    tableauPile.addAll(cards);
+                    updateDestinationTableauFaceUpCount(faceUpCounts, to.index, originalFaceUpCount, cards.size());
                     break;
                     
                 case TALON:
@@ -243,6 +247,37 @@ public final class ReverseMovesApplier {
                 log.debug("Failed to add cards to {}", to.type, e);
             }
         }
+    }
+
+    /**
+     * Restores the source tableau pile's face-up count after removing cards in reverse.
+     *
+     * <p>Reverse moves undo a forward move that added visible cards to this tableau pile.
+     * Removing those cards should therefore subtract only the moved cards from the face-up
+     * count rather than exposing the whole remaining pile.</p>
+     */
+    private static void updateSourceTableauFaceUpCount(
+            List<Integer> faceUpCounts,
+            int tableauIndex,
+            int originalFaceUpCount,
+            int remainingPileSize,
+            int movedCardCount) {
+        int updatedFaceUpCount = Math.max(0, originalFaceUpCount - movedCardCount);
+        faceUpCounts.set(tableauIndex, Math.min(updatedFaceUpCount, remainingPileSize));
+    }
+
+    /**
+     * Restores the destination tableau pile's face-up count after adding reverse-moved cards.
+     *
+     * <p>The incoming cards land face-up on top of the existing visible run, so only the moved
+     * cards should increase the face-up count.</p>
+     */
+    private static void updateDestinationTableauFaceUpCount(
+            List<Integer> faceUpCounts,
+            int tableauIndex,
+            int originalFaceUpCount,
+            int movedCardCount) {
+        faceUpCounts.set(tableauIndex, originalFaceUpCount + movedCardCount);
     }
 
     /**

@@ -7,6 +7,9 @@
 
 # Logs and temp at root
 logs/
+!engine/logs/
+!engine/logs/archive/
+!engine/logs/archive/**
 tmp/
 
 .gradle/
