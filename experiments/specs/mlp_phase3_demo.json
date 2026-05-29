@@ -1,0 +1,31 @@
+{
+  "api_version": "v1",
+  "experiment_id": "mlp-phase3-demo",
+  "description": "Phase 3 resumable MLP training demo on the archived Level 2 dataset.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log"
+    ]
+  },
+  "training": {
+    "kind": "mlp_policy_value",
+    "epochs": 2,
+    "batch_size": 8,
+    "learning_rate": 0.001,
+    "checkpoint_every_epochs": 1,
+    "checkpoint_prefix": "policy_value_phase3_demo",
+    "metrics_filename": "epoch_metrics.jsonl",
+    "resume_from": null,
+    "simulate_interrupt_after_epoch": 1
+  }
+}

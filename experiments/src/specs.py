@@ -1,4 +1,4 @@
-"""Experiment spec parsing and validation for the Phase 1 driver."""
+"""Experiment spec parsing and validation for the experiments driver."""
 
 from __future__ import annotations
 
@@ -13,8 +13,10 @@ from typing import Any, Dict, List, Mapping
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SUPPORTED_API_VERSION = "v1"
-SUPPORTED_TASK_KINDS = {"noop", "command", "endgame_collect_shard"}
+SUPPORTED_TASK_KINDS = {"noop", "command", "endgame_collect_shard", "policy_value_train"}
 SUPPORTED_COLLECTION_KINDS = {"endgame_level_dataset"}
+SUPPORTED_DATASET_KINDS = {"archived_episode_logs"}
+SUPPORTED_TRAINING_KINDS = {"mlp_policy_value"}
 DEFAULT_ENDGAME_COLLECTION_TEST = (
     "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset"
 )
@@ -38,7 +40,7 @@ class WorkflowTaskSpec:
 
 @dataclass(frozen=True)
 class ExperimentSpec:
-    """Validated experiment configuration consumed by the Phase 1 driver."""
+    """Validated experiment configuration consumed by the experiments driver."""
 
     spec_path: Path
     spec_hash: str
@@ -90,6 +92,25 @@ def _validate_sources(dataset: Mapping[str, Any]) -> None:
             raise SpecValidationError(f"dataset source does not exist: {source}")
 
 
+def _validate_dataset(dataset: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate dataset configuration and return a normalized representation."""
+
+    if not dataset:
+        return {}
+
+    kind = dataset.get("kind")
+    if not isinstance(kind, str) or kind not in SUPPORTED_DATASET_KINDS:
+        raise SpecValidationError(
+            f"'dataset.kind' must be one of {sorted(SUPPORTED_DATASET_KINDS)}"
+        )
+
+    _validate_sources(dataset)
+    return {
+        "kind": kind,
+        "sources": list(dataset.get("sources", [])),
+    }
+
+
 def _require_int(name: str, value: Any, *, minimum: int | None = None) -> int:
     """Validate and normalize integer spec fields with optional lower bounds."""
 
@@ -109,7 +130,7 @@ def _require_bool(name: str, value: Any) -> bool:
 
 
 def _validate_collection(collection: Mapping[str, Any]) -> Dict[str, Any]:
-    """Validate the Phase 2 collection section and return normalized values."""
+    """Validate the collection section and return normalized values."""
 
     if not collection:
         return {}
@@ -155,8 +176,81 @@ def _validate_collection(collection: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _validate_training(
+    training: Mapping[str, Any],
+    architecture: Mapping[str, Any],
+    dataset: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Validate the training section and normalize its defaults."""
+
+    if not training:
+        return {}
+
+    kind = training.get("kind")
+    if kind is None:
+        return dict(training)
+    if not isinstance(kind, str) or kind not in SUPPORTED_TRAINING_KINDS:
+        raise SpecValidationError(
+            f"'training.kind' must be one of {sorted(SUPPORTED_TRAINING_KINDS)}"
+        )
+
+    if architecture.get("family") != "mlp":
+        raise SpecValidationError("'training.kind=mlp_policy_value' requires 'architecture.family=mlp'")
+
+    if dataset.get("kind") != "archived_episode_logs" or not dataset.get("sources"):
+        raise SpecValidationError(
+            "'training.kind=mlp_policy_value' requires 'dataset.kind=archived_episode_logs' with one or more sources"
+        )
+
+    epochs = _require_int("training.epochs", training.get("epochs"), minimum=1)
+    batch_size = _require_int("training.batch_size", training.get("batch_size"), minimum=1)
+    checkpoint_every_epochs = _require_int(
+        "training.checkpoint_every_epochs",
+        training.get("checkpoint_every_epochs", 1),
+        minimum=1,
+    )
+    simulate_interrupt_after_epoch = training.get("simulate_interrupt_after_epoch")
+    if simulate_interrupt_after_epoch is not None:
+        simulate_interrupt_after_epoch = _require_int(
+            "training.simulate_interrupt_after_epoch",
+            simulate_interrupt_after_epoch,
+            minimum=1,
+        )
+
+    learning_rate = training.get("learning_rate")
+    if not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
+        raise SpecValidationError("'training.learning_rate' must be a positive number")
+
+    checkpoint_prefix = training.get("checkpoint_prefix", "policy_value")
+    if not isinstance(checkpoint_prefix, str) or not checkpoint_prefix:
+        raise SpecValidationError("'training.checkpoint_prefix' must be a non-empty string")
+
+    metrics_filename = training.get("metrics_filename", "epoch_metrics.jsonl")
+    if not isinstance(metrics_filename, str) or not metrics_filename:
+        raise SpecValidationError("'training.metrics_filename' must be a non-empty string")
+
+    resume_from = training.get("resume_from")
+    if resume_from is not None:
+        if not isinstance(resume_from, str) or not resume_from:
+            raise SpecValidationError("'training.resume_from' must be a non-empty string when provided")
+        if not _resolve_repo_path(resume_from).exists():
+            raise SpecValidationError(f"training resume checkpoint does not exist: {resume_from}")
+
+    return {
+        "kind": kind,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "learning_rate": float(learning_rate),
+        "checkpoint_every_epochs": checkpoint_every_epochs,
+        "checkpoint_prefix": checkpoint_prefix,
+        "metrics_filename": metrics_filename,
+        "resume_from": resume_from,
+        "simulate_interrupt_after_epoch": simulate_interrupt_after_epoch,
+    }
+
+
 def _build_collection_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
-    """Expand the collection section into concrete shard tasks for the Phase 2 driver."""
+    """Expand the collection section into concrete shard tasks."""
 
     collection = _validate_collection(_as_dict("collection", raw.get("collection")))
     if not collection:
@@ -189,16 +283,43 @@ def _build_collection_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
     return tasks
 
 
+def _build_training_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
+    """Expand the training section into a concrete training task when supported."""
+
+    architecture = _as_dict("architecture", raw.get("architecture"))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
+    if not training or training.get("kind") != "mlp_policy_value":
+        return []
+
+    return [
+        WorkflowTaskSpec(
+            name="train",
+            kind="policy_value_train",
+            payload_key="training",
+            payload_overrides={
+                "architecture_family": architecture.get("family"),
+                "architecture_params": architecture.get("params", {}),
+                "dataset_kind": dataset.get("kind"),
+                "dataset_sources": dataset.get("sources", []),
+            },
+            command=(),
+            working_directory="neural-network",
+        )
+    ]
+
+
 def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Derive a minimal workflow from top-level sections when no explicit workflow is present."""
 
     tasks: List[WorkflowTaskSpec] = []
     collection_tasks = _build_collection_workflow(raw)
+    training_tasks = _build_training_workflow(raw)
     if collection_tasks:
         tasks.extend(collection_tasks)
-    elif raw.get("dataset"):
-        # Phase 1 intentionally treats dataset-backed collection as a noop task so the driver can
-        # prove registry, resume, and artifact semantics before real subprocess wiring is added.
+    elif raw.get("dataset") and not training_tasks:
+        # Dataset-backed collection falls back to a noop task when the spec only declares input
+        # data. That keeps the workflow structure, registry state, and artifact layout consistent.
         tasks.append(WorkflowTaskSpec(
             name="collect",
             kind="noop",
@@ -207,7 +328,9 @@ def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
             command=(),
             working_directory=None,
         ))
-    if raw.get("training"):
+    if training_tasks:
+        tasks.extend(training_tasks)
+    elif raw.get("training"):
         tasks.append(WorkflowTaskSpec(
             name="train",
             kind="noop",
@@ -229,7 +352,7 @@ def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
 
 
 def _load_workflow(raw: Mapping[str, Any]) -> tuple[WorkflowTaskSpec, ...]:
-    """Load the workflow section or synthesize the Phase 1 default task sequence."""
+    """Load the workflow section or synthesize the default task sequence."""
 
     workflow = _as_dict("workflow", raw.get("workflow"))
     task_defs = workflow.get("tasks")
@@ -312,7 +435,7 @@ def flatten_run_parameters(raw: Mapping[str, Any]) -> Dict[str, str]:
 
     def store(key: str, value: Any) -> None:
         # Store everything as JSON text so the registry has one consistent representation for
-        # scalar and structured values without inventing a per-field schema in Phase 1.
+        # scalar and structured values without introducing a per-field schema in the registry.
         if isinstance(value, (str, int, float, bool)) or value is None:
             parameters[key] = json.dumps(value)
         else:
@@ -363,10 +486,9 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
         raise SpecValidationError("'architecture.family' must be provided")
 
     collection = _validate_collection(_as_dict("collection", raw.get("collection")))
-    dataset = _as_dict("dataset", raw.get("dataset"))
-    training = _as_dict("training", raw.get("training"))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
     evaluation = _as_dict("evaluation", raw.get("evaluation"))
-    _validate_sources(dataset)
     workflow_tasks = _load_workflow(raw)
 
     # The spec hash is the registry's guardrail against accidentally resuming a run under a

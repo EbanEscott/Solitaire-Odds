@@ -207,6 +207,25 @@ python -m src.train_policy_value \
   --num-layers 3 \
   ../engine/logs/episode.log
 
+# Write resumable checkpoints every epoch and structured epoch metrics
+python -m src.train_policy_value \
+  --hidden-dim 512 \
+  --num-layers 3 \
+  --epochs 10 \
+  --save-every-epochs 1 \
+  --checkpoint-dir checkpoints \
+  --metrics-output checkpoints/epoch_metrics.jsonl \
+  ../engine/logs/episode.log
+
+# Resume training from the latest checkpoint written by a prior run
+python -m src.train_policy_value \
+  --resume-from checkpoints/policy_value_latest.pt \
+  --epochs 10 \
+  --save-every-epochs 1 \
+  --checkpoint-dir checkpoints \
+  --metrics-output checkpoints/epoch_metrics.jsonl \
+  ../engine/logs/episode.log
+
 # Multiple files or glob patterns
 python -m src.train_policy_value "../engine/logs/episode*.log"
 ```
@@ -219,13 +238,18 @@ python -m src.train_policy_value "../engine/logs/episode*.log"
 - `--epochs` (default: 5): Training epochs
 - `--batch-size` (default: 64): Batch size
 - `--learning-rate` (default: 1e-3): Adam learning rate
+- `--checkpoint-dir` (default: `checkpoints`): Output directory for resumable checkpoints
+- `--checkpoint-prefix` (default: `policy_value`): Prefix for checkpoint file names
+- `--save-every-epochs` (default: 1): Save a resumable checkpoint every N epochs
+- `--resume-from`: Resume from a prior checkpoint and continue training toward `--epochs`
+- `--metrics-output`: Append one structured JSONL metrics record per epoch to the given path
 
 This will:
 - Resolve all log files (supports glob patterns and multiple file arguments).
 - Build train/validation splits from the logged games (90/10 split).
 - **Train on full game trajectories**: Each step labeled with game outcome + MCTS-guided moves (ready for self-play RL).
 - Train a `PolicyValueNet` to imitate the logged moves and predict win probability.
-- Save a checkpoint to `checkpoints/policy_value_latest.pt`.
+- Save resumable checkpoints to `checkpoints/` including `policy_value_latest.pt`.
 
 **Example output** (training on 346k+ samples from 1000 A* games):
 ```

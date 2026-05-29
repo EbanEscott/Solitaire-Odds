@@ -1,4 +1,4 @@
-"""Phase 1 CLI for resumable local experiment orchestration."""
+"""CLI for resumable local experiment orchestration."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ DEFAULT_HEARTBEAT_SECONDS = 5
 
 @dataclass(frozen=True)
 class RuntimeLayout:
-    """Stable on-disk layout for the Phase 1 experiment control plane."""
+    """Stable on-disk layout for the experiments control plane."""
 
     root: Path
     registry_dir: Path
@@ -134,7 +134,7 @@ def _plan_tasks(spec: ExperimentSpec, run_id: str, layout: RuntimeLayout) -> lis
 
 
 def _task_row_payload(task: PlannedTask) -> dict[str, str]:
-    """Serialize a planned task into the registry row format used by Phase 1."""
+    """Serialize a planned task into the registry row format."""
 
     return {
         "task_name": task.task_name,
@@ -178,7 +178,7 @@ def _build_manifest(
 
 
 def _create_noop_payload(temp_dir: Path, task: TaskRecord) -> None:
-    """Materialize the payload for a noop task so Phase 1 still produces reviewable artifacts."""
+    """Materialize the payload for a noop task so it still produces reviewable artifacts."""
 
     payload = json.loads(task.payload_json or "{}")
     _write_json(temp_dir / "task_payload.json", payload)
@@ -309,6 +309,103 @@ def _build_endgame_collection_command(payload: Mapping[str, Any]) -> list[str]:
     return command
 
 
+def _resolve_repo_relative_path(path_text: str | None) -> Path | None:
+    """Resolve a potentially relative repository path used in experiment payloads."""
+
+    if path_text is None:
+        return None
+    candidate = Path(path_text)
+    if candidate.is_absolute():
+        return candidate
+    return (REPO_ROOT / candidate).resolve()
+
+
+def _resolve_training_resume_checkpoint(task: TaskRecord, payload: Mapping[str, Any]) -> Path | None:
+    """Resolve the checkpoint a training task should resume from, if any."""
+
+    explicit_resume_from = payload.get("resume_from")
+    if explicit_resume_from:
+        return _resolve_repo_relative_path(str(explicit_resume_from))
+
+    checkpoint_prefix = str(payload.get("checkpoint_prefix", "policy_value"))
+    attempt_root = Path(task.artifact_dir)
+    latest_candidates = sorted(
+        attempt_root.glob(f"attempt-*/checkpoints/{checkpoint_prefix}_latest.pt"),
+        reverse=True,
+    )
+    if latest_candidates:
+        return latest_candidates[0]
+
+    epoch_candidates = sorted(
+        attempt_root.glob(f"attempt-*/checkpoints/{checkpoint_prefix}_epoch_*.pt"),
+        reverse=True,
+    )
+    if epoch_candidates:
+        return epoch_candidates[0]
+    return None
+
+
+def _build_policy_value_train_command(
+    payload: Mapping[str, Any],
+    task: TaskRecord,
+    temp_dir: Path,
+) -> tuple[list[str], Path, Path, Path | None]:
+    """Construct the Python training command and its output locations for one task attempt."""
+
+    architecture_params = payload.get("architecture_params", {})
+    if not isinstance(architecture_params, dict):
+        raise ValueError("training payload is missing architecture_params")
+
+    dataset_sources = payload.get("dataset_sources", [])
+    if not isinstance(dataset_sources, list) or not dataset_sources:
+        raise ValueError("training payload is missing dataset_sources")
+
+    checkpoint_dir = temp_dir / "checkpoints"
+    metrics_output = temp_dir / str(payload.get("metrics_filename", "epoch_metrics.jsonl"))
+    resume_checkpoint = _resolve_training_resume_checkpoint(task, payload)
+
+    command = [
+        sys.executable,
+        "-m",
+        "src.train_policy_value",
+        "--hidden-dim",
+        str(architecture_params.get("hidden_dim", 256)),
+        "--num-layers",
+        str(architecture_params.get("num_layers", 2)),
+        "--epochs",
+        str(payload["epochs"]),
+        "--batch-size",
+        str(payload["batch_size"]),
+        "--learning-rate",
+        str(payload["learning_rate"]),
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--checkpoint-prefix",
+        str(payload.get("checkpoint_prefix", "policy_value")),
+        "--save-every-epochs",
+        str(payload.get("checkpoint_every_epochs", 1)),
+        "--metrics-output",
+        str(metrics_output),
+    ]
+
+    if architecture_params.get("batch_norm"):
+        command.append("--batch-norm")
+    if architecture_params.get("residual"):
+        command.append("--residual")
+    if resume_checkpoint is not None:
+        command.extend(["--resume-from", str(resume_checkpoint)])
+
+    simulate_interrupt_after_epoch = payload.get("simulate_interrupt_after_epoch")
+    if simulate_interrupt_after_epoch is not None:
+        command.extend([
+            "--simulate-interrupt-after-epoch",
+            str(simulate_interrupt_after_epoch),
+        ])
+
+    command.extend(str(_resolve_repo_relative_path(str(source))) for source in dataset_sources)
+    return command, checkpoint_dir, metrics_output, resume_checkpoint
+
+
 def _run_endgame_collect_shard(
     *,
     registry: ExperimentRegistry,
@@ -393,6 +490,88 @@ def _run_endgame_collect_shard(
         return 1, "endgame collection produced no episode logs"
     if actual_games <= 0:
         return 1, "endgame collection produced logs but no EPISODE_SUMMARY records"
+    return 0, None
+
+
+def _run_policy_value_train(
+    *,
+    registry: ExperimentRegistry,
+    spec: ExperimentSpec,
+    run_id: str,
+    task: TaskRecord,
+    attempt_id: int,
+    temp_dir: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    heartbeat_seconds: int,
+) -> tuple[int, str | None]:
+    """Run one resumable policy-value training attempt and summarize its checkpoint outputs."""
+
+    payload = json.loads(task.payload_json or "{}")
+    working_directory = Path(task.working_directory or REPO_ROOT)
+    command, checkpoint_dir, metrics_output, resume_checkpoint = _build_policy_value_train_command(
+        payload,
+        task,
+        temp_dir,
+    )
+    _write_json(temp_dir / "command.json", {"command": command})
+
+    registry.connection.execute(
+        """
+        UPDATE task_attempts
+        SET command_json = ?, working_directory = ?
+        WHERE attempt_id = ?
+        """,
+        (json.dumps(command), str(working_directory), attempt_id),
+    )
+    registry.connection.commit()
+
+    exit_code = _run_command_task(
+        registry=registry,
+        run_id=run_id,
+        task=task,
+        attempt_id=attempt_id,
+        command=command,
+        working_directory=working_directory,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        heartbeat_seconds=heartbeat_seconds,
+    )
+
+    checkpoint_files = sorted(path for path in checkpoint_dir.glob("*.pt") if path.is_file())
+    latest_checkpoint = checkpoint_dir / f"{payload.get('checkpoint_prefix', 'policy_value')}_latest.pt"
+    training_summary = {
+        "training_kind": payload.get("kind"),
+        "architecture_family": payload.get("architecture_family"),
+        "architecture_params": payload.get("architecture_params", {}),
+        "dataset_kind": payload.get("dataset_kind"),
+        "dataset_sources": payload.get("dataset_sources", []),
+        "checkpoint_prefix": payload.get("checkpoint_prefix", "policy_value"),
+        "checkpoint_files": [
+            {
+                "name": path.name,
+                "bytes": path.stat().st_size,
+            }
+            for path in checkpoint_files
+        ],
+        "latest_checkpoint": str(latest_checkpoint.relative_to(temp_dir)) if latest_checkpoint.exists() else None,
+        "metrics_output": str(metrics_output.relative_to(temp_dir)) if metrics_output.exists() else None,
+        "resume_from": str(resume_checkpoint) if resume_checkpoint is not None else None,
+        "spec_hash": spec.spec_hash,
+        "repo_git_commit": _get_git_commit(REPO_ROOT),
+        "neural_git_commit": _get_git_commit(working_directory),
+        "simulated_interrupt_after_epoch": payload.get("simulate_interrupt_after_epoch"),
+    }
+    _write_json(temp_dir / "training_summary.json", training_summary)
+
+    if exit_code == 99:
+        return exit_code, "training interrupted after saving a resumable checkpoint"
+    if exit_code != 0:
+        return exit_code, f"policy-value training exited with status {exit_code}"
+    if not latest_checkpoint.exists():
+        return 1, "training completed but no latest checkpoint was produced"
+    if not metrics_output.exists():
+        return 1, "training completed but no epoch metrics file was produced"
     return 0, None
 
 
@@ -504,6 +683,18 @@ def _execute_task(
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
             )
+        elif task.task_kind == "policy_value_train":
+            exit_code, error_message = _run_policy_value_train(
+                registry=registry,
+                spec=spec,
+                run_id=run_id,
+                task=task,
+                attempt_id=next_attempt.attempt_id,
+                temp_dir=temp_dir,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                heartbeat_seconds=heartbeat_seconds,
+            )
         else:
             raise ValueError(f"unsupported task kind: {task.task_kind}")
 
@@ -578,6 +769,10 @@ def _execute_task(
             error_message="Interrupted by user",
             status_message=f"Task '{task.task_name}' interrupted",
         )
+        raise
+    except RuntimeError:
+        # Expected task-level failures are already finalized above. Re-raising here avoids trying
+        # to archive the same attempt twice through the generic unexpected-exception path.
         raise
     except Exception as exc:
         # Any unexpected exception during task setup or execution must still close out the
@@ -668,7 +863,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         for task in task_rows:
             if task.status == TASK_SUCCEEDED:
                 # Completed tasks are never re-executed for the same run id. This is the core of
-                # the Phase 1 resume guarantee and keeps reruns idempotent at the task boundary.
+                # the resume guarantee and keeps reruns idempotent at the task boundary.
                 print(f"Skipping completed task: {task.task_name}")
                 continue
             if task.status == TASK_RUNNING:
@@ -725,11 +920,11 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Construct the CLI parser for the Phase 1 experiments driver."""
+    """Construct the CLI parser for the experiments driver."""
 
     parser = argparse.ArgumentParser(
         prog="python -m experiments.src",
-        description="Phase 1 AlphaSolitaire experiment driver",
+        description="AlphaSolitaire experiment driver",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

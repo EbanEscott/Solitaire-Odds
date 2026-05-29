@@ -91,10 +91,10 @@ class ExperimentRegistry:
         self.close()
 
     def _initialize_schema(self) -> None:
-        """Create the Phase 1 registry schema if it does not already exist."""
+        """Create the registry schema if it does not already exist."""
 
-        # The schema keeps lineage, task state, and artifact metadata separate so later phases
-        # can evolve the execution model without rewriting the basic persistence contract.
+        # The schema keeps lineage, task state, and artifact metadata separate so the execution
+        # model can evolve without rewriting the basic persistence contract.
         self.connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS experiment_specs (

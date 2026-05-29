@@ -6,6 +6,12 @@ The recommendation is to keep the experiments stack Python-based while treating 
 
 Start with [DESIGN.md](DESIGN.md) for the proposed architecture, storage model, resumability rules, and phased proof-of-concept plan.
 
+Run ID note:
+
+- The example commands in this README use fixed `run_id` values for readability.
+- Re-running `python -m experiments.src run ... --run-id <same-id>` resumes the existing persisted run and skips tasks that already succeeded.
+- To replay an example from scratch, use a fresh `run_id` such as `phase3-demo-2`.
+
 ## Phase 1 Status
 
 Phase 1 is now scaffolded.
@@ -72,6 +78,36 @@ python -m experiments.src run experiments/specs/endgame_phase2_demo.json --run-i
 
 # Inspect final run state
 python -m experiments.src status phase2-demo
+```
+
+## Phase 3 Status
+
+Phase 3 is now wired for resumable MLP training through the Python trainer.
+
+Current Phase 3 capabilities:
+
+- A `training` spec section that expands into a real `policy_value_train` task.
+- Periodic epoch checkpoints with model state, optimizer state, RNG state, and metrics.
+- Automatic resume from the latest valid checkpoint created by a prior attempt of the same task.
+- Per-attempt JSONL epoch metrics and a structured training summary artifact.
+- Validation support through an intentional interrupt path for checkpoint-resume testing.
+
+Example Phase 3 commands:
+
+```bash
+source neural-network/.venv/bin/activate
+
+# Inspect the training plan
+python -m experiments.src plan experiments/specs/mlp_phase3_demo.json --run-id phase3-demo
+
+# Run until the demo intentionally interrupts after epoch 1
+python -m experiments.src run experiments/specs/mlp_phase3_demo.json --run-id phase3-demo
+
+# Resume from the checkpoint written by the first attempt
+python -m experiments.src run experiments/specs/mlp_phase3_demo.json --run-id phase3-demo --stale-after-seconds 1
+
+# Inspect final run state
+python -m experiments.src status phase3-demo
 ```
 
 Planned responsibilities for this folder:

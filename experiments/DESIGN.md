@@ -275,12 +275,18 @@ Goal: train the current MLP through the driver with periodic checkpoints and res
 
 Checklist:
 
-- [ ] Extend training to save periodic checkpoints, not just a final checkpoint.
-- [ ] Persist optimizer state, scheduler state if added, RNG state, and current epoch or step.
-- [ ] Resume training from the latest valid checkpoint.
-- [ ] Emit structured per-epoch metrics for later analysis.
-- [ ] Record produced checkpoints and lineage in the registry.
-- [ ] Validate recovery from a simulated interruption mid-training.
+- [x] Extend training to save periodic checkpoints, not just a final checkpoint.
+- [x] Persist optimizer state, scheduler state if added, RNG state, and current epoch or step.
+- [x] Resume training from the latest valid checkpoint.
+- [x] Emit structured per-epoch metrics for later analysis.
+- [x] Record produced checkpoints and lineage in the registry.
+- [x] Validate recovery from a simulated interruption mid-training.
+
+Implementation note:
+
+- The trainer now writes both epoch-specific checkpoints and a rolling `*_latest.pt` checkpoint.
+- Resume uses optimizer state, RNG state, completed epoch, and global step from the previous checkpoint.
+- The current demo flow intentionally interrupts after epoch 1 and then resumes from the checkpoint saved in the prior attempt artifact directory.
 
 ### Phase 4: Structured Evaluation And Analysis
 
