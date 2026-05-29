@@ -7,13 +7,17 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Dict, List, Mapping
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SUPPORTED_API_VERSION = "v1"
-SUPPORTED_TASK_KINDS = {"noop", "command"}
+SUPPORTED_TASK_KINDS = {"noop", "command", "endgame_collect_shard"}
+SUPPORTED_COLLECTION_KINDS = {"endgame_level_dataset"}
+DEFAULT_ENDGAME_COLLECTION_TEST = (
+    "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset"
+)
 
 
 class SpecValidationError(ValueError):
@@ -27,6 +31,7 @@ class WorkflowTaskSpec:
     name: str
     kind: str
     payload_key: str | None
+    payload_overrides: Mapping[str, Any] | None
     command: tuple[str, ...]
     working_directory: str | None
 
@@ -41,6 +46,7 @@ class ExperimentSpec:
     experiment_id: str
     description: str
     architecture: Mapping[str, Any]
+    collection: Mapping[str, Any]
     dataset: Mapping[str, Any]
     training: Mapping[str, Any]
     evaluation: Mapping[str, Any]
@@ -84,17 +90,120 @@ def _validate_sources(dataset: Mapping[str, Any]) -> None:
             raise SpecValidationError(f"dataset source does not exist: {source}")
 
 
+def _require_int(name: str, value: Any, *, minimum: int | None = None) -> int:
+    """Validate and normalize integer spec fields with optional lower bounds."""
+
+    if not isinstance(value, int):
+        raise SpecValidationError(f"'{name}' must be an integer")
+    if minimum is not None and value < minimum:
+        raise SpecValidationError(f"'{name}' must be >= {minimum}")
+    return value
+
+
+def _require_bool(name: str, value: Any) -> bool:
+    """Validate and normalize boolean spec fields."""
+
+    if not isinstance(value, bool):
+        raise SpecValidationError(f"'{name}' must be a boolean")
+    return value
+
+
+def _validate_collection(collection: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate the Phase 2 collection section and return normalized values."""
+
+    if not collection:
+        return {}
+
+    kind = collection.get("kind")
+    if not isinstance(kind, str) or kind not in SUPPORTED_COLLECTION_KINDS:
+        raise SpecValidationError(
+            f"'collection.kind' must be one of {sorted(SUPPORTED_COLLECTION_KINDS)}"
+        )
+
+    level = _require_int("collection.level", collection.get("level"), minimum=1)
+    shard_count = _require_int("collection.shard_count", collection.get("shard_count"), minimum=1)
+    games_per_shard = _require_int(
+        "collection.games_per_shard",
+        collection.get("games_per_shard"),
+        minimum=1,
+    )
+    randomise = _require_bool("collection.randomise", collection.get("randomise", False))
+
+    if shard_count > 1 and not randomise:
+        raise SpecValidationError(
+            "multi-shard endgame collection requires 'collection.randomise=true' so shards do not duplicate deterministic data"
+        )
+
+    seed_base = collection.get("seed_base")
+    if seed_base is None:
+        seed_base = 0
+    else:
+        seed_base = _require_int("collection.seed_base", seed_base)
+
+    engine_test = collection.get("engine_test", DEFAULT_ENDGAME_COLLECTION_TEST)
+    if not isinstance(engine_test, str) or not engine_test:
+        raise SpecValidationError("'collection.engine_test' must be a non-empty string")
+
+    return {
+        "kind": kind,
+        "level": level,
+        "shard_count": shard_count,
+        "games_per_shard": games_per_shard,
+        "randomise": randomise,
+        "seed_base": seed_base,
+        "engine_test": engine_test,
+    }
+
+
+def _build_collection_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
+    """Expand the collection section into concrete shard tasks for the Phase 2 driver."""
+
+    collection = _validate_collection(_as_dict("collection", raw.get("collection")))
+    if not collection:
+        return []
+
+    tasks: List[WorkflowTaskSpec] = []
+    shard_count = int(collection["shard_count"])
+    games_per_shard = int(collection["games_per_shard"])
+    randomise = bool(collection["randomise"])
+    seed_base = int(collection["seed_base"])
+
+    for shard_index in range(shard_count):
+        shard_seed = seed_base + shard_index if randomise else None
+        tasks.append(
+            WorkflowTaskSpec(
+                name=f"collect-shard-{shard_index + 1:03d}",
+                kind="endgame_collect_shard",
+                payload_key="collection",
+                payload_overrides={
+                    "requested_games": games_per_shard,
+                    "shard_index": shard_index,
+                    "shard_count": shard_count,
+                    "shard_seed": shard_seed,
+                },
+                command=(),
+                working_directory="engine",
+            )
+        )
+
+    return tasks
+
+
 def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Derive a minimal workflow from top-level sections when no explicit workflow is present."""
 
     tasks: List[WorkflowTaskSpec] = []
-    # Phase 1 intentionally treats the top-level sections as noop tasks so the driver can
-    # prove registry, resume, and artifact semantics before real subprocess wiring is added.
-    if raw.get("dataset"):
+    collection_tasks = _build_collection_workflow(raw)
+    if collection_tasks:
+        tasks.extend(collection_tasks)
+    elif raw.get("dataset"):
+        # Phase 1 intentionally treats dataset-backed collection as a noop task so the driver can
+        # prove registry, resume, and artifact semantics before real subprocess wiring is added.
         tasks.append(WorkflowTaskSpec(
             name="collect",
             kind="noop",
             payload_key="dataset",
+            payload_overrides=None,
             command=(),
             working_directory=None,
         ))
@@ -103,6 +212,7 @@ def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
             name="train",
             kind="noop",
             payload_key="training",
+            payload_overrides=None,
             command=(),
             working_directory=None,
         ))
@@ -111,6 +221,7 @@ def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
             name="evaluate",
             kind="noop",
             payload_key="evaluation",
+            payload_overrides=None,
             command=(),
             working_directory=None,
         ))
@@ -154,6 +265,10 @@ def _load_workflow(raw: Mapping[str, Any]) -> tuple[WorkflowTaskSpec, ...]:
         if payload_key is not None and not isinstance(payload_key, str):
             raise SpecValidationError(f"workflow task '{name}' payload_key must be a string")
 
+        payload_overrides = task_def.get("payload")
+        if payload_overrides is not None and not isinstance(payload_overrides, dict):
+            raise SpecValidationError(f"workflow task '{name}' payload must be an object")
+
         raw_command = task_def.get("command", [])
         command: tuple[str, ...] = ()
         if kind == "command":
@@ -181,6 +296,7 @@ def _load_workflow(raw: Mapping[str, Any]) -> tuple[WorkflowTaskSpec, ...]:
                 name=name,
                 kind=kind,
                 payload_key=payload_key,
+                payload_overrides=dict(payload_overrides) if payload_overrides is not None else None,
                 command=command,
                 working_directory=working_directory,
             )
@@ -205,6 +321,7 @@ def flatten_run_parameters(raw: Mapping[str, Any]) -> Dict[str, str]:
     architecture = _as_dict("architecture", raw.get("architecture"))
     store("architecture.family", architecture.get("family"))
     store("architecture.params", architecture.get("params", {}))
+    store("collection", _as_dict("collection", raw.get("collection")))
     store("dataset.kind", _as_dict("dataset", raw.get("dataset")).get("kind"))
     store("dataset.sources", _as_dict("dataset", raw.get("dataset")).get("sources", []))
     store("training", _as_dict("training", raw.get("training")))
@@ -245,6 +362,7 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
     if not architecture.get("family"):
         raise SpecValidationError("'architecture.family' must be provided")
 
+    collection = _validate_collection(_as_dict("collection", raw.get("collection")))
     dataset = _as_dict("dataset", raw.get("dataset"))
     training = _as_dict("training", raw.get("training"))
     evaluation = _as_dict("evaluation", raw.get("evaluation"))
@@ -263,6 +381,7 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
         experiment_id=experiment_id,
         description=description,
         architecture=architecture,
+        collection=collection,
         dataset=dataset,
         training=training,
         evaluation=evaluation,
@@ -271,16 +390,35 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
     )
 
 
-def task_payload(spec: ExperimentSpec, payload_key: str | None) -> Mapping[str, Any]:
+def task_payload(
+    spec: ExperimentSpec,
+    payload_key: str | None,
+    payload_overrides: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any]:
     """Return the section payload associated with a workflow task."""
 
+    payload: Dict[str, Any] = {}
     if payload_key is None:
-        return {}
-    payload = spec.raw.get(payload_key)
-    if payload is None:
-        return {}
-    if not isinstance(payload, dict):
-        raise SpecValidationError(f"task payload '{payload_key}' must resolve to an object")
+        payload = {}
+    else:
+        normalized_sections: Dict[str, Mapping[str, Any]] = {
+            "architecture": spec.architecture,
+            "collection": spec.collection,
+            "dataset": spec.dataset,
+            "training": spec.training,
+            "evaluation": spec.evaluation,
+        }
+        resolved_payload = normalized_sections.get(payload_key, spec.raw.get(payload_key))
+        if resolved_payload is None:
+            payload = {}
+        else:
+            if not isinstance(resolved_payload, dict):
+                raise SpecValidationError(f"task payload '{payload_key}' must resolve to an object")
+            payload = dict(resolved_payload)
+
+    if payload_overrides is not None:
+        payload.update(dict(payload_overrides))
+
     return payload
 
 

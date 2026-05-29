@@ -1,0 +1,22 @@
+{
+  "api_version": "v1",
+  "experiment_id": "endgame-phase2-demo",
+  "description": "Phase 2 sharded endgame collection demo using the Java engine generator.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "collection": {
+    "kind": "endgame_level_dataset",
+    "level": 2,
+    "shard_count": 2,
+    "games_per_shard": 1,
+    "randomise": true,
+    "seed_base": 1000
+  }
+}

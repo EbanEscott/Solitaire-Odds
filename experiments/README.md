@@ -40,6 +40,40 @@ python -m experiments.src run experiments/specs/mlp_phase1_demo.json --run-id ph
 python -m experiments.src status phase1-demo
 ```
 
+## Phase 2 Status
+
+Phase 2 is now wired for endgame data collection through the Java engine.
+
+Current Phase 2 capabilities:
+
+- A `collection` spec section that expands into real shard tasks.
+- Built-in `endgame_collect_shard` task execution through `./gradlew test`.
+- Per-shard stdout, stderr, command, manifest, and collection summary artifacts.
+- Per-shard reproducible random seeds via `-Dendgame.random.seed=<seed>`.
+- Safe capture of generated `episode*.log` files into immutable artifact directories.
+- Resume behavior that skips completed shards and continues the remaining shard tasks.
+
+Example Phase 2 commands:
+
+```bash
+source neural-network/.venv/bin/activate
+
+# Inspect the sharded collection plan
+python -m experiments.src plan experiments/specs/endgame_phase2_demo.json --run-id phase2-demo
+
+# Run one shard and stop
+python -m experiments.src run experiments/specs/endgame_phase2_demo.json --run-id phase2-demo --max-tasks 1
+
+# Resume the remaining shard(s)
+python -m experiments.src run experiments/specs/endgame_phase2_demo.json --run-id phase2-demo
+
+# Recover a stale run after an interrupted or crashed attempt
+python -m experiments.src run experiments/specs/endgame_phase2_demo.json --run-id phase2-demo --stale-after-seconds 1
+
+# Inspect final run state
+python -m experiments.src status phase2-demo
+```
+
 Planned responsibilities for this folder:
 
 - Experiment specs and sweep definitions.

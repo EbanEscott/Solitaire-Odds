@@ -323,6 +323,38 @@ class ExperimentRegistry:
                     now,
                 ),
             )
+            # Refresh task metadata for resumable tasks so a restarted driver can benefit from
+            # newer planning logic or corrected payload normalization without mutating work that
+            # already completed successfully or is genuinely still running elsewhere.
+            self.connection.execute(
+                """
+                UPDATE tasks
+                SET task_order = ?,
+                    task_kind = ?,
+                    payload_json = ?,
+                    command_json = ?,
+                    working_directory = ?,
+                    artifact_dir = ?,
+                    updated_at = ?
+                WHERE run_id = ?
+                  AND task_name = ?
+                  AND status != ?
+                  AND status != ?
+                """,
+                (
+                    task["task_order"],
+                    task["task_kind"],
+                    task["payload_json"],
+                    task["command_json"],
+                    task["working_directory"],
+                    task["artifact_dir"],
+                    now,
+                    run_id,
+                    task["task_name"],
+                    TASK_SUCCEEDED,
+                    TASK_RUNNING,
+                ),
+            )
         self.connection.commit()
 
     def list_tasks(self, run_id: str) -> list[TaskRecord]:

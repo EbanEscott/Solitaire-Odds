@@ -21,6 +21,9 @@ cd engine
 # Custom level (e.g., Level 10)
 ./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" --rerun-tasks --console=plain "-Dlog.episodes=true" "-Dendgame.games.per.level=100" "-Dendgame.games.difficulty.level=10"
 
+# Randomised shard with explicit seed (useful for experiment-driver collection)
+./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset" --rerun-tasks --console=plain "-Dlog.episodes=true" "-Dendgame.games.per.level=100" "-Dendgame.games.difficulty.level=10" "-Dendgame.randomise=true" "-Dendgame.random.seed=1000"
+
 # All levels 1-5
 ./gradlew test --tests "ai.games.training.EndgameTrainingDataGenerator" --rerun-tasks --console=plain "-Dlog.episodes=true"
 ```
@@ -74,6 +77,14 @@ cd engine
 ```
 
 That results test does not read `-Dendgame.games.difficulty.level`. It always creates fresh shuffled games and only uses the shared sweep properties such as `-Dtest.games` and `-Dtest.max.moves.per.game`.
+
+## Shard Reproducibility
+
+When `-Dendgame.randomise=true` is enabled, you can also set `-Dendgame.random.seed=<seed>`.
+
+- Use the same seed to reproduce the same shard.
+- Use different seeds per shard to collect distinct randomised datasets.
+- Leave the seed unset only when you want time-based randomisation.
 
 ## Difficulty Levels
 

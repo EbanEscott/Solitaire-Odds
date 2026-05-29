@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .registry import (
     ExperimentRegistry,
     RUN_INTERRUPTED,
+    RUN_RUNNING,
     RUN_SUCCEEDED,
     TASK_INTERRUPTED,
     TASK_RETRYABLE,
@@ -119,7 +120,11 @@ def _plan_tasks(spec: ExperimentSpec, run_id: str, layout: RuntimeLayout) -> lis
                 task_name=workflow_task.name,
                 task_order=index,
                 task_kind=workflow_task.kind,
-                payload=task_payload(spec, workflow_task.payload_key),
+                payload=task_payload(
+                    spec,
+                    workflow_task.payload_key,
+                    workflow_task.payload_overrides,
+                ),
                 command=workflow_task.command,
                 working_directory=resolve_working_directory(workflow_task.working_directory),
                 artifact_dir=task_root,
@@ -177,6 +182,218 @@ def _create_noop_payload(temp_dir: Path, task: TaskRecord) -> None:
 
     payload = json.loads(task.payload_json or "{}")
     _write_json(temp_dir / "task_payload.json", payload)
+
+
+def _archive_attempt_artifact(
+    *,
+    registry: ExperimentRegistry,
+    spec: ExperimentSpec,
+    run_id: str,
+    task: TaskRecord,
+    attempt_id: int,
+    attempt_number: int,
+    task_status: str,
+    temp_dir: Path,
+    final_dir: Path,
+) -> None:
+    """Finalize a task attempt directory with a manifest and register it in the registry."""
+
+    if not temp_dir.exists():
+        return
+
+    manifest = _build_manifest(
+        spec=spec,
+        run_id=run_id,
+        task=task,
+        attempt_number=attempt_number,
+        task_status=task_status,
+        final_dir=temp_dir,
+    )
+    _write_json(temp_dir / "manifest.json", manifest)
+    temp_dir.rename(final_dir)
+    registry.register_artifact(
+        run_id=run_id,
+        task_id=task.task_id,
+        attempt_id=attempt_id,
+        artifact_kind="task_attempt",
+        relative_path=_relative_to_repo(final_dir),
+        manifest_json=json.dumps(manifest, sort_keys=True),
+    )
+
+
+def _get_git_commit(repo_path: Path) -> str:
+    """Return the current git commit for a repo path, or 'unknown' if unavailable."""
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except Exception:
+        return "unknown"
+
+    if result.returncode == 0:
+        return result.stdout.strip()
+    return "unknown"
+
+
+def _list_episode_logs(log_dir: Path) -> list[Path]:
+    """List the top-level episode log files produced by the engine working directory."""
+
+    if not log_dir.exists():
+        return []
+    return sorted(path for path in log_dir.glob("episode*.log") if path.is_file())
+
+
+def _move_episode_logs(source_dir: Path, destination_dir: Path) -> list[Path]:
+    """Move working episode logs into a controlled destination and return their new paths."""
+
+    moved: list[Path] = []
+    paths = _list_episode_logs(source_dir)
+    if not paths:
+        return moved
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    for path in paths:
+        target = destination_dir / path.name
+        path.replace(target)
+        moved.append(target)
+    return moved
+
+
+def _restore_episode_logs(backup_dir: Path, destination_dir: Path) -> None:
+    """Restore any pre-existing working logs after one collection attempt finishes."""
+
+    if not backup_dir.exists():
+        return
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    for path in sorted(backup_dir.glob("episode*.log")):
+        path.replace(destination_dir / path.name)
+
+
+def _count_episode_summaries(log_paths: list[Path]) -> int:
+    """Count EPISODE_SUMMARY records across a set of captured engine log files."""
+
+    summaries = 0
+    for path in log_paths:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("EPISODE_SUMMARY "):
+                    summaries += 1
+    return summaries
+
+
+def _build_endgame_collection_command(payload: Mapping[str, Any]) -> list[str]:
+    """Construct the Gradle command used to generate one endgame collection shard."""
+
+    command = [
+        "./gradlew",
+        "test",
+        "--tests",
+        str(payload["engine_test"]),
+        "--rerun-tasks",
+        "--console=plain",
+        "-Dlog.episodes=true",
+        f"-Dendgame.games.difficulty.level={payload['level']}",
+        f"-Dendgame.games.per.level={payload['requested_games']}",
+    ]
+    if payload.get("randomise"):
+        command.append("-Dendgame.randomise=true")
+    shard_seed = payload.get("shard_seed")
+    if shard_seed is not None:
+        command.append(f"-Dendgame.random.seed={shard_seed}")
+    return command
+
+
+def _run_endgame_collect_shard(
+    *,
+    registry: ExperimentRegistry,
+    spec: ExperimentSpec,
+    run_id: str,
+    task: TaskRecord,
+    attempt_id: int,
+    temp_dir: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    heartbeat_seconds: int,
+) -> tuple[int, str | None]:
+    """Run one endgame collection shard and archive its generated episode logs."""
+
+    payload = json.loads(task.payload_json or "{}")
+    engine_dir = Path(task.working_directory or REPO_ROOT)
+    engine_logs_dir = engine_dir / "logs"
+    backup_dir = temp_dir / "preexisting-engine-logs"
+    collected_logs_dir = temp_dir / "collected-logs"
+
+    command = _build_endgame_collection_command(payload)
+    _write_json(temp_dir / "command.json", {"command": command})
+
+    registry.connection.execute(
+        """
+        UPDATE task_attempts
+        SET command_json = ?, working_directory = ?
+        WHERE attempt_id = ?
+        """,
+        (json.dumps(command), str(engine_dir), attempt_id),
+    )
+    registry.connection.commit()
+
+    # The engine currently writes episode logs to a shared working directory. Move any existing
+    # files out of the way first so the shard can capture only the logs produced by this attempt.
+    _move_episode_logs(engine_logs_dir, backup_dir)
+
+    generated_logs: list[Path] = []
+    try:
+        exit_code = _run_command_task(
+            registry=registry,
+            run_id=run_id,
+            task=task,
+            attempt_id=attempt_id,
+            command=command,
+            working_directory=engine_dir,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            heartbeat_seconds=heartbeat_seconds,
+        )
+    finally:
+        generated_logs = _move_episode_logs(engine_logs_dir, collected_logs_dir)
+        _restore_episode_logs(backup_dir, engine_logs_dir)
+
+    actual_games = _count_episode_summaries(generated_logs)
+    summary = {
+        "collection_kind": payload.get("kind"),
+        "level": payload.get("level"),
+        "requested_games": payload.get("requested_games"),
+        "actual_games": actual_games,
+        "shard_index": payload.get("shard_index"),
+        "shard_count": payload.get("shard_count"),
+        "randomise": payload.get("randomise", False),
+        "shard_seed": payload.get("shard_seed"),
+        "engine_test": payload.get("engine_test"),
+        "spec_hash": spec.spec_hash,
+        "repo_git_commit": _get_git_commit(REPO_ROOT),
+        "engine_git_commit": _get_git_commit(engine_dir),
+        "log_files": [
+            {
+                "name": path.name,
+                "bytes": path.stat().st_size,
+            }
+            for path in generated_logs
+        ],
+    }
+    _write_json(temp_dir / "collection_summary.json", summary)
+
+    if exit_code != 0:
+        return exit_code, f"endgame collection command exited with status {exit_code}"
+    if not generated_logs:
+        return 1, "endgame collection produced no episode logs"
+    if actual_games <= 0:
+        return 1, "endgame collection produced logs but no EPISODE_SUMMARY records"
+    return 0, None
 
 
 def _run_command_task(
@@ -259,6 +476,7 @@ def _execute_task(
 
     try:
         exit_code = 0
+        error_message: str | None = None
         if task.task_kind == "noop":
             _create_noop_payload(temp_dir, task)
         elif task.task_kind == "command":
@@ -274,29 +492,34 @@ def _execute_task(
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
             )
+        elif task.task_kind == "endgame_collect_shard":
+            exit_code, error_message = _run_endgame_collect_shard(
+                registry=registry,
+                spec=spec,
+                run_id=run_id,
+                task=task,
+                attempt_id=next_attempt.attempt_id,
+                temp_dir=temp_dir,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                heartbeat_seconds=heartbeat_seconds,
+            )
         else:
             raise ValueError(f"unsupported task kind: {task.task_kind}")
 
         if exit_code != 0:
             # Failed command attempts are kept as retryable artifacts rather than deleted. That
             # makes debugging easier and preserves the evidence needed to understand the failure.
-            manifest = _build_manifest(
+            _archive_attempt_artifact(
+                registry=registry,
                 spec=spec,
                 run_id=run_id,
+                attempt_id=next_attempt.attempt_id,
                 task=task,
                 attempt_number=next_attempt.attempt_number,
                 task_status=TASK_RETRYABLE,
-                final_dir=temp_dir,
-            )
-            _write_json(temp_dir / "manifest.json", manifest)
-            temp_dir.rename(final_dir)
-            registry.register_artifact(
-                run_id=run_id,
-                task_id=task.task_id,
-                attempt_id=next_attempt.attempt_id,
-                artifact_kind="task_attempt",
-                relative_path=_relative_to_repo(final_dir),
-                manifest_json=json.dumps(manifest, sort_keys=True),
+                temp_dir=temp_dir,
+                final_dir=final_dir,
             )
             registry.finish_task_attempt(
                 run_id=run_id,
@@ -305,35 +528,28 @@ def _execute_task(
                 task_status=TASK_RETRYABLE,
                 run_status=RUN_INTERRUPTED,
                 exit_code=exit_code,
-                error_message=f"command exited with status {exit_code}",
+                error_message=error_message or f"command exited with status {exit_code}",
                 status_message=f"Task '{task.task_name}' failed and can be retried",
             )
             raise RuntimeError(f"task '{task.task_name}' failed with exit code {exit_code}")
 
-        manifest = _build_manifest(
+        _archive_attempt_artifact(
+            registry=registry,
             spec=spec,
             run_id=run_id,
+            attempt_id=next_attempt.attempt_id,
             task=task,
             attempt_number=next_attempt.attempt_number,
             task_status=TASK_SUCCEEDED,
-            final_dir=temp_dir,
-        )
-        _write_json(temp_dir / "manifest.json", manifest)
-        temp_dir.rename(final_dir)
-        registry.register_artifact(
-            run_id=run_id,
-            task_id=task.task_id,
-            attempt_id=next_attempt.attempt_id,
-            artifact_kind="task_attempt",
-            relative_path=_relative_to_repo(final_dir),
-            manifest_json=json.dumps(manifest, sort_keys=True),
+            temp_dir=temp_dir,
+            final_dir=final_dir,
         )
         registry.finish_task_attempt(
             run_id=run_id,
             task_id=task.task_id,
             attempt_id=next_attempt.attempt_id,
             task_status=TASK_SUCCEEDED,
-            run_status=TASK_RUNNING,
+            run_status=RUN_RUNNING,
             exit_code=0,
             error_message=None,
             status_message=None,
@@ -341,25 +557,17 @@ def _execute_task(
     except KeyboardInterrupt:
         # Interrupted attempts are still archived with a manifest so resume logic and post-mortem
         # inspection have a durable record of what had already been written to disk.
-        if temp_dir.exists():
-            manifest = _build_manifest(
-                spec=spec,
-                run_id=run_id,
-                task=task,
-                attempt_number=next_attempt.attempt_number,
-                task_status=TASK_INTERRUPTED,
-                final_dir=temp_dir,
-            )
-            _write_json(temp_dir / "manifest.json", manifest)
-            temp_dir.rename(final_dir)
-            registry.register_artifact(
-                run_id=run_id,
-                task_id=task.task_id,
-                attempt_id=next_attempt.attempt_id,
-                artifact_kind="task_attempt",
-                relative_path=_relative_to_repo(final_dir),
-                manifest_json=json.dumps(manifest, sort_keys=True),
-            )
+        _archive_attempt_artifact(
+            registry=registry,
+            spec=spec,
+            run_id=run_id,
+            task=task,
+            attempt_id=next_attempt.attempt_id,
+            attempt_number=next_attempt.attempt_number,
+            task_status=TASK_INTERRUPTED,
+            temp_dir=temp_dir,
+            final_dir=final_dir,
+        )
         registry.finish_task_attempt(
             run_id=run_id,
             task_id=task.task_id,
@@ -371,6 +579,38 @@ def _execute_task(
             status_message=f"Task '{task.task_name}' interrupted",
         )
         raise
+    except Exception as exc:
+        # Any unexpected exception during task setup or execution must still close out the
+        # attempt, otherwise the run remains stuck in a perpetual running state.
+        _write_json(
+            temp_dir / "unexpected_error.json",
+            {
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        _archive_attempt_artifact(
+            registry=registry,
+            spec=spec,
+            run_id=run_id,
+            task=task,
+            attempt_id=next_attempt.attempt_id,
+            attempt_number=next_attempt.attempt_number,
+            task_status=TASK_RETRYABLE,
+            temp_dir=temp_dir,
+            final_dir=final_dir,
+        )
+        registry.finish_task_attempt(
+            run_id=run_id,
+            task_id=task.task_id,
+            attempt_id=next_attempt.attempt_id,
+            task_status=TASK_RETRYABLE,
+            run_status=RUN_INTERRUPTED,
+            exit_code=None,
+            error_message=f"{type(exc).__name__}: {exc}",
+            status_message=f"Task '{task.task_name}' failed and can be retried",
+        )
+        raise RuntimeError(f"task '{task.task_name}' failed with unexpected error: {exc}") from exc
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
@@ -416,11 +656,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             artifact_root=str(layout.artifacts_dir / run_id),
         )
         registry.replace_run_parameters(run_id, flatten_run_parameters(spec.raw))
-        registry.ensure_tasks(run_id, (_task_row_payload(task) for task in tasks))
 
         recovered = registry.recover_stale_running_tasks(run_id, args.stale_after_seconds)
         if recovered:
             print(f"Recovered {recovered} stale task(s) before resuming run {run_id}.")
+
+        registry.ensure_tasks(run_id, (_task_row_payload(task) for task in tasks))
 
         executed = 0
         task_rows = registry.list_tasks(run_id)

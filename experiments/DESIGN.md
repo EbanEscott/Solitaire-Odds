@@ -256,12 +256,18 @@ Goal: generate reproducible episode datasets from the Java engine in restartable
 
 Checklist:
 
-- [ ] Define a shard unit for collection such as fixed seed blocks or game-count blocks.
-- [ ] Wrap the engine invocation behind a stable driver task.
-- [ ] Archive shard outputs into immutable artifact directories.
-- [ ] Capture stdout, stderr, command line, and code revision for each shard.
-- [ ] Validate shard completeness before marking it successful.
-- [ ] Support retry of failed or interrupted shards only.
+- [x] Define a shard unit for collection such as fixed seed blocks or game-count blocks.
+- [x] Wrap the engine invocation behind a stable driver task.
+- [x] Archive shard outputs into immutable artifact directories.
+- [x] Capture stdout, stderr, command line, and code revision for each shard.
+- [x] Validate shard completeness before marking it successful.
+- [x] Support retry of failed or interrupted shards only.
+
+Implementation note:
+
+- The current shard contract uses `collection.shard_count` and `collection.games_per_shard`.
+- Multi-shard collection requires `collection.randomise=true` so repeated engine invocations do not regenerate the same deterministic dataset.
+- Each shard now receives an explicit `endgame.random.seed`, which preserves reproducibility while allowing shards to differ from each other.
 
 ### Phase 3: Resumable MLP Training
 

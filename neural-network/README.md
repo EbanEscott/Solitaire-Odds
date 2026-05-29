@@ -72,6 +72,7 @@ cd ../engine
 Practical notes:
 - The requested game count is a target, not a guarantee. With the current deterministic seed expansion, the validated Level 7 run requested 500 games and produced 404, so use the logged denominator in `[Level 7] Playing game 1/404` as the real count.
 - If you want a different branch sample, add `"-Dendgame.randomise=true"`. That changes which reverse moves are selected, but it does not guarantee the full requested count.
+- If you want the same randomised shard again, also add `"-Dendgame.random.seed=<seed>"`. This is useful when the experiments driver is collecting multiple reproducible shards for the same level.
 - If this command fails with a state-validation error, stop there. The generator is supposed to reject broken seeded boards instead of silently logging bad data.
 
 ### 3. Archive the generated logs immediately

@@ -35,6 +35,13 @@ public class TrainingOpponent {
     // Set via: -Dendgame.randomise=true
     private static final boolean RANDOMISE_MOVES = Boolean.parseBoolean(
         System.getProperty("endgame.randomise", "false"));
+
+    // Seed controlling reverse-move randomisation when randomisation is enabled.
+    // Default: current time (different shard each run) if randomised, otherwise 0 for reproducibility.
+    // Set via: -Dendgame.random.seed=<seed>
+    private static final long RANDOM_SEED = Long.getLong(
+        "endgame.random.seed",
+        RANDOMISE_MOVES ? System.currentTimeMillis() : 0L);
     
     private final int difficultyLevel;
     private final Random random;
@@ -49,9 +56,9 @@ public class TrainingOpponent {
             throw new IllegalArgumentException("difficultyLevel must be >= 1");
         }
         this.difficultyLevel = difficultyLevel;
-        // Use current time as seed if randomisation enabled, ensures different positions each run
-        // Use 0 as seed if deterministic, ensures reproducibility
-        this.random = new Random(RANDOMISE_MOVES ? System.currentTimeMillis() : 0);
+        // The driver can pin endgame.random.seed per shard to make randomised collection
+        // reproducible without forcing every shard to regenerate the same deterministic path.
+        this.random = new Random(RANDOM_SEED);
     }
 
     /**
