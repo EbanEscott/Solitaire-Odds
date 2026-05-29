@@ -239,12 +239,16 @@ Goal: run one MLP experiment from a spec and resume it after interruption.
 
 Checklist:
 
-- [ ] Create `experiments/specs/` and define a versioned experiment spec format.
-- [ ] Create `experiments/src/` with a small driver CLI.
-- [ ] Implement SQLite registry tables for runs, tasks, attempts, and artifacts.
-- [ ] Implement run status transitions and heartbeat handling.
-- [ ] Define artifact directory naming and manifest rules.
-- [ ] Prove that a stopped run can be resumed without duplicating completed tasks.
+- [x] Create `experiments/specs/` and define a versioned experiment spec format.
+- [x] Create `experiments/src/` with a small driver CLI.
+- [x] Implement SQLite registry tables for runs, tasks, attempts, and artifacts.
+- [x] Implement run status transitions and heartbeat handling.
+- [x] Define artifact directory naming and manifest rules.
+- [x] Prove that a stopped run can be resumed without duplicating completed tasks.
+
+Implementation note:
+
+- The current Phase 1 workflow derives `collect`, `train`, and `evaluate` tasks from the spec and executes them as `noop` tasks by default. That is intentional. The goal of this phase is to prove spec loading, registry behavior, artifact layout, heartbeat tracking, and resume semantics before wiring the real engine and trainer subprocesses in later phases.
 
 ### Phase 2: Sharded Data Collection
 

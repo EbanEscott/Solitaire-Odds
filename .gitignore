@@ -12,4 +12,8 @@ logs/
 !engine/logs/archive/**
 tmp/
 
+# Experiments runtime artifacts
+experiments/runtime/
+experiments/**/__pycache__/
+
 .gradle/

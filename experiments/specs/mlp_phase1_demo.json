@@ -1,0 +1,32 @@
+{
+  "api_version": "v1",
+  "experiment_id": "mlp-phase1-demo",
+  "description": "Phase 1 control-plane demo for the current MLP architecture.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log"
+    ]
+  },
+  "training": {
+    "epochs": 5,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "resume_from": null
+  },
+  "evaluation": {
+    "suite": "alpha_seeded_levels",
+    "games_per_shard": 100,
+    "seed_start": 0,
+    "seed_end": 500
+  }
+}
