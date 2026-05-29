@@ -1,10 +1,10 @@
 package ai.games.training;
 
 import ai.games.Game;
-import ai.games.game.Solitaire;
 import ai.games.player.Player;
 import ai.games.player.ai.alpha.AlphaSolitaireClient;
 import ai.games.player.ai.alpha.AlphaSolitairePlayer;
+import ai.games.results.ResultsConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -120,6 +120,10 @@ public class AlphaSolitaireLevelTest {
      */
     private void testOpponentAtLevel(int level, String levelName) {
         log.info("Starting AlphaSolitairePlayer evaluation: {}", levelName);
+
+        // Reuse the standard sweep move cap so level probes stay comparable to results tests
+        // and do not spend minutes inside obviously looping games.
+        System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
         
         TrainingOpponent opponent = new TrainingOpponent(level);
         List<TrainingOpponent.SeededGame> seededGames = opponent.seedGameWithMoves(GAMES_PER_LEVEL);
