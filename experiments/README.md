@@ -110,6 +110,43 @@ python -m experiments.src run experiments/specs/mlp_phase3_demo.json --run-id ph
 python -m experiments.src status phase3-demo
 ```
 
+## Phase 4 Status
+
+Phase 4 is now wired for sharded AlphaSolitaire evaluation and generated analysis artifacts.
+
+Current Phase 4 capabilities:
+
+- An `evaluation` spec section that expands into restartable `alpha_level_eval_shard` tasks.
+- Driver-managed model service startup using the evaluation checkpoint for each shard.
+- Deterministic evaluation game blocks via `seed_start`, `seed_end`, and `games_per_shard`.
+- Structured per-shard evaluation summaries captured as JSON artifacts.
+- A follow-on `evaluation_report` task that emits DuckDB, Parquet, JSONL, SQL, and markdown outputs.
+- Resume behavior that skips completed evaluation shards and only reruns missing work.
+
+Example Phase 4 commands:
+
+```bash
+source neural-network/.venv/bin/activate
+
+# Inspect the evaluation plan
+python -m experiments.src plan experiments/specs/alpha_phase4_demo.json --run-id phase4-demo
+
+# Run the sharded evaluation and report task
+python -m experiments.src run experiments/specs/alpha_phase4_demo.json --run-id phase4-demo
+
+# Inspect final run state
+python -m experiments.src status phase4-demo
+```
+
+The report task writes artifacts such as:
+
+- `evaluation_shards.jsonl`
+- `evaluation_shards.parquet`
+- `evaluation_rollups.parquet`
+- `evaluation.duckdb`
+- `evaluation_queries.sql`
+- `evaluation_report.md`
+
 Planned responsibilities for this folder:
 
 - Experiment specs and sweep definitions.

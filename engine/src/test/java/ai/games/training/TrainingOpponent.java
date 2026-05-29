@@ -213,6 +213,41 @@ public class TrainingOpponent {
      * @return list of SeededGame objects containing both the game and its reverse moves
      */
     public List<SeededGame> seedGameWithMoves(int numberOfGames) {
+        return generateSeededGames(numberOfGames);
+    }
+
+    /**
+     * Seeds a deterministic block of endgame positions and returns the selected slice.
+     *
+     * <p>This is used by restartable evaluation shards so each shard can request a stable
+     * contiguous game block without depending on mutable runtime state outside the engine.
+     *
+     * @param startIndex zero-based starting index in the deterministic game stream
+     * @param numberOfGames requested number of games to return from that starting index
+     * @return list of SeededGame objects containing both the game and its reverse moves
+     */
+    public List<SeededGame> seedGameWithMoves(int startIndex, int numberOfGames) {
+        if (startIndex < 0) {
+            throw new IllegalArgumentException("startIndex must be >= 0");
+        }
+        if (numberOfGames < 1) {
+            throw new IllegalArgumentException("numberOfGames must be >= 1");
+        }
+
+        List<SeededGame> generatedGames = generateSeededGames(startIndex + numberOfGames);
+        if (startIndex >= generatedGames.size()) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(generatedGames.subList(startIndex, generatedGames.size()));
+    }
+
+    /**
+     * Generates the requested number of deterministic endgame positions for the target level.
+     *
+     * @param numberOfGames requested number of games to generate
+     * @return list of generated seeded games
+     */
+    private List<SeededGame> generateSeededGames(int numberOfGames) {
         List<SeededGame> seededGames = new ArrayList<>();
         
         if (difficultyLevel == 1) {

@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -36,6 +38,7 @@ from .specs import (
 
 DEFAULT_STALE_AFTER_SECONDS = 300
 DEFAULT_HEARTBEAT_SECONDS = 5
+DEFAULT_SERVICE_STARTUP_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,26 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
+
+
+def _write_jsonl(path: Path, rows: list[Mapping[str, Any]]) -> None:
+    """Write one JSON record per line for later ingestion by analysis tooling."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            json.dump(row, handle, sort_keys=True)
+            handle.write("\n")
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    """Read one JSON file into a dictionary."""
+
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object in {path}")
+    return payload
 
 
 def _relative_to_repo(path: Path) -> str:
@@ -345,6 +368,38 @@ def _resolve_training_resume_checkpoint(task: TaskRecord, payload: Mapping[str, 
     return None
 
 
+def _resolve_evaluation_checkpoint(
+    *,
+    layout: RuntimeLayout,
+    run_id: str,
+    payload: Mapping[str, Any],
+) -> Path | None:
+    """Resolve the checkpoint an evaluation shard should load through the model service."""
+
+    explicit_checkpoint = payload.get("checkpoint")
+    if explicit_checkpoint:
+        return _resolve_repo_relative_path(str(explicit_checkpoint))
+
+    checkpoint_prefix = str(payload.get("checkpoint_prefix", "policy_value"))
+    run_root = layout.artifacts_dir / run_id
+    latest_candidates = sorted(
+        run_root.glob(f"*/attempt-*/checkpoints/{checkpoint_prefix}_latest.pt"),
+        key=lambda path: (path.stat().st_mtime_ns, str(path)),
+        reverse=True,
+    )
+    if latest_candidates:
+        return latest_candidates[0]
+
+    epoch_candidates = sorted(
+        run_root.glob(f"*/attempt-*/checkpoints/{checkpoint_prefix}_epoch_*.pt"),
+        key=lambda path: (path.stat().st_mtime_ns, str(path)),
+        reverse=True,
+    )
+    if epoch_candidates:
+        return epoch_candidates[0]
+    return None
+
+
 def _build_policy_value_train_command(
     payload: Mapping[str, Any],
     task: TaskRecord,
@@ -404,6 +459,69 @@ def _build_policy_value_train_command(
 
     command.extend(str(_resolve_repo_relative_path(str(source))) for source in dataset_sources)
     return command, checkpoint_dir, metrics_output, resume_checkpoint
+
+
+def _build_alpha_level_eval_command(
+    payload: Mapping[str, Any],
+    summary_output: Path,
+) -> tuple[list[str], str]:
+    """Construct the Gradle command used to run one AlphaSolitaire evaluation shard."""
+
+    service_base_url = f"http://{payload['service_host']}:{payload['service_port']}"
+    command = [
+        "./gradlew",
+        "test",
+        "--tests",
+        str(payload["engine_test"]),
+        "--rerun-tasks",
+        "--console=plain",
+        f"-Dendgame.games.difficulty.level={payload['level']}",
+        f"-Dendgame.games.per.level={payload['requested_games']}",
+        f"-Dendgame.games.start.index={payload['game_start_index']}",
+        f"-Dalphasolitaire.service.baseUrl={service_base_url}",
+        f"-Dalphasolitaire.summary.json={summary_output}",
+        f"-Dalphasolitaire.mcts.simulations={payload['mcts_simulations']}",
+        f"-Dalphasolitaire.mcts.maxDepth={payload['mcts_max_depth']}",
+        f"-Dalphasolitaire.mcts.cpuct={payload['mcts_cpuct']}",
+    ]
+    return command, service_base_url
+
+
+def _wait_for_service_ready(service_process: subprocess.Popen[str], service_base_url: str) -> str | None:
+    """Wait until the model service answers health probes or fails to start."""
+
+    deadline = time.monotonic() + DEFAULT_SERVICE_STARTUP_TIMEOUT_SECONDS
+    health_url = f"{service_base_url}/health"
+
+    while time.monotonic() < deadline:
+        exit_code = service_process.poll()
+        if exit_code is not None:
+            return f"model service exited before becoming ready (exit code {exit_code})"
+
+        try:
+            with urllib.request.urlopen(health_url, timeout=1) as response:
+                if response.status == 200:
+                    return None
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            pass
+
+        time.sleep(1)
+
+    return f"model service did not become ready within {DEFAULT_SERVICE_STARTUP_TIMEOUT_SECONDS} seconds"
+
+
+def _stop_process(process: subprocess.Popen[str] | None) -> None:
+    """Terminate a subprocess and wait briefly before forcing a kill."""
+
+    if process is None or process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
 
 
 def _run_endgame_collect_shard(
@@ -575,6 +693,438 @@ def _run_policy_value_train(
     return 0, None
 
 
+def _run_alpha_level_eval_shard(
+    *,
+    registry: ExperimentRegistry,
+    spec: ExperimentSpec,
+    run_id: str,
+    task: TaskRecord,
+    attempt_id: int,
+    temp_dir: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    heartbeat_seconds: int,
+    layout: RuntimeLayout,
+) -> tuple[int, str | None]:
+    """Run one AlphaSolitaire evaluation shard against a driver-managed model service."""
+
+    payload = json.loads(task.payload_json or "{}")
+    engine_dir = Path(task.working_directory or REPO_ROOT)
+    neural_dir = REPO_ROOT / "neural-network"
+    checkpoint_path = _resolve_evaluation_checkpoint(layout=layout, run_id=run_id, payload=payload)
+    if checkpoint_path is None or not checkpoint_path.exists():
+        return 1, "evaluation could not resolve a checkpoint to serve"
+
+    raw_summary_output = temp_dir / "engine_evaluation_summary.json"
+    evaluation_command, service_base_url = _build_alpha_level_eval_command(payload, raw_summary_output)
+    service_command = [
+        sys.executable,
+        "-m",
+        "src.service",
+        "--checkpoint",
+        str(checkpoint_path),
+        "--host",
+        str(payload["service_host"]),
+        "--port",
+        str(payload["service_port"]),
+    ]
+    _write_json(
+        temp_dir / "command.json",
+        {
+            "command": evaluation_command,
+            "service_command": service_command,
+        },
+    )
+
+    registry.connection.execute(
+        """
+        UPDATE task_attempts
+        SET command_json = ?, working_directory = ?
+        WHERE attempt_id = ?
+        """,
+        (json.dumps(evaluation_command), str(engine_dir), attempt_id),
+    )
+    registry.connection.commit()
+
+    service_stdout_path = temp_dir / "service_stdout.log"
+    service_stderr_path = temp_dir / "service_stderr.log"
+    service_process: subprocess.Popen[str] | None = None
+
+    try:
+        with service_stdout_path.open("w", encoding="utf-8") as service_stdout_handle, service_stderr_path.open(
+            "w", encoding="utf-8"
+        ) as service_stderr_handle:
+            service_process = subprocess.Popen(
+                service_command,
+                cwd=str(neural_dir),
+                stdout=service_stdout_handle,
+                stderr=service_stderr_handle,
+                text=True,
+            )
+
+            service_error = _wait_for_service_ready(service_process, service_base_url)
+            if service_error is not None:
+                return 1, service_error
+
+            exit_code = _run_command_task(
+                registry=registry,
+                run_id=run_id,
+                task=task,
+                attempt_id=attempt_id,
+                command=evaluation_command,
+                working_directory=engine_dir,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                heartbeat_seconds=heartbeat_seconds,
+            )
+    finally:
+        _stop_process(service_process)
+
+    enriched_summary = {
+        **(_read_json(raw_summary_output) if raw_summary_output.exists() else {}),
+        "evaluation_kind": payload.get("kind"),
+        "architecture_family": payload.get("architecture_family"),
+        "architecture_params": json.dumps(payload.get("architecture_params", {}), sort_keys=True),
+        "training_kind": payload.get("training_kind"),
+        "checkpoint_path": str(checkpoint_path),
+        "checkpoint_source": "explicit" if payload.get("checkpoint") else "training_artifact",
+        "service_base_url": service_base_url,
+        "engine_test": payload.get("engine_test"),
+        "mcts_simulations": payload.get("mcts_simulations"),
+        "mcts_max_depth": payload.get("mcts_max_depth"),
+        "mcts_cpuct": payload.get("mcts_cpuct"),
+        "requested_games": payload.get("requested_games"),
+        "game_start_index": payload.get("game_start_index"),
+        "game_end_index_exclusive": payload.get("game_end_index_exclusive"),
+        "shard_index": payload.get("shard_index"),
+        "shard_count": payload.get("shard_count"),
+        "run_id": run_id,
+        "task_name": task.task_name,
+        "task_kind": task.task_kind,
+        "spec_hash": spec.spec_hash,
+        "repo_git_commit": _get_git_commit(REPO_ROOT),
+        "engine_git_commit": _get_git_commit(engine_dir),
+        "neural_git_commit": _get_git_commit(neural_dir),
+    }
+    _write_json(temp_dir / "evaluation_summary.json", enriched_summary)
+
+    if exit_code != 0:
+        return exit_code, f"AlphaSolitaire evaluation exited with status {exit_code}"
+    if not raw_summary_output.exists():
+        return 1, "evaluation completed but produced no structured summary"
+    if int(enriched_summary.get("games_tested", 0)) <= 0:
+        return 1, "evaluation completed but reported zero tested games"
+    return 0, None
+
+
+def _format_markdown_table(headers: list[str], rows: list[list[str]]) -> str:
+    """Render a simple GitHub-flavored markdown table."""
+
+    header_row = "| " + " | ".join(headers) + " |"
+    divider_row = "| " + " | ".join("---" for _ in headers) + " |"
+    body_rows = ["| " + " | ".join(row) + " |" for row in rows]
+    return "\n".join([header_row, divider_row, *body_rows])
+
+
+def _build_evaluation_report_markdown(
+    *,
+    run_id: str,
+    spec: ExperimentSpec,
+    rollup_rows: list[dict[str, Any]],
+    shard_rows: list[dict[str, Any]],
+) -> str:
+    """Build a markdown summary for one evaluated run."""
+
+    lines = [
+        f"# Evaluation Report: {run_id}",
+        "",
+        f"Experiment: {spec.experiment_id}",
+        "",
+    ]
+
+    if rollup_rows:
+        rollup_table = _format_markdown_table(
+            [
+                "Level",
+                "Games",
+                "Wins",
+                "Win %",
+                "95% CI",
+                "Avg Moves",
+                "Avg Time/Game",
+                "Total Time",
+                "Checkpoint",
+            ],
+            [
+                [
+                    str(row["level"]),
+                    str(row["games_tested"]),
+                    str(row["games_won"]),
+                    f"{float(row['win_percent']):.2f}",
+                    f"{float(row['win_rate_ci_low']):.2f} - {float(row['win_rate_ci_high']):.2f}",
+                    f"{float(row['avg_moves']):.2f}",
+                    f"{float(row['avg_time_seconds']):.3f}s",
+                    f"{float(row['total_time_seconds']):.3f}s",
+                    str(row["checkpoint_path"]),
+                ]
+                for row in rollup_rows
+            ],
+        )
+        lines.extend(["## Rollup", "", rollup_table, ""])
+
+    if shard_rows:
+        shard_table = _format_markdown_table(
+            ["Shard", "Game Range", "Games", "Wins", "Win %", "Avg Moves", "Avg Time"],
+            [
+                [
+                    str(int(row["shard_index"]) + 1),
+                    f"{row['game_start_index']} - {int(row['game_end_index_exclusive']) - 1}",
+                    str(row["games_tested"]),
+                    str(row["games_won"]),
+                    f"{float(row['win_percent']):.2f}",
+                    f"{float(row['avg_moves']):.2f}",
+                    f"{float(row['avg_time_seconds']):.3f}s",
+                ]
+                for row in shard_rows
+            ],
+        )
+        lines.extend(["## Shards", "", shard_table, ""])
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _run_evaluation_report(
+    *,
+    registry: ExperimentRegistry,
+    spec: ExperimentSpec,
+    run_id: str,
+    task: TaskRecord,
+    temp_dir: Path,
+) -> tuple[int, str | None]:
+    """Aggregate evaluation shard summaries into Parquet, DuckDB views, and markdown."""
+
+    try:
+        import duckdb
+    except ImportError:
+        return 1, "evaluation reporting requires the 'duckdb' Python package"
+
+    payload = json.loads(task.payload_json or "{}")
+    shard_summaries: list[dict[str, Any]] = []
+    for run_task in registry.list_tasks(run_id):
+        if run_task.task_kind != "alpha_level_eval_shard" or run_task.status != TASK_SUCCEEDED:
+            continue
+
+        attempt_dirs = sorted(Path(run_task.artifact_dir).glob("attempt-*"), reverse=True)
+        if not attempt_dirs:
+            return 1, f"evaluation report could not find an archived attempt for task '{run_task.task_name}'"
+
+        summary_path = attempt_dirs[0] / "evaluation_summary.json"
+        if not summary_path.exists():
+            return 1, f"evaluation report could not find {summary_path.name} for task '{run_task.task_name}'"
+
+        shard_summaries.append(_read_json(summary_path))
+
+    if not shard_summaries:
+        return 1, "evaluation report found no successful evaluation shard summaries"
+
+    jsonl_path = temp_dir / "evaluation_shards.jsonl"
+    duckdb_path = temp_dir / str(payload.get("duckdb_filename", "evaluation.duckdb"))
+    shards_parquet_path = temp_dir / str(payload.get("shards_parquet_filename", "evaluation_shards.parquet"))
+    rollups_parquet_path = temp_dir / str(payload.get("rollups_parquet_filename", "evaluation_rollups.parquet"))
+    queries_path = temp_dir / str(payload.get("queries_filename", "evaluation_queries.sql"))
+    report_markdown_path = temp_dir / str(payload.get("report_markdown_filename", "evaluation_report.md"))
+
+    _write_jsonl(jsonl_path, shard_summaries)
+
+    queries_sql = """
+CREATE OR REPLACE TABLE evaluation_shards AS
+SELECT *
+FROM read_json_auto(?, records = true);
+
+CREATE OR REPLACE VIEW evaluation_rollups AS
+WITH grouped AS (
+    SELECT
+        run_id,
+        level,
+        architecture_family,
+        architecture_params,
+        training_kind,
+        checkpoint_path,
+        checkpoint_source,
+        COUNT(*) AS shard_count,
+        SUM(games_tested) AS games_tested,
+        SUM(games_won) AS games_won,
+        SUM(games_lost) AS games_lost,
+        SUM(avg_moves * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_moves,
+        SUM(avg_time_seconds * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_time_seconds,
+        SUM(total_time_seconds) AS total_time_seconds,
+        SUM(games_won) * 100.0 / NULLIF(SUM(games_tested), 0) AS win_percent
+    FROM evaluation_shards
+    GROUP BY
+        run_id,
+        level,
+        architecture_family,
+        architecture_params,
+        training_kind,
+        checkpoint_path,
+        checkpoint_source
+),
+wilson AS (
+    SELECT
+        *,
+        games_won * 1.0 / NULLIF(games_tested, 0) AS win_ratio,
+        1.96 AS z_score
+    FROM grouped
+)
+SELECT
+    *,
+    CASE
+        WHEN games_tested = 0 THEN 0.0
+        ELSE 100.0 * (
+            (
+                win_ratio + (z_score * z_score) / (2.0 * games_tested)
+            ) / (1.0 + (z_score * z_score) / games_tested)
+            - z_score * sqrt(
+                (
+                    (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
+                    / games_tested
+                )
+            ) / (1.0 + (z_score * z_score) / games_tested)
+        )
+    END AS win_rate_ci_low,
+    CASE
+        WHEN games_tested = 0 THEN 0.0
+        ELSE 100.0 * (
+            (
+                win_ratio + (z_score * z_score) / (2.0 * games_tested)
+            ) / (1.0 + (z_score * z_score) / games_tested)
+            + z_score * sqrt(
+                (
+                    (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
+                    / games_tested
+                )
+            ) / (1.0 + (z_score * z_score) / games_tested)
+        )
+    END AS win_rate_ci_high
+FROM wilson;
+
+SELECT * FROM evaluation_rollups ORDER BY level, checkpoint_path;
+""".strip()
+
+    connection = duckdb.connect(str(duckdb_path))
+    try:
+        connection.execute(
+            "CREATE OR REPLACE TABLE evaluation_shards AS SELECT * FROM read_json_auto(?, records = true)",
+            [str(jsonl_path)],
+        )
+        connection.execute(
+            """
+            CREATE OR REPLACE VIEW evaluation_rollups AS
+            WITH grouped AS (
+                SELECT
+                    run_id,
+                    level,
+                    architecture_family,
+                    architecture_params,
+                    training_kind,
+                    checkpoint_path,
+                    checkpoint_source,
+                    COUNT(*) AS shard_count,
+                    SUM(games_tested) AS games_tested,
+                    SUM(games_won) AS games_won,
+                    SUM(games_lost) AS games_lost,
+                    SUM(avg_moves * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_moves,
+                    SUM(avg_time_seconds * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_time_seconds,
+                    SUM(total_time_seconds) AS total_time_seconds,
+                    SUM(games_won) * 100.0 / NULLIF(SUM(games_tested), 0) AS win_percent
+                FROM evaluation_shards
+                GROUP BY
+                    run_id,
+                    level,
+                    architecture_family,
+                    architecture_params,
+                    training_kind,
+                    checkpoint_path,
+                    checkpoint_source
+            ),
+            wilson AS (
+                SELECT
+                    *,
+                    games_won * 1.0 / NULLIF(games_tested, 0) AS win_ratio,
+                    1.96 AS z_score
+                FROM grouped
+            )
+            SELECT
+                *,
+                CASE
+                    WHEN games_tested = 0 THEN 0.0
+                    ELSE 100.0 * (
+                        (
+                            win_ratio + (z_score * z_score) / (2.0 * games_tested)
+                        ) / (1.0 + (z_score * z_score) / games_tested)
+                        - z_score * sqrt(
+                            (
+                                (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
+                                / games_tested
+                            )
+                        ) / (1.0 + (z_score * z_score) / games_tested)
+                    )
+                END AS win_rate_ci_low,
+                CASE
+                    WHEN games_tested = 0 THEN 0.0
+                    ELSE 100.0 * (
+                        (
+                            win_ratio + (z_score * z_score) / (2.0 * games_tested)
+                        ) / (1.0 + (z_score * z_score) / games_tested)
+                        + z_score * sqrt(
+                            (
+                                (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
+                                / games_tested
+                            )
+                        ) / (1.0 + (z_score * z_score) / games_tested)
+                    )
+                END AS win_rate_ci_high
+            FROM wilson
+            """
+        )
+
+        shard_cursor = connection.execute(
+            "SELECT shard_index, game_start_index, game_end_index_exclusive, games_tested, games_won, win_percent, avg_moves, avg_time_seconds FROM evaluation_shards ORDER BY shard_index"
+        )
+        shard_columns = [column[0] for column in shard_cursor.description]
+        shard_rows = [dict(zip(shard_columns, row)) for row in shard_cursor.fetchall()]
+
+        rollup_cursor = connection.execute(
+            "SELECT level, games_tested, games_won, win_percent, win_rate_ci_low, win_rate_ci_high, avg_moves, avg_time_seconds, total_time_seconds, checkpoint_path FROM evaluation_rollups ORDER BY level, checkpoint_path"
+        )
+        rollup_columns = [column[0] for column in rollup_cursor.description]
+        rollup_rows = [dict(zip(rollup_columns, row)) for row in rollup_cursor.fetchall()]
+
+        shards_parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        rollups_parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        quoted_shards_parquet = str(shards_parquet_path).replace("'", "''")
+        quoted_rollups_parquet = str(rollups_parquet_path).replace("'", "''")
+        connection.execute(
+            f"COPY (SELECT * FROM evaluation_shards ORDER BY shard_index) TO '{quoted_shards_parquet}' (FORMAT PARQUET)"
+        )
+        connection.execute(
+            f"COPY (SELECT * FROM evaluation_rollups ORDER BY level, checkpoint_path) TO '{quoted_rollups_parquet}' (FORMAT PARQUET)"
+        )
+    finally:
+        connection.close()
+
+    queries_path.write_text(queries_sql + "\n", encoding="utf-8")
+    report_markdown = _build_evaluation_report_markdown(
+        run_id=run_id,
+        spec=spec,
+        rollup_rows=rollup_rows,
+        shard_rows=shard_rows,
+    )
+    report_markdown_path.write_text(report_markdown, encoding="utf-8")
+
+    return 0, None
+
+
 def _run_command_task(
     *,
     registry: ExperimentRegistry,
@@ -694,6 +1244,27 @@ def _execute_task(
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
+            )
+        elif task.task_kind == "alpha_level_eval_shard":
+            exit_code, error_message = _run_alpha_level_eval_shard(
+                registry=registry,
+                spec=spec,
+                run_id=run_id,
+                task=task,
+                attempt_id=next_attempt.attempt_id,
+                temp_dir=temp_dir,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                heartbeat_seconds=heartbeat_seconds,
+                layout=layout,
+            )
+        elif task.task_kind == "evaluation_report":
+            exit_code, error_message = _run_evaluation_report(
+                registry=registry,
+                spec=spec,
+                run_id=run_id,
+                task=task,
+                temp_dir=temp_dir,
             )
         else:
             raise ValueError(f"unsupported task kind: {task.task_kind}")

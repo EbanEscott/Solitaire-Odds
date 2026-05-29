@@ -42,7 +42,7 @@ public class AlphaSolitaireClient {
      * Default constructor using localhost:8000 as the service endpoint.
      */
     public AlphaSolitaireClient() {
-        this("http://127.0.0.1:8000");
+        this(System.getProperty("alphasolitaire.service.baseUrl", "http://127.0.0.1:8000"));
     }
 
     /**

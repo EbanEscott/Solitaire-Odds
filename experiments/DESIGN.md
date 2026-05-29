@@ -294,11 +294,17 @@ Goal: replace manual findings with structured experiment outputs that can be que
 
 Checklist:
 
-- [ ] Run seeded evaluation in restartable shards.
-- [ ] Normalize evaluation summaries into Parquet tables.
-- [ ] Add DuckDB queries or views for win rate, confidence interval, runtime, and lineage comparisons.
-- [ ] Create one notebook or local report that can slice results by architecture and hyperparameters.
-- [ ] Generate markdown summaries from structured data instead of writing them by hand.
+- [x] Run seeded evaluation in restartable shards.
+- [x] Normalize evaluation summaries into Parquet tables.
+- [x] Add DuckDB queries or views for win rate, confidence interval, runtime, and lineage comparisons.
+- [x] Create one notebook or local report that can slice results by architecture and hyperparameters.
+- [x] Generate markdown summaries from structured data instead of writing them by hand.
+
+Implementation note:
+
+- Evaluation now expands into one task per deterministic game block using `seed_start`, `seed_end`, and `games_per_shard`.
+- Each shard starts its own model service from the resolved checkpoint, runs `AlphaSolitaireLevelTest`, and captures a structured JSON summary artifact.
+- A final report task aggregates the shard summaries into JSONL, Parquet, DuckDB views, and a generated markdown report with Wilson confidence intervals.
 
 ### Phase 5: Architecture Adapter Layer
 

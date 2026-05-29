@@ -1,0 +1,32 @@
+{
+  "api_version": "v1",
+  "experiment_id": "alpha-phase4-demo",
+  "description": "Phase 4 sharded AlphaSolitaire evaluation and reporting demo.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "checkpoint": "neural-network/checkpoints/policy_value_latest.pt",
+    "level": 2,
+    "games_per_shard": 1,
+    "seed_start": 0,
+    "seed_end": 2,
+    "service_host": "127.0.0.1",
+    "service_port": 8012,
+    "mcts_simulations": 8,
+    "mcts_max_depth": 8,
+    "mcts_cpuct": 1.5,
+    "duckdb_filename": "evaluation.duckdb",
+    "queries_filename": "evaluation_queries.sql",
+    "shards_parquet_filename": "evaluation_shards.parquet",
+    "rollups_parquet_filename": "evaluation_rollups.parquet",
+    "report_markdown_filename": "evaluation_report.md"
+  }
+}

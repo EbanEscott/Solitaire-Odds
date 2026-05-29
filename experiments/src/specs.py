@@ -13,13 +13,22 @@ from typing import Any, Dict, List, Mapping
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SUPPORTED_API_VERSION = "v1"
-SUPPORTED_TASK_KINDS = {"noop", "command", "endgame_collect_shard", "policy_value_train"}
+SUPPORTED_TASK_KINDS = {
+    "noop",
+    "command",
+    "endgame_collect_shard",
+    "policy_value_train",
+    "alpha_level_eval_shard",
+    "evaluation_report",
+}
 SUPPORTED_COLLECTION_KINDS = {"endgame_level_dataset"}
 SUPPORTED_DATASET_KINDS = {"archived_episode_logs"}
 SUPPORTED_TRAINING_KINDS = {"mlp_policy_value"}
+SUPPORTED_EVALUATION_KINDS = {"alpha_level_suite"}
 DEFAULT_ENDGAME_COLLECTION_TEST = (
     "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset"
 )
+DEFAULT_ALPHA_EVALUATION_TEST = "ai.games.training.AlphaSolitaireLevelTest.testOpponent"
 
 
 class SpecValidationError(ValueError):
@@ -249,6 +258,119 @@ def _validate_training(
     }
 
 
+def _validate_evaluation(
+    evaluation: Mapping[str, Any],
+    architecture: Mapping[str, Any],
+    training: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Validate the evaluation section and normalize its defaults."""
+
+    if not evaluation:
+        return {}
+
+    kind = evaluation.get("kind")
+    if kind is None:
+        return dict(evaluation)
+    if not isinstance(kind, str) or kind not in SUPPORTED_EVALUATION_KINDS:
+        raise SpecValidationError(
+            f"'evaluation.kind' must be one of {sorted(SUPPORTED_EVALUATION_KINDS)}"
+        )
+
+    if architecture.get("family") != "mlp":
+        raise SpecValidationError("'evaluation.kind=alpha_level_suite' requires 'architecture.family=mlp'")
+
+    explicit_checkpoint = evaluation.get("checkpoint")
+    if explicit_checkpoint is None and training.get("kind") != "mlp_policy_value":
+        raise SpecValidationError(
+            "'evaluation.kind=alpha_level_suite' requires either 'evaluation.checkpoint' or a preceding 'training.kind=mlp_policy_value' section"
+        )
+    if explicit_checkpoint is not None:
+        if not isinstance(explicit_checkpoint, str) or not explicit_checkpoint:
+            raise SpecValidationError("'evaluation.checkpoint' must be a non-empty string when provided")
+        if not _resolve_repo_path(explicit_checkpoint).exists():
+            raise SpecValidationError(f"evaluation checkpoint does not exist: {explicit_checkpoint}")
+
+    level = _require_int("evaluation.level", evaluation.get("level"), minimum=1)
+    games_per_shard = _require_int(
+        "evaluation.games_per_shard",
+        evaluation.get("games_per_shard"),
+        minimum=1,
+    )
+    seed_start = _require_int("evaluation.seed_start", evaluation.get("seed_start", 0), minimum=0)
+    seed_end = _require_int("evaluation.seed_end", evaluation.get("seed_end"), minimum=1)
+    if seed_end <= seed_start:
+        raise SpecValidationError("'evaluation.seed_end' must be greater than 'evaluation.seed_start'")
+
+    service_host = evaluation.get("service_host", "127.0.0.1")
+    if not isinstance(service_host, str) or not service_host:
+        raise SpecValidationError("'evaluation.service_host' must be a non-empty string")
+
+    service_port = _require_int(
+        "evaluation.service_port",
+        evaluation.get("service_port", 8000),
+        minimum=1,
+    )
+    mcts_simulations = _require_int(
+        "evaluation.mcts_simulations",
+        evaluation.get("mcts_simulations", 256),
+        minimum=1,
+    )
+
+    mcts_max_depth = evaluation.get("mcts_max_depth")
+    if mcts_max_depth is not None:
+        mcts_max_depth = _require_int("evaluation.mcts_max_depth", mcts_max_depth, minimum=1)
+
+    mcts_cpuct = evaluation.get("mcts_cpuct")
+    if mcts_cpuct is not None:
+        if not isinstance(mcts_cpuct, (int, float)) or mcts_cpuct <= 0:
+            raise SpecValidationError("'evaluation.mcts_cpuct' must be a positive number when provided")
+        mcts_cpuct = float(mcts_cpuct)
+
+    engine_test = evaluation.get("engine_test", DEFAULT_ALPHA_EVALUATION_TEST)
+    if not isinstance(engine_test, str) or not engine_test:
+        raise SpecValidationError("'evaluation.engine_test' must be a non-empty string")
+
+    shards_parquet_filename = evaluation.get("shards_parquet_filename", "evaluation_shards.parquet")
+    if not isinstance(shards_parquet_filename, str) or not shards_parquet_filename:
+        raise SpecValidationError("'evaluation.shards_parquet_filename' must be a non-empty string")
+
+    rollups_parquet_filename = evaluation.get("rollups_parquet_filename", "evaluation_rollups.parquet")
+    if not isinstance(rollups_parquet_filename, str) or not rollups_parquet_filename:
+        raise SpecValidationError("'evaluation.rollups_parquet_filename' must be a non-empty string")
+
+    report_markdown_filename = evaluation.get("report_markdown_filename", "evaluation_report.md")
+    if not isinstance(report_markdown_filename, str) or not report_markdown_filename:
+        raise SpecValidationError("'evaluation.report_markdown_filename' must be a non-empty string")
+
+    duckdb_filename = evaluation.get("duckdb_filename", "evaluation.duckdb")
+    if not isinstance(duckdb_filename, str) or not duckdb_filename:
+        raise SpecValidationError("'evaluation.duckdb_filename' must be a non-empty string")
+
+    queries_filename = evaluation.get("queries_filename", "evaluation_queries.sql")
+    if not isinstance(queries_filename, str) or not queries_filename:
+        raise SpecValidationError("'evaluation.queries_filename' must be a non-empty string")
+
+    return {
+        "kind": kind,
+        "level": level,
+        "games_per_shard": games_per_shard,
+        "seed_start": seed_start,
+        "seed_end": seed_end,
+        "checkpoint": explicit_checkpoint,
+        "service_host": service_host,
+        "service_port": service_port,
+        "mcts_simulations": mcts_simulations,
+        "mcts_max_depth": mcts_max_depth,
+        "mcts_cpuct": mcts_cpuct,
+        "engine_test": engine_test,
+        "shards_parquet_filename": shards_parquet_filename,
+        "rollups_parquet_filename": rollups_parquet_filename,
+        "report_markdown_filename": report_markdown_filename,
+        "duckdb_filename": duckdb_filename,
+        "queries_filename": queries_filename,
+    }
+
+
 def _build_collection_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Expand the collection section into concrete shard tasks."""
 
@@ -309,12 +431,68 @@ def _build_training_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     ]
 
 
+def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
+    """Expand the evaluation section into concrete shard and report tasks when supported."""
+
+    architecture = _as_dict("architecture", raw.get("architecture"))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
+    evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
+    if not evaluation or evaluation.get("kind") != "alpha_level_suite":
+        return []
+
+    tasks: List[WorkflowTaskSpec] = []
+    seed_start = int(evaluation["seed_start"])
+    seed_end = int(evaluation["seed_end"])
+    games_per_shard = int(evaluation["games_per_shard"])
+    shard_starts = list(range(seed_start, seed_end, games_per_shard))
+
+    for shard_index, game_start_index in enumerate(shard_starts):
+        requested_games = min(games_per_shard, seed_end - game_start_index)
+        tasks.append(
+            WorkflowTaskSpec(
+                name=f"evaluate-shard-{shard_index + 1:03d}",
+                kind="alpha_level_eval_shard",
+                payload_key="evaluation",
+                payload_overrides={
+                    "requested_games": requested_games,
+                    "game_start_index": game_start_index,
+                    "game_end_index_exclusive": game_start_index + requested_games,
+                    "shard_index": shard_index,
+                    "shard_count": len(shard_starts),
+                    "architecture_family": architecture.get("family"),
+                    "architecture_params": architecture.get("params", {}),
+                    "training_kind": training.get("kind"),
+                },
+                command=(),
+                working_directory="engine",
+            )
+        )
+
+    tasks.append(
+        WorkflowTaskSpec(
+            name="report-evaluation",
+            kind="evaluation_report",
+            payload_key="evaluation",
+            payload_overrides={
+                "architecture_family": architecture.get("family"),
+                "architecture_params": architecture.get("params", {}),
+                "training_kind": training.get("kind"),
+            },
+            command=(),
+            working_directory=None,
+        )
+    )
+    return tasks
+
+
 def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Derive a minimal workflow from top-level sections when no explicit workflow is present."""
 
     tasks: List[WorkflowTaskSpec] = []
     collection_tasks = _build_collection_workflow(raw)
     training_tasks = _build_training_workflow(raw)
+    evaluation_tasks = _build_evaluation_workflow(raw)
     if collection_tasks:
         tasks.extend(collection_tasks)
     elif raw.get("dataset") and not training_tasks:
@@ -339,7 +517,9 @@ def _build_default_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
             command=(),
             working_directory=None,
         ))
-    if raw.get("evaluation"):
+    if evaluation_tasks:
+        tasks.extend(evaluation_tasks)
+    elif raw.get("evaluation"):
         tasks.append(WorkflowTaskSpec(
             name="evaluate",
             kind="noop",
@@ -488,7 +668,7 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
     collection = _validate_collection(_as_dict("collection", raw.get("collection")))
     dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
-    evaluation = _as_dict("evaluation", raw.get("evaluation"))
+    evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
     workflow_tasks = _load_workflow(raw)
 
     # The spec hash is the registry's guardrail against accidentally resuming a run under a

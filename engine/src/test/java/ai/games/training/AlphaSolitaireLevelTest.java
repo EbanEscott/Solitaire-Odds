@@ -5,13 +5,17 @@ import ai.games.player.Player;
 import ai.games.player.ai.alpha.AlphaSolitaireClient;
 import ai.games.player.ai.alpha.AlphaSolitairePlayer;
 import ai.games.results.ResultsConfig;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.nio.file.Path;
 
 /**
  * Tests the AlphaSolitairePlayer on progressively harder endgame difficulty levels.
@@ -42,6 +46,7 @@ import java.util.List;
  */
 public class AlphaSolitaireLevelTest {
     private static final Logger log = LoggerFactory.getLogger(AlphaSolitaireLevelTest.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     
     // Difficulty level to test (only used if > 0). Can be overridden via system property -Dendgame.games.difficulty.level
     // When set, runs only that level. When not set (0), legacy individual tests are used.
@@ -50,6 +55,13 @@ public class AlphaSolitaireLevelTest {
     // Number of games per level. Can be overridden via system property -Dendgame.games.per.level
     // Default is 5 for quick testing; use larger values for comprehensive evaluation.
     private static final int GAMES_PER_LEVEL = Integer.getInteger("endgame.games.per.level", 5);
+
+    // Zero-based start index in the deterministic seeded-game stream.
+    // This lets evaluation shards claim a stable contiguous game block without overlap.
+    private static final int GAME_START_INDEX = Integer.getInteger("endgame.games.start.index", 0);
+
+    // Optional path for a structured JSON summary artifact that the experiments driver can archive.
+    private static final String SUMMARY_JSON_PATH = System.getProperty("alphasolitaire.summary.json");
 
     /**
      * Creates a fresh AlphaSolitairePlayer instance for testing.
@@ -126,7 +138,7 @@ public class AlphaSolitaireLevelTest {
         System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
         
         TrainingOpponent opponent = new TrainingOpponent(level);
-        List<TrainingOpponent.SeededGame> seededGames = opponent.seedGameWithMoves(GAMES_PER_LEVEL);
+        List<TrainingOpponent.SeededGame> seededGames = opponent.seedGameWithMoves(GAME_START_INDEX, GAMES_PER_LEVEL);
         
         Stats stats = new Stats();
         List<Integer> lostGameNumbers = new ArrayList<>();
@@ -158,6 +170,46 @@ public class AlphaSolitaireLevelTest {
         
         // Print summary stats
         printSummary(levelName, stats, lostGameNumbers);
+        writeSummaryArtifact(level, levelName, stats, lostGameNumbers);
+    }
+
+    /**
+     * Writes a structured evaluation summary when the caller requested one.
+     *
+     * <p>The experiments driver uses this artifact as the source of truth for later rollups,
+     * Parquet export, and generated markdown reports.</p>
+     */
+    private void writeSummaryArtifact(int level, String levelName, Stats stats, List<Integer> lostGameNumbers) {
+        if (SUMMARY_JSON_PATH == null || SUMMARY_JSON_PATH.isBlank()) {
+            return;
+        }
+
+        Path summaryPath = Path.of(SUMMARY_JSON_PATH);
+        summaryPath.toAbsolutePath().getParent().toFile().mkdirs();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("level", level);
+        payload.put("level_name", levelName);
+        payload.put("game_start_index", GAME_START_INDEX);
+        payload.put("game_end_index_exclusive", GAME_START_INDEX + stats.games);
+        payload.put("requested_games", GAMES_PER_LEVEL);
+        payload.put("games_tested", stats.games);
+        payload.put("games_won", stats.wins);
+        payload.put("games_lost", stats.losses());
+        payload.put("win_percent", stats.winPercent());
+        payload.put("avg_moves", stats.avgMoves());
+        payload.put("avg_time_seconds", stats.avgTimeSeconds());
+        payload.put("total_time_seconds", stats.totalTimeSeconds());
+        payload.put("lost_game_numbers", lostGameNumbers);
+
+        try {
+            OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValue(summaryPath.toFile(), payload);
+        } catch (Exception ex) {
+            if (log.isErrorEnabled()) {
+                log.error("Failed to write AlphaSolitaire evaluation summary to {}", summaryPath, ex);
+            }
+            throw new IllegalStateException("Unable to write AlphaSolitaire evaluation summary", ex);
+        }
     }
     
     /**

@@ -56,12 +56,26 @@ cd engine
 # Custom level (e.g., Level 10)
 ./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponent" --rerun-tasks --console=plain "-Dendgame.games.per.level=10" "-Dendgame.games.difficulty.level=10" "-Dtest.max.moves.per.game=1000"
 
+# Driver-friendly evaluation shard with explicit game block, service URL, and JSON summary output
+./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest.testOpponent" --rerun-tasks --console=plain \
+	"-Dendgame.games.difficulty.level=2" \
+	"-Dendgame.games.per.level=5" \
+	"-Dendgame.games.start.index=10" \
+	"-Dalphasolitaire.service.baseUrl=http://127.0.0.1:8012" \
+	"-Dalphasolitaire.summary.json=build/tmp/alpha-eval-summary.json"
+
 # All levels 2-5
 ./gradlew test --tests "ai.games.training.AlphaSolitaireLevelTest" --rerun-tasks --console=plain "-Dendgame.games.per.level=5"
 ```
 
 `AlphaSolitaireLevelTest` now reuses the shared move cap from `ResultsConfig.MAX_MOVES_PER_GAME`.
 Override it with `-Dtest.max.moves.per.game=<n>` when you need a tighter or looser limit for seeded sweeps.
+
+Additional evaluation properties:
+
+- `-Dendgame.games.start.index=<n>` selects the zero-based starting game in the deterministic seeded stream.
+- `-Dalphasolitaire.service.baseUrl=http://host:port` points the test at a specific model service instance.
+- `-Dalphasolitaire.summary.json=/path/to/file.json` writes a structured JSON summary for experiment reporting.
 
 ### Important: This is not the full random-game benchmark
 

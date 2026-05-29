@@ -118,6 +118,23 @@ class AlphaSolitaireHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def log_message(self, format: str, *args: Any) -> None:  # type: ignore[override]
+        # Driver-managed evaluation polls /health while waiting for the model service to start.
+        # Suppressing BaseHTTPRequestHandler access logs keeps those readiness checks out of the
+        # service stderr stream so task artifacts stay focused on meaningful diagnostics.
+        return
+
+    def do_GET(self) -> None:  # type: ignore[override]
+        if self.path != "/health":
+            self._send_json(404, {"error": "Not found"})
+            return
+
+        if AlphaSolitaireHandler.model_bundle is None:
+            self._send_json(503, {"status": "starting"})
+            return
+
+        self._send_json(200, {"status": "ok"})
+
     def do_POST(self) -> None:  # type: ignore[override]
         if self.path != "/evaluate":
             self._send_json(404, {"error": "Not found"})
