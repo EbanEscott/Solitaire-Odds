@@ -121,6 +121,7 @@ Current Phase 4 capabilities:
 - Deterministic evaluation game blocks via `seed_start`, `seed_end`, and `games_per_shard`.
 - Structured per-shard evaluation summaries captured as JSON artifacts.
 - A follow-on `evaluation_report` task that emits DuckDB, Parquet, JSONL, SQL, and markdown outputs.
+- Cross-run comparison views and artifacts that include completed historical evaluation runs, not just the current run.
 - Resume behavior that skips completed evaluation shards and only reruns missing work.
 
 Example Phase 4 commands:
@@ -141,11 +142,20 @@ python -m experiments.src status phase4-demo
 The report task writes artifacts such as:
 
 - `evaluation_shards.jsonl`
+- `evaluation_shards_all_runs.jsonl`
 - `evaluation_shards.parquet`
 - `evaluation_rollups.parquet`
+- `evaluation_rollups_all_runs.parquet`
+- `evaluation_run_comparison.parquet`
 - `evaluation.duckdb`
 - `evaluation_queries.sql`
 - `evaluation_report.md`
+
+The DuckDB output now includes both the current-run rollups and cross-run comparison views:
+
+- `evaluation_rollups_current_run`
+- `evaluation_rollups_all_runs`
+- `evaluation_run_comparison`
 
 Planned responsibilities for this folder:
 

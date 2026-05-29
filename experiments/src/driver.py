@@ -782,6 +782,7 @@ def _run_alpha_level_eval_shard(
 
     enriched_summary = {
         **(_read_json(raw_summary_output) if raw_summary_output.exists() else {}),
+        "experiment_id": spec.experiment_id,
         "evaluation_kind": payload.get("kind"),
         "architecture_family": payload.get("architecture_family"),
         "architecture_params": json.dumps(payload.get("architecture_params", {}), sort_keys=True),
@@ -826,12 +827,114 @@ def _format_markdown_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join([header_row, divider_row, *body_rows])
 
 
+def _load_latest_task_json_artifact(task: TaskRecord, filename: str) -> dict[str, Any]:
+    """Load one JSON artifact from the most recent archived attempt for a task."""
+
+    attempt_dirs = sorted(Path(task.artifact_dir).glob("attempt-*"), reverse=True)
+    if not attempt_dirs:
+        raise ValueError(f"could not find an archived attempt for task '{task.task_name}'")
+
+    artifact_path = attempt_dirs[0] / filename
+    if not artifact_path.exists():
+        raise ValueError(f"could not find {filename} for task '{task.task_name}'")
+    return _read_json(artifact_path)
+
+
+def _enrich_evaluation_summary_with_registry(
+    *,
+    registry: ExperimentRegistry,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Backfill stable run-level fields for summaries created before the current schema."""
+
+    run_id = summary.get("run_id")
+    if isinstance(run_id, str) and run_id:
+        summary.setdefault("experiment_id", registry.get_run(run_id).experiment_id)
+    return summary
+
+
+def _build_evaluation_rollup_sql(view_name: str, source_relation: str) -> str:
+    """Build the DuckDB view definition used for evaluation rollups."""
+
+    return f"""
+CREATE OR REPLACE VIEW {view_name} AS
+WITH grouped AS (
+    SELECT
+        run_id,
+        experiment_id,
+        level,
+        architecture_family,
+        architecture_params,
+        training_kind,
+        checkpoint_path,
+        checkpoint_source,
+        COUNT(*) AS shard_count,
+        SUM(games_tested) AS games_tested,
+        SUM(games_won) AS games_won,
+        SUM(games_lost) AS games_lost,
+        SUM(avg_moves * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_moves,
+        SUM(avg_time_seconds * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_time_seconds,
+        SUM(total_time_seconds) AS total_time_seconds,
+        SUM(games_won) * 100.0 / NULLIF(SUM(games_tested), 0) AS win_percent
+    FROM {source_relation}
+    GROUP BY
+        run_id,
+        experiment_id,
+        level,
+        architecture_family,
+        architecture_params,
+        training_kind,
+        checkpoint_path,
+        checkpoint_source
+),
+wilson AS (
+    SELECT
+        *,
+        games_won * 1.0 / NULLIF(games_tested, 0) AS win_ratio,
+        1.96 AS z_score
+    FROM grouped
+)
+SELECT
+    *,
+    CASE
+        WHEN games_tested = 0 THEN 0.0
+        ELSE 100.0 * (
+            (
+                win_ratio + (z_score * z_score) / (2.0 * games_tested)
+            ) / (1.0 + (z_score * z_score) / games_tested)
+            - z_score * sqrt(
+                (
+                    (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
+                    / games_tested
+                )
+            ) / (1.0 + (z_score * z_score) / games_tested)
+        )
+    END AS win_rate_ci_low,
+    CASE
+        WHEN games_tested = 0 THEN 0.0
+        ELSE 100.0 * (
+            (
+                win_ratio + (z_score * z_score) / (2.0 * games_tested)
+            ) / (1.0 + (z_score * z_score) / games_tested)
+            + z_score * sqrt(
+                (
+                    (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
+                    / games_tested
+                )
+            ) / (1.0 + (z_score * z_score) / games_tested)
+        )
+    END AS win_rate_ci_high
+FROM wilson
+""".strip()
+
+
 def _build_evaluation_report_markdown(
     *,
     run_id: str,
     spec: ExperimentSpec,
     rollup_rows: list[dict[str, Any]],
     shard_rows: list[dict[str, Any]],
+    comparison_rows: list[dict[str, Any]],
 ) -> str:
     """Build a markdown summary for one evaluated run."""
 
@@ -890,6 +993,25 @@ def _build_evaluation_report_markdown(
         )
         lines.extend(["## Shards", "", shard_table, ""])
 
+    if comparison_rows:
+        comparison_table = _format_markdown_table(
+            ["Run", "Experiment", "Level", "Win %", "Delta vs Current", "Avg Moves", "Avg Time/Game", "Checkpoint"],
+            [
+                [
+                    str(row["compared_run_id"]),
+                    str(row["experiment_id"]),
+                    str(row["level"]),
+                    f"{float(row['win_percent']):.2f}",
+                    f"{float(row['win_percent_delta']):+.2f}",
+                    f"{float(row['avg_moves']):.2f}",
+                    f"{float(row['avg_time_seconds']):.3f}s",
+                    str(row["checkpoint_path"]),
+                ]
+                for row in comparison_rows
+            ],
+        )
+        lines.extend(["## Cross-Run Comparison", "", comparison_table, ""])
+
     return "\n".join(lines).strip() + "\n"
 
 
@@ -904,211 +1026,203 @@ def _run_evaluation_report(
     """Aggregate evaluation shard summaries into Parquet, DuckDB views, and markdown."""
 
     try:
-        import duckdb
+        import duckdb  # type: ignore[import-not-found]
     except ImportError:
         return 1, "evaluation reporting requires the 'duckdb' Python package"
 
     payload = json.loads(task.payload_json or "{}")
-    shard_summaries: list[dict[str, Any]] = []
+    current_run_shard_summaries: list[dict[str, Any]] = []
     for run_task in registry.list_tasks(run_id):
         if run_task.task_kind != "alpha_level_eval_shard" or run_task.status != TASK_SUCCEEDED:
             continue
 
-        attempt_dirs = sorted(Path(run_task.artifact_dir).glob("attempt-*"), reverse=True)
-        if not attempt_dirs:
-            return 1, f"evaluation report could not find an archived attempt for task '{run_task.task_name}'"
+        try:
+            current_run_shard_summaries.append(
+                _enrich_evaluation_summary_with_registry(
+                    registry=registry,
+                    summary=_load_latest_task_json_artifact(run_task, "evaluation_summary.json"),
+                )
+            )
+        except ValueError as exc:
+            return 1, f"evaluation report {exc}"
 
-        summary_path = attempt_dirs[0] / "evaluation_summary.json"
-        if not summary_path.exists():
-            return 1, f"evaluation report could not find {summary_path.name} for task '{run_task.task_name}'"
-
-        shard_summaries.append(_read_json(summary_path))
-
-    if not shard_summaries:
+    if not current_run_shard_summaries:
         return 1, "evaluation report found no successful evaluation shard summaries"
 
+    historical_shard_summaries: list[dict[str, Any]] = []
+    for historical_task in registry.list_tasks_by_kind(
+        task_kind="alpha_level_eval_shard",
+        task_status=TASK_SUCCEEDED,
+        run_status=RUN_SUCCEEDED,
+        exclude_run_id=run_id,
+    ):
+        try:
+            historical_shard_summaries.append(
+                _enrich_evaluation_summary_with_registry(
+                    registry=registry,
+                    summary=_load_latest_task_json_artifact(historical_task, "evaluation_summary.json"),
+                )
+            )
+        except ValueError:
+            # Historical comparison data is best-effort. If an older run is missing its structured
+            # summary artifact, keep the current run report usable instead of failing the new run.
+            continue
+
+    all_run_shard_summaries = [*historical_shard_summaries, *current_run_shard_summaries]
+
     jsonl_path = temp_dir / "evaluation_shards.jsonl"
+    all_runs_jsonl_path = temp_dir / "evaluation_shards_all_runs.jsonl"
     duckdb_path = temp_dir / str(payload.get("duckdb_filename", "evaluation.duckdb"))
     shards_parquet_path = temp_dir / str(payload.get("shards_parquet_filename", "evaluation_shards.parquet"))
     rollups_parquet_path = temp_dir / str(payload.get("rollups_parquet_filename", "evaluation_rollups.parquet"))
+    all_runs_rollups_parquet_path = temp_dir / "evaluation_rollups_all_runs.parquet"
+    comparison_parquet_path = temp_dir / "evaluation_run_comparison.parquet"
     queries_path = temp_dir / str(payload.get("queries_filename", "evaluation_queries.sql"))
     report_markdown_path = temp_dir / str(payload.get("report_markdown_filename", "evaluation_report.md"))
 
-    _write_jsonl(jsonl_path, shard_summaries)
+    _write_jsonl(jsonl_path, current_run_shard_summaries)
+    _write_jsonl(all_runs_jsonl_path, all_run_shard_summaries)
 
-    queries_sql = """
-CREATE OR REPLACE TABLE evaluation_shards AS
-SELECT *
-FROM read_json_auto(?, records = true);
+    quoted_current_jsonl = str(jsonl_path).replace("'", "''")
+    quoted_all_runs_jsonl = str(all_runs_jsonl_path).replace("'", "''")
+    quoted_shards_parquet = str(shards_parquet_path).replace("'", "''")
+    quoted_rollups_parquet = str(rollups_parquet_path).replace("'", "''")
+    quoted_all_runs_rollups_parquet = str(all_runs_rollups_parquet_path).replace("'", "''")
+    quoted_comparison_parquet = str(comparison_parquet_path).replace("'", "''")
+    relative_current_jsonl = jsonl_path.name.replace("'", "''")
+    relative_all_runs_jsonl = all_runs_jsonl_path.name.replace("'", "''")
+    relative_shards_parquet = shards_parquet_path.name.replace("'", "''")
+    relative_rollups_parquet = rollups_parquet_path.name.replace("'", "''")
+    relative_all_runs_rollups_parquet = all_runs_rollups_parquet_path.name.replace("'", "''")
+    relative_comparison_parquet = comparison_parquet_path.name.replace("'", "''")
 
-CREATE OR REPLACE VIEW evaluation_rollups AS
-WITH grouped AS (
+    rollups_current_run_sql = _build_evaluation_rollup_sql(
+        "evaluation_rollups_current_run",
+        "evaluation_shards_current_run",
+    )
+    rollups_all_runs_sql = _build_evaluation_rollup_sql(
+        "evaluation_rollups_all_runs",
+        "evaluation_shards_all_runs",
+    )
+    comparison_sql = f"""
+CREATE OR REPLACE VIEW evaluation_run_comparison AS
+WITH current_baseline AS (
     SELECT
-        run_id,
         level,
-        architecture_family,
-        architecture_params,
-        training_kind,
-        checkpoint_path,
-        checkpoint_source,
-        COUNT(*) AS shard_count,
-        SUM(games_tested) AS games_tested,
-        SUM(games_won) AS games_won,
-        SUM(games_lost) AS games_lost,
-        SUM(avg_moves * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_moves,
-        SUM(avg_time_seconds * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_time_seconds,
-        SUM(total_time_seconds) AS total_time_seconds,
-        SUM(games_won) * 100.0 / NULLIF(SUM(games_tested), 0) AS win_percent
-    FROM evaluation_shards
-    GROUP BY
-        run_id,
-        level,
-        architecture_family,
-        architecture_params,
-        training_kind,
-        checkpoint_path,
-        checkpoint_source
-),
-wilson AS (
-    SELECT
-        *,
-        games_won * 1.0 / NULLIF(games_tested, 0) AS win_ratio,
-        1.96 AS z_score
-    FROM grouped
+        AVG(win_percent) AS baseline_win_percent,
+        AVG(avg_moves) AS baseline_avg_moves,
+        AVG(avg_time_seconds) AS baseline_avg_time_seconds
+    FROM evaluation_rollups_current_run
+    GROUP BY level
 )
 SELECT
-    *,
-    CASE
-        WHEN games_tested = 0 THEN 0.0
-        ELSE 100.0 * (
-            (
-                win_ratio + (z_score * z_score) / (2.0 * games_tested)
-            ) / (1.0 + (z_score * z_score) / games_tested)
-            - z_score * sqrt(
-                (
-                    (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
-                    / games_tested
-                )
-            ) / (1.0 + (z_score * z_score) / games_tested)
-        )
-    END AS win_rate_ci_low,
-    CASE
-        WHEN games_tested = 0 THEN 0.0
-        ELSE 100.0 * (
-            (
-                win_ratio + (z_score * z_score) / (2.0 * games_tested)
-            ) / (1.0 + (z_score * z_score) / games_tested)
-            + z_score * sqrt(
-                (
-                    (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
-                    / games_tested
-                )
-            ) / (1.0 + (z_score * z_score) / games_tested)
-        )
-    END AS win_rate_ci_high
-FROM wilson;
+    current_baseline.level,
+    evaluation_rollups_all_runs.run_id AS compared_run_id,
+    evaluation_rollups_all_runs.experiment_id,
+    evaluation_rollups_all_runs.architecture_family,
+    evaluation_rollups_all_runs.architecture_params,
+    evaluation_rollups_all_runs.training_kind,
+    evaluation_rollups_all_runs.checkpoint_path,
+    evaluation_rollups_all_runs.checkpoint_source,
+    evaluation_rollups_all_runs.games_tested,
+    evaluation_rollups_all_runs.games_won,
+    evaluation_rollups_all_runs.games_lost,
+    evaluation_rollups_all_runs.shard_count,
+    evaluation_rollups_all_runs.win_percent,
+    evaluation_rollups_all_runs.win_rate_ci_low,
+    evaluation_rollups_all_runs.win_rate_ci_high,
+    evaluation_rollups_all_runs.avg_moves,
+    evaluation_rollups_all_runs.avg_time_seconds,
+    evaluation_rollups_all_runs.total_time_seconds,
+    current_baseline.baseline_win_percent,
+    evaluation_rollups_all_runs.win_percent - current_baseline.baseline_win_percent AS win_percent_delta,
+    evaluation_rollups_all_runs.avg_moves - current_baseline.baseline_avg_moves AS avg_moves_delta,
+    evaluation_rollups_all_runs.avg_time_seconds - current_baseline.baseline_avg_time_seconds AS avg_time_seconds_delta
+FROM evaluation_rollups_all_runs
+JOIN current_baseline ON current_baseline.level = evaluation_rollups_all_runs.level
+ORDER BY current_baseline.level, evaluation_rollups_all_runs.win_percent DESC, evaluation_rollups_all_runs.run_id ASC
+""".strip()
 
-SELECT * FROM evaluation_rollups ORDER BY level, checkpoint_path;
+    queries_sql = f"""
+CREATE OR REPLACE TABLE evaluation_shards_current_run AS
+SELECT *
+FROM read_json_auto('{relative_current_jsonl}', records = true);
+
+CREATE OR REPLACE VIEW evaluation_shards AS
+SELECT *
+FROM evaluation_shards_current_run;
+
+CREATE OR REPLACE TABLE evaluation_shards_all_runs AS
+SELECT *
+FROM read_json_auto('{relative_all_runs_jsonl}', records = true);
+
+{rollups_current_run_sql};
+
+CREATE OR REPLACE VIEW evaluation_rollups AS
+SELECT *
+FROM evaluation_rollups_current_run;
+
+{rollups_all_runs_sql};
+
+{comparison_sql};
+
+COPY (SELECT * FROM evaluation_shards_current_run ORDER BY shard_index) TO '{relative_shards_parquet}' (FORMAT PARQUET);
+COPY (SELECT * FROM evaluation_rollups_current_run ORDER BY level, checkpoint_path) TO '{relative_rollups_parquet}' (FORMAT PARQUET);
+COPY (SELECT * FROM evaluation_rollups_all_runs ORDER BY level, win_percent DESC, run_id) TO '{relative_all_runs_rollups_parquet}' (FORMAT PARQUET);
+COPY (SELECT * FROM evaluation_run_comparison ORDER BY level, win_percent DESC, compared_run_id) TO '{relative_comparison_parquet}' (FORMAT PARQUET);
+
+SELECT * FROM evaluation_run_comparison ORDER BY level, win_percent DESC, compared_run_id;
 """.strip()
 
     connection = duckdb.connect(str(duckdb_path))
     try:
         connection.execute(
-            "CREATE OR REPLACE TABLE evaluation_shards AS SELECT * FROM read_json_auto(?, records = true)",
+            "CREATE OR REPLACE TABLE evaluation_shards_current_run AS SELECT * FROM read_json_auto(?, records = true)",
             [str(jsonl_path)],
         )
         connection.execute(
-            """
-            CREATE OR REPLACE VIEW evaluation_rollups AS
-            WITH grouped AS (
-                SELECT
-                    run_id,
-                    level,
-                    architecture_family,
-                    architecture_params,
-                    training_kind,
-                    checkpoint_path,
-                    checkpoint_source,
-                    COUNT(*) AS shard_count,
-                    SUM(games_tested) AS games_tested,
-                    SUM(games_won) AS games_won,
-                    SUM(games_lost) AS games_lost,
-                    SUM(avg_moves * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_moves,
-                    SUM(avg_time_seconds * games_tested) / NULLIF(SUM(games_tested), 0) AS avg_time_seconds,
-                    SUM(total_time_seconds) AS total_time_seconds,
-                    SUM(games_won) * 100.0 / NULLIF(SUM(games_tested), 0) AS win_percent
-                FROM evaluation_shards
-                GROUP BY
-                    run_id,
-                    level,
-                    architecture_family,
-                    architecture_params,
-                    training_kind,
-                    checkpoint_path,
-                    checkpoint_source
-            ),
-            wilson AS (
-                SELECT
-                    *,
-                    games_won * 1.0 / NULLIF(games_tested, 0) AS win_ratio,
-                    1.96 AS z_score
-                FROM grouped
-            )
-            SELECT
-                *,
-                CASE
-                    WHEN games_tested = 0 THEN 0.0
-                    ELSE 100.0 * (
-                        (
-                            win_ratio + (z_score * z_score) / (2.0 * games_tested)
-                        ) / (1.0 + (z_score * z_score) / games_tested)
-                        - z_score * sqrt(
-                            (
-                                (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
-                                / games_tested
-                            )
-                        ) / (1.0 + (z_score * z_score) / games_tested)
-                    )
-                END AS win_rate_ci_low,
-                CASE
-                    WHEN games_tested = 0 THEN 0.0
-                    ELSE 100.0 * (
-                        (
-                            win_ratio + (z_score * z_score) / (2.0 * games_tested)
-                        ) / (1.0 + (z_score * z_score) / games_tested)
-                        + z_score * sqrt(
-                            (
-                                (win_ratio * (1.0 - win_ratio) + (z_score * z_score) / (4.0 * games_tested))
-                                / games_tested
-                            )
-                        ) / (1.0 + (z_score * z_score) / games_tested)
-                    )
-                END AS win_rate_ci_high
-            FROM wilson
-            """
+            "CREATE OR REPLACE VIEW evaluation_shards AS SELECT * FROM evaluation_shards_current_run"
         )
+        connection.execute(
+            "CREATE OR REPLACE TABLE evaluation_shards_all_runs AS SELECT * FROM read_json_auto(?, records = true)",
+            [str(all_runs_jsonl_path)],
+        )
+        connection.execute(rollups_current_run_sql)
+        connection.execute("CREATE OR REPLACE VIEW evaluation_rollups AS SELECT * FROM evaluation_rollups_current_run")
+        connection.execute(rollups_all_runs_sql)
+        connection.execute(comparison_sql)
 
         shard_cursor = connection.execute(
-            "SELECT shard_index, game_start_index, game_end_index_exclusive, games_tested, games_won, win_percent, avg_moves, avg_time_seconds FROM evaluation_shards ORDER BY shard_index"
+            "SELECT shard_index, game_start_index, game_end_index_exclusive, games_tested, games_won, win_percent, avg_moves, avg_time_seconds FROM evaluation_shards_current_run ORDER BY shard_index"
         )
         shard_columns = [column[0] for column in shard_cursor.description]
         shard_rows = [dict(zip(shard_columns, row)) for row in shard_cursor.fetchall()]
 
         rollup_cursor = connection.execute(
-            "SELECT level, games_tested, games_won, win_percent, win_rate_ci_low, win_rate_ci_high, avg_moves, avg_time_seconds, total_time_seconds, checkpoint_path FROM evaluation_rollups ORDER BY level, checkpoint_path"
+            "SELECT level, games_tested, games_won, win_percent, win_rate_ci_low, win_rate_ci_high, avg_moves, avg_time_seconds, total_time_seconds, checkpoint_path FROM evaluation_rollups_current_run ORDER BY level, checkpoint_path"
         )
         rollup_columns = [column[0] for column in rollup_cursor.description]
         rollup_rows = [dict(zip(rollup_columns, row)) for row in rollup_cursor.fetchall()]
 
+        comparison_cursor = connection.execute(
+            "SELECT compared_run_id, experiment_id, level, win_percent, win_percent_delta, avg_moves, avg_time_seconds, checkpoint_path FROM evaluation_run_comparison ORDER BY level, win_percent DESC, compared_run_id"
+        )
+        comparison_columns = [column[0] for column in comparison_cursor.description]
+        comparison_rows = [dict(zip(comparison_columns, row)) for row in comparison_cursor.fetchall()]
+
         shards_parquet_path.parent.mkdir(parents=True, exist_ok=True)
         rollups_parquet_path.parent.mkdir(parents=True, exist_ok=True)
-        quoted_shards_parquet = str(shards_parquet_path).replace("'", "''")
-        quoted_rollups_parquet = str(rollups_parquet_path).replace("'", "''")
         connection.execute(
-            f"COPY (SELECT * FROM evaluation_shards ORDER BY shard_index) TO '{quoted_shards_parquet}' (FORMAT PARQUET)"
+            f"COPY (SELECT * FROM evaluation_shards_current_run ORDER BY shard_index) TO '{quoted_shards_parquet}' (FORMAT PARQUET)"
         )
         connection.execute(
-            f"COPY (SELECT * FROM evaluation_rollups ORDER BY level, checkpoint_path) TO '{quoted_rollups_parquet}' (FORMAT PARQUET)"
+            f"COPY (SELECT * FROM evaluation_rollups_current_run ORDER BY level, checkpoint_path) TO '{quoted_rollups_parquet}' (FORMAT PARQUET)"
+        )
+        connection.execute(
+            f"COPY (SELECT * FROM evaluation_rollups_all_runs ORDER BY level, win_percent DESC, run_id) TO '{quoted_all_runs_rollups_parquet}' (FORMAT PARQUET)"
+        )
+        connection.execute(
+            f"COPY (SELECT * FROM evaluation_run_comparison ORDER BY level, win_percent DESC, compared_run_id) TO '{quoted_comparison_parquet}' (FORMAT PARQUET)"
         )
     finally:
         connection.close()
@@ -1119,6 +1233,7 @@ SELECT * FROM evaluation_rollups ORDER BY level, checkpoint_path;
         spec=spec,
         rollup_rows=rollup_rows,
         shard_rows=shard_rows,
+        comparison_rows=comparison_rows,
     )
     report_markdown_path.write_text(report_markdown, encoding="utf-8")
 

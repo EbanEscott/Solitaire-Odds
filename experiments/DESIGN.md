@@ -305,6 +305,7 @@ Implementation note:
 - Evaluation now expands into one task per deterministic game block using `seed_start`, `seed_end`, and `games_per_shard`.
 - Each shard starts its own model service from the resolved checkpoint, runs `AlphaSolitaireLevelTest`, and captures a structured JSON summary artifact.
 - A final report task aggregates the shard summaries into JSONL, Parquet, DuckDB views, and a generated markdown report with Wilson confidence intervals.
+- The report task also loads successful evaluation shard summaries from other completed runs so DuckDB can expose cross-run rollups and run-to-run comparison views.
 
 ### Phase 5: Architecture Adapter Layer
 

@@ -366,6 +366,38 @@ class ExperimentRegistry:
         ).fetchall()
         return [self._row_to_task(row) for row in rows]
 
+    def list_tasks_by_kind(
+        self,
+        *,
+        task_kind: str,
+        task_status: str | None = None,
+        run_status: str | None = None,
+        exclude_run_id: str | None = None,
+    ) -> list[TaskRecord]:
+        """List tasks across runs filtered by task kind and optional task or run state."""
+
+        query = [
+            "SELECT tasks.*",
+            "FROM tasks",
+            "JOIN runs ON runs.run_id = tasks.run_id",
+            "WHERE tasks.task_kind = ?",
+        ]
+        parameters: list[str] = [task_kind]
+
+        if task_status is not None:
+            query.append("AND tasks.status = ?")
+            parameters.append(task_status)
+        if run_status is not None:
+            query.append("AND runs.status = ?")
+            parameters.append(run_status)
+        if exclude_run_id is not None:
+            query.append("AND tasks.run_id != ?")
+            parameters.append(exclude_run_id)
+
+        query.append("ORDER BY tasks.run_id ASC, tasks.task_order ASC, tasks.task_id ASC")
+        rows = self.connection.execute("\n".join(query), parameters).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
     def recover_stale_running_tasks(self, run_id: str, stale_after_seconds: int) -> int:
         """Mark stale running tasks interrupted so the next driver invocation can resume."""
 
