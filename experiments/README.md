@@ -157,6 +157,34 @@ The DuckDB output now includes both the current-run rollups and cross-run compar
 - `evaluation_rollups_all_runs`
 - `evaluation_run_comparison`
 
+## Phase 5 Status
+
+Phase 5 now supports multiple architecture families behind one experiment interface.
+
+Current Phase 5 capabilities:
+
+- An architecture adapter registry that validates family-specific spec parameters and training kinds.
+- Family-aware `policy_value_train` execution for both `mlp_policy_value` and `gnn_policy_value`.
+- A graph-style GNN family that trains on the same archived episode logs by combining the board-state encoding with the current legal-move mask.
+- Shared `alpha_level_suite` evaluation across MLP and GNN checkpoints through the same HTTP service contract.
+- Implicit evaluation checkpoint resolution that follows the training task's checkpoint prefix within the same run.
+- A Phase 5 demo spec at `experiments/specs/gnn_phase5_demo.json`.
+
+Example Phase 5 commands:
+
+```bash
+source neural-network/.venv/bin/activate
+
+# Inspect the GNN training + evaluation plan
+python -m experiments.src plan experiments/specs/gnn_phase5_demo.json --run-id phase5-demo
+
+# Run the full Phase 5 demo
+python -m experiments.src run experiments/specs/gnn_phase5_demo.json --run-id phase5-demo
+
+# Inspect final run state
+python -m experiments.src status phase5-demo
+```
+
 Planned responsibilities for this folder:
 
 - Experiment specs and sweep definitions.

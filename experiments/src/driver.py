@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .architectures import get_adapter_for_family
 from .registry import (
     ExperimentRegistry,
     RUN_INTERRUPTED,
@@ -411,6 +412,11 @@ def _build_policy_value_train_command(
     if not isinstance(architecture_params, dict):
         raise ValueError("training payload is missing architecture_params")
 
+    architecture_family = payload.get("architecture_family")
+    if not isinstance(architecture_family, str) or not architecture_family:
+        raise ValueError("training payload is missing architecture_family")
+    adapter = get_adapter_for_family(architecture_family)
+
     dataset_sources = payload.get("dataset_sources", [])
     if not isinstance(dataset_sources, list) or not dataset_sources:
         raise ValueError("training payload is missing dataset_sources")
@@ -423,10 +429,7 @@ def _build_policy_value_train_command(
         sys.executable,
         "-m",
         "src.train_policy_value",
-        "--hidden-dim",
-        str(architecture_params.get("hidden_dim", 256)),
-        "--num-layers",
-        str(architecture_params.get("num_layers", 2)),
+        *adapter.build_training_command_args(architecture_params),
         "--epochs",
         str(payload["epochs"]),
         "--batch-size",
@@ -442,11 +445,6 @@ def _build_policy_value_train_command(
         "--metrics-output",
         str(metrics_output),
     ]
-
-    if architecture_params.get("batch_norm"):
-        command.append("--batch-norm")
-    if architecture_params.get("residual"):
-        command.append("--residual")
     if resume_checkpoint is not None:
         command.extend(["--resume-from", str(resume_checkpoint)])
 

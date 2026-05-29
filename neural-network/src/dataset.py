@@ -5,7 +5,7 @@ from typing import List, Sequence, Tuple, Dict, Any
 import torch
 from torch.utils.data import Dataset
 
-from .action_encoding import ActionSpace, encode_action
+from .action_encoding import ActionSpace, encode_action, encode_legal_mask
 from .log_loader import Episode, load_episodes_from_log
 from .state_encoding import encode_state
 
@@ -105,6 +105,7 @@ class SolitaireStateDataset(Dataset):
             - 'state': (296,) float tensor of encoded game state
             - 'policy': (num_actions,) one-hot tensor (1.0 at chosen action, 0.0 elsewhere)
             - 'value': scalar tensor (value target: game outcome or bootstrapped)
+            - 'legal_mask': (num_actions,) binary tensor marking the currently legal moves
             - 'foundation_move': scalar tensor (1.0 or 0.0)
             - 'revealed_facedown': scalar tensor (1.0 or 0.0)
             - 'talon_move': scalar tensor (1.0 or 0.0)
@@ -123,6 +124,7 @@ class SolitaireStateDataset(Dataset):
         policy = torch.zeros(self.action_space.size, dtype=torch.float32)
         if 0 <= action_idx < self.action_space.size:
             policy[action_idx] = 1.0
+        legal_mask = encode_legal_mask(self.action_space, step.legal_moves)
 
         # Value target: trajectory outcome (full game outcome) or bootstrapped
         game_won = episode.summary.won if episode.summary else False
@@ -147,6 +149,7 @@ class SolitaireStateDataset(Dataset):
             'state': state,
             'policy': policy,
             'value': value,
+            'legal_mask': legal_mask,
             'foundation_move': foundation_move,
             'revealed_facedown': revealed_facedown,
             'talon_move': talon_move,

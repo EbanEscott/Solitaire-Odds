@@ -2,6 +2,13 @@
 
 This directory contains the Python modeling stack for AlphaSolitaire. It turns logged Solitaire games from the Java engine into datasets, trains policy–value neural networks, and exposes an HTTP service that the `AlphaSolitairePlayer` in the engine can call to evaluate game states and choose moves.
 
+The stack currently supports two model families:
+
+- `mlp`: a flat board-state policy–value network.
+- `gnn`: a graph-style policy–value network that combines the board-state encoding with the current legal-move mask.
+
+The trainer writes the selected model family into checkpoint metadata, and the HTTP service loads the correct family automatically from that checkpoint.
+
 ## Prerequisites
 
 - Python 3.9+ installed and available as `python3` on your `PATH` (typical on macOS).
@@ -228,13 +235,26 @@ python -m src.train_policy_value \
 
 # Multiple files or glob patterns
 python -m src.train_policy_value "../engine/logs/episode*.log"
+
+# Graph-style model over board state + legal moves
+python -m src.train_policy_value \
+  --model-family gnn \
+  --hidden-dim 256 \
+  --num-layers 2 \
+  --action-embedding-dim 128 \
+  --message-passing-steps 2 \
+  ../engine/logs/episode.log
 ```
 
 **Configuration options** (see `ARCHITECTURE.md` for detailed explanation):
+- `--model-family` (default: `mlp`): Select `mlp` or `gnn`
 - `--hidden-dim` (default: 256): Width of hidden layers (128-2048+)
 - `--num-layers` (default: 2): Depth of network (1-5+)
 - `--batch-norm`: Enable batch normalization (experimental)
 - `--residual`: Enable residual connections (experimental)
+- `--action-embedding-dim` (default: 128): Action-node embedding size for `--model-family gnn`
+- `--message-passing-steps` (default: 2): Number of root-child update rounds for `--model-family gnn`
+- `--dropout` (default: 0.0): Dropout probability for `--model-family gnn`
 - `--epochs` (default: 5): Training epochs
 - `--batch-size` (default: 64): Batch size
 - `--learning-rate` (default: 1e-3): Adam learning rate
@@ -248,7 +268,7 @@ This will:
 - Resolve all log files (supports glob patterns and multiple file arguments).
 - Build train/validation splits from the logged games (90/10 split).
 - **Train on full game trajectories**: Each step labeled with game outcome + MCTS-guided moves (ready for self-play RL).
-- Train a `PolicyValueNet` to imitate the logged moves and predict win probability.
+- Train the selected policy–value model family to imitate the logged moves and predict win probability.
 - Save resumable checkpoints to `checkpoints/` including `policy_value_latest.pt`.
 
 **Example output** (training on 346k+ samples from 1000 A* games):
@@ -301,6 +321,8 @@ cd neural-network
 source .venv/bin/activate
 python -m src.service --checkpoint checkpoints/policy_value_latest.pt --host 127.0.0.1 --port 8000
 ```
+
+The service inspects the checkpoint metadata and loads the matching model family, so the same endpoint works for both MLP and GNN checkpoints.
 
 ## Evaluate the Current Checkpoint
 

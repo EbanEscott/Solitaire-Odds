@@ -16,9 +16,9 @@ from typing import Any, Dict, List, Tuple
 
 import torch
 
-from .action_encoding import ActionSpace, encode_action
+from .action_encoding import ActionSpace, encode_action, encode_legal_mask
 from .log_loader import EpisodeStep
-from .model import PolicyValueNet
+from .model_factory import build_model, checkpoint_architecture_params, checkpoint_model_family
 from .state_encoding import encode_state
 
 
@@ -36,7 +36,14 @@ class _ModelBundle:
             action_to_index={a: i for i, a in enumerate(index_to_action)},
         )
 
-        model = PolicyValueNet(state_dim=state_dim, num_actions=num_actions)
+        self.model_family = checkpoint_model_family(ckpt)
+        architecture_params = checkpoint_architecture_params(ckpt)
+        model = build_model(
+            model_family=self.model_family,
+            state_dim=state_dim,
+            num_actions=num_actions,
+            architecture_params=architecture_params,
+        )
         model.load_state_dict(ckpt["model_state_dict"])
         model.to(device)
         model.eval()
@@ -63,26 +70,28 @@ def _pick_action_and_scores(
         "chosen_command": request_payload.get("chosen_command", ""),
     }
     step = EpisodeStep(raw_step)
-
-    state = encode_state(step).to(bundle.device).unsqueeze(0)
-    
-    # DEBUG: Print the state tensor to detect if it's always the same
-    state_checksum = state.sum().item()
-    print(
-        f"[service] state_checksum={state_checksum:.6f} (talon={step.talon}, stock_size={step.stock_size})",
-        flush=True,
+    legal_moves: List[str] = request_payload.get("legal_moves") or request_payload.get(
+        "legalMoves", []
     )
 
+    state = encode_state(step).to(bundle.device).unsqueeze(0)
+
     with torch.no_grad():
-        outputs = bundle.model(state)
+        if bundle.model_family == "gnn":
+            legal_mask = encode_legal_mask(bundle.action_space, legal_moves)
+            if not torch.any(legal_mask):
+                # Some callers may omit legal moves on malformed or legacy requests. Falling
+                # back to an all-ones mask keeps inference available instead of rejecting the
+                # request before the caller can surface a clearer upstream bug.
+                legal_mask = torch.ones(bundle.action_space.size, dtype=torch.float32)
+            outputs = bundle.model(state, legal_mask.to(bundle.device).unsqueeze(0))
+        else:
+            outputs = bundle.model(state)
         logits = outputs['policy']
         value_logits = outputs['value']
         probs = torch.softmax(logits[0], dim=-1)
         win_prob = torch.sigmoid(value_logits[0, 0]).item()
 
-    legal_moves: List[str] = request_payload.get("legal_moves") or request_payload.get(
-        "legalMoves", []
-    )
     legal_scores: List[Tuple[str, float]] = []
 
     for move in legal_moves:
@@ -97,12 +106,6 @@ def _pick_action_and_scores(
         chosen_command = bundle.action_space.index_to_action[best_idx]
 
     legal_scores.sort(key=lambda x: x[1], reverse=True)
-
-    print(
-        f"[service] chosen={chosen_command!r}, win_prob={win_prob:.3f}, "
-        f"num_legal={len(legal_scores)}",
-        flush=True,
-    )
 
     return chosen_command, win_prob, legal_scores
 
@@ -140,9 +143,6 @@ class AlphaSolitaireHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Not found"})
             return
 
-        print("[service] received POST /evaluate", flush=True)
-        print("[service] headers:\n", str(self.headers), flush=True)
-
         length_header = self.headers.get("Content-Length")
         if length_header is not None:
             try:
@@ -156,10 +156,8 @@ class AlphaSolitaireHandler(BaseHTTPRequestHandler):
 
         try:
             text = body.decode("utf-8")
-            print("[service] raw body:", text, flush=True)
             payload = json.loads(text)
         except json.JSONDecodeError:
-            print("[service] invalid JSON payload:", repr(body), flush=True)
             self._send_json(400, {"error": "Invalid JSON"})
             return
 
@@ -205,7 +203,9 @@ def main() -> None:
     AlphaSolitaireHandler.model_bundle = bundle
 
     server = HTTPServer((args.host, args.port), AlphaSolitaireHandler)
-    print(f"Serving AlphaSolitaire model on http://{args.host}:{args.port}/evaluate")
+    print(
+        f"Serving AlphaSolitaire {bundle.model_family} model on http://{args.host}:{args.port}/evaluate"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

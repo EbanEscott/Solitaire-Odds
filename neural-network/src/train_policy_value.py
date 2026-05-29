@@ -18,6 +18,12 @@ Run from the neural-network project root as:
         --epochs 10 \
         ../engine/logs/episode.log
 
+    # Train the graph-style model family over board state + legal move nodes
+    python -m src.train_policy_value \
+        --model-family gnn \
+        --message-passing-steps 3 \
+        ../engine/logs/episode.log
+
 Variable naming convention:
 - Variables prefixed with `validation_` represent metrics computed on the validation dataset.
 - Variables prefixed with `value_` or containing `value` represent the value head outputs.
@@ -40,7 +46,12 @@ from torch import nn
 from torch.utils.data import DataLoader, random_split
 
 from .dataset import SolitaireStateDataset, TrajectoryConfig
-from .model import PolicyValueNet
+from .model_factory import (
+    build_model,
+    checkpoint_architecture_params,
+    checkpoint_model_family,
+    normalize_model_family,
+)
 
 
 TRAIN_INTERRUPTED_EXIT_CODE = 99
@@ -141,9 +152,46 @@ def _append_epoch_metrics(metrics_output_path: Path | None, metrics: Dict[str, A
         handle.write("\n")
 
 
+def _build_architecture_params(args: argparse.Namespace) -> Dict[str, Any]:
+    """Build the family-specific architecture parameter block for checkpoints and logs."""
+
+    if args.model_family == "mlp":
+        return {
+            "hidden_dim": args.hidden_dim,
+            "num_layers": args.num_layers,
+            "batch_norm": args.batch_norm,
+            "residual": args.residual,
+        }
+
+    return {
+        "hidden_dim": args.hidden_dim,
+        "num_layers": args.num_layers,
+        "action_embedding_dim": args.action_embedding_dim,
+        "message_passing_steps": args.message_passing_steps,
+        "dropout": args.dropout,
+    }
+
+
+def _forward_model(
+    model: nn.Module,
+    batch: Dict[str, torch.Tensor],
+    device: torch.device,
+    model_family: str,
+) -> Dict[str, torch.Tensor]:
+    """Dispatch the batch through the correct model-family input signature."""
+
+    states = batch["state"].to(device)
+    if model_family == "gnn":
+        legal_mask = batch["legal_mask"].to(device)
+        return model(states, legal_mask)
+    return model(states)
+
+
 def _build_checkpoint_metadata(
     *,
     args: argparse.Namespace,
+    model_family: str,
+    architecture_params: Dict[str, Any],
     log_paths: List[Path],
     train_size: int,
     validation_size: int,
@@ -162,10 +210,9 @@ def _build_checkpoint_metadata(
         "training_samples": train_size,
         "validation_samples": validation_size,
         "architecture": {
-            "hidden_dim": args.hidden_dim,
-            "num_layers": args.num_layers,
-            "batch_norm": args.batch_norm,
-            "residual": args.residual,
+            "family": model_family,
+            "params": architecture_params,
+            **architecture_params,
         },
         "hyperparameters": {
             "epochs": args.epochs,
@@ -188,11 +235,13 @@ def _save_checkpoint(
     *,
     args: argparse.Namespace,
     out_dir: Path,
-    model: PolicyValueNet,
+    model: nn.Module,
     optimizer: torch.optim.Optimizer,
     dataset: SolitaireStateDataset,
     state_dim: int,
     num_actions: int,
+    model_family: str,
+    architecture_params: Dict[str, Any],
     log_paths: List[Path],
     train_size: int,
     validation_size: int,
@@ -209,6 +258,7 @@ def _save_checkpoint(
     epoch_path = out_dir / f"{args.checkpoint_prefix}_epoch_{current_epoch:04d}.pt"
 
     payload = {
+        "model_family": model_family,
         "feature_dim": state_dim,
         "action_space_size": num_actions,
         "action_index_map": dataset.action_space.index_to_action,
@@ -216,6 +266,8 @@ def _save_checkpoint(
         "optimizer_state_dict": optimizer.state_dict(),
         "metadata": _build_checkpoint_metadata(
             args=args,
+            model_family=model_family,
+            architecture_params=architecture_params,
             log_paths=log_paths,
             train_size=train_size,
             validation_size=validation_size,
@@ -255,6 +307,12 @@ def main(argv: List[str] | None = None) -> None:
         help="Log files or glob patterns (for example 'logs/episode*.log')",
     )
     parser.add_argument(
+        "--model-family",
+        type=str,
+        default=None,
+        help="Model family to train (default: mlp, or inferred from --resume-from)",
+    )
+    parser.add_argument(
         "--hidden-dim",
         type=int,
         default=256,
@@ -275,6 +333,24 @@ def main(argv: List[str] | None = None) -> None:
         "--residual",
         action="store_true",
         help="Use residual connections (experimental, requires num-layers > 2)",
+    )
+    parser.add_argument(
+        "--action-embedding-dim",
+        type=int,
+        default=128,
+        help="Action embedding size for --model-family gnn (default: 128)",
+    )
+    parser.add_argument(
+        "--message-passing-steps",
+        type=int,
+        default=2,
+        help="Number of root-child update rounds for --model-family gnn (default: 2)",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout probability for --model-family gnn (default: 0.0)",
     )
     parser.add_argument(
         "--epochs",
@@ -338,6 +414,12 @@ def main(argv: List[str] | None = None) -> None:
         raise SystemExit("--save-every-epochs must be >= 1")
     if args.learning_rate <= 0:
         raise SystemExit("--learning-rate must be > 0")
+    if args.action_embedding_dim < 1:
+        raise SystemExit("--action-embedding-dim must be >= 1")
+    if args.message_passing_steps < 1:
+        raise SystemExit("--message-passing-steps must be >= 1")
+    if not 0.0 <= args.dropout < 1.0:
+        raise SystemExit("--dropout must be in the range [0.0, 1.0)")
     if args.simulate_interrupt_after_epoch is not None and args.simulate_interrupt_after_epoch < 1:
         raise SystemExit("--simulate-interrupt-after-epoch must be >= 1")
 
@@ -367,13 +449,37 @@ def main(argv: List[str] | None = None) -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = PolicyValueNet(
+    resume_checkpoint: Dict[str, Any] | None = None
+    if args.resume_from is not None:
+        resume_checkpoint = torch.load(args.resume_from, map_location=device, weights_only=False)
+
+    args.model_family = normalize_model_family(
+        args.model_family or (checkpoint_model_family(resume_checkpoint) if resume_checkpoint else "mlp")
+    )
+    if args.model_family == "gnn" and args.batch_norm:
+        raise SystemExit("--batch-norm is only supported for --model-family mlp")
+    if args.model_family == "gnn" and args.residual:
+        raise SystemExit("--residual is only supported for --model-family mlp")
+
+    architecture_params = _build_architecture_params(args)
+    if resume_checkpoint is not None:
+        resume_architecture_params = checkpoint_architecture_params(resume_checkpoint)
+        resume_model_family = checkpoint_model_family(resume_checkpoint)
+        if resume_model_family != args.model_family:
+            raise SystemExit(
+                f"Checkpoint model family '{resume_model_family}' does not match requested family '{args.model_family}'"
+            )
+        if resume_architecture_params and resume_architecture_params != architecture_params:
+            print(
+                "Resuming with architecture parameters stored in the checkpoint instead of the current command-line values."
+            )
+            architecture_params = resume_architecture_params
+
+    model = build_model(
+        model_family=args.model_family,
         state_dim=state_dim,
         num_actions=num_actions,
-        hidden_dim=args.hidden_dim,
-        num_layers=args.num_layers,
-        use_batch_norm=args.batch_norm,
-        use_residual=args.residual,
+        architecture_params=architecture_params,
     )
     model.to(device)
 
@@ -392,8 +498,8 @@ def main(argv: List[str] | None = None) -> None:
         f"(state_dim={state_dim}, num_actions={num_actions}, device={device})"
     )
     print(
-        f"Model Architecture: hidden_dim={args.hidden_dim}, num_layers={args.num_layers}, "
-        f"batch_norm={args.batch_norm}, residual={args.residual}"
+        f"Model Architecture: family={args.model_family}, "
+        + ", ".join(f"{key}={value}" for key, value in architecture_params.items())
     )
     print(f"Model Size: {total_params:,} total parameters, {trainable_params:,} trainable")
     print(f"Estimated checkpoint size: {(total_params * 4) / (1024 * 1024):.2f} MB")
@@ -406,8 +512,8 @@ def main(argv: List[str] | None = None) -> None:
     global_step = 0
     accumulated_training_duration_seconds = 0.0
 
-    if args.resume_from is not None:
-        checkpoint = torch.load(args.resume_from, map_location=device, weights_only=False)
+    if resume_checkpoint is not None:
+        checkpoint = resume_checkpoint
         model.load_state_dict(checkpoint["model_state_dict"])
 
         optimizer_state = checkpoint.get("optimizer_state_dict")
@@ -458,7 +564,7 @@ def main(argv: List[str] | None = None) -> None:
             target_actions = batch["policy"].argmax(dim=-1).to(device)
             target_values = batch["value"].to(device)
 
-            outputs = model(states)
+            outputs = _forward_model(model, batch, device, args.model_family)
             policy_logits = outputs["policy"]
             value_logits = outputs["value"].squeeze(-1)
 
@@ -504,7 +610,7 @@ def main(argv: List[str] | None = None) -> None:
                 target_actions = batch["policy"].argmax(dim=-1).to(device)
                 target_values = batch["value"].to(device)
 
-                outputs = model(states)
+                outputs = _forward_model(model, batch, device, args.model_family)
                 policy_logits = outputs["policy"]
                 value_logits = outputs["value"].squeeze(-1)
 
@@ -574,6 +680,8 @@ def main(argv: List[str] | None = None) -> None:
                 dataset=dataset,
                 state_dim=state_dim,
                 num_actions=num_actions,
+                model_family=args.model_family,
+                architecture_params=architecture_params,
                 log_paths=log_paths,
                 train_size=len(train_ds),
                 validation_size=len(validation_ds),

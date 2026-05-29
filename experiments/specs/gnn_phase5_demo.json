@@ -1,0 +1,50 @@
+{
+  "api_version": "v1",
+  "experiment_id": "gnn-phase5-demo",
+  "description": "Phase 5 legal-move graph training and evaluation demo on the archived Level 2 dataset.",
+  "architecture": {
+    "family": "gnn",
+    "params": {
+      "hidden_dim": 128,
+      "num_layers": 2,
+      "action_embedding_dim": 64,
+      "message_passing_steps": 2,
+      "dropout": 0.0
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log"
+    ]
+  },
+  "training": {
+    "kind": "gnn_policy_value",
+    "epochs": 1,
+    "batch_size": 8,
+    "learning_rate": 0.001,
+    "checkpoint_every_epochs": 1,
+    "checkpoint_prefix": "policy_value_phase5_demo",
+    "metrics_filename": "epoch_metrics.jsonl",
+    "resume_from": null,
+    "simulate_interrupt_after_epoch": null
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "checkpoint": null,
+    "level": 2,
+    "games_per_shard": 1,
+    "seed_start": 0,
+    "seed_end": 2,
+    "service_host": "127.0.0.1",
+    "service_port": 8014,
+    "mcts_simulations": 8,
+    "mcts_max_depth": 8,
+    "mcts_cpuct": 1.5,
+    "duckdb_filename": "evaluation.duckdb",
+    "queries_filename": "evaluation_queries.sql",
+    "shards_parquet_filename": "evaluation_shards.parquet",
+    "rollups_parquet_filename": "evaluation_rollups.parquet",
+    "report_markdown_filename": "evaluation_report.md"
+  }
+}

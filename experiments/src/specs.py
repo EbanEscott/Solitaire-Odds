@@ -9,6 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
+from .architectures import (
+    SUPPORTED_TRAINING_KINDS,
+    get_adapter_for_family,
+    get_adapter_for_training_kind,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -23,7 +29,6 @@ SUPPORTED_TASK_KINDS = {
 }
 SUPPORTED_COLLECTION_KINDS = {"endgame_level_dataset"}
 SUPPORTED_DATASET_KINDS = {"archived_episode_logs"}
-SUPPORTED_TRAINING_KINDS = {"mlp_policy_value"}
 SUPPORTED_EVALUATION_KINDS = {"alpha_level_suite"}
 DEFAULT_ENDGAME_COLLECTION_TEST = (
     "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset"
@@ -185,6 +190,22 @@ def _validate_collection(collection: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _validate_architecture(architecture: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate the architecture section and normalize family-specific defaults."""
+
+    if not architecture:
+        return {}
+
+    family = architecture.get("family")
+    if not isinstance(family, str) or not family:
+        raise SpecValidationError("'architecture.family' must be provided")
+
+    try:
+        return get_adapter_for_family(family).validate_architecture(architecture)
+    except ValueError as exc:
+        raise SpecValidationError(str(exc)) from exc
+
+
 def _validate_training(
     training: Mapping[str, Any],
     architecture: Mapping[str, Any],
@@ -203,59 +224,30 @@ def _validate_training(
             f"'training.kind' must be one of {sorted(SUPPORTED_TRAINING_KINDS)}"
         )
 
-    if architecture.get("family") != "mlp":
-        raise SpecValidationError("'training.kind=mlp_policy_value' requires 'architecture.family=mlp'")
+    family = architecture.get("family")
+    if not isinstance(family, str) or not family:
+        raise SpecValidationError("'training.kind' requires 'architecture.family'")
 
-    if dataset.get("kind") != "archived_episode_logs" or not dataset.get("sources"):
+    try:
+        adapter = get_adapter_for_family(family)
+        training_adapter = get_adapter_for_training_kind(kind)
+    except ValueError as exc:
+        raise SpecValidationError(str(exc)) from exc
+
+    if training_adapter.family != adapter.family:
         raise SpecValidationError(
-            "'training.kind=mlp_policy_value' requires 'dataset.kind=archived_episode_logs' with one or more sources"
+            f"'training.kind={kind}' requires 'architecture.family={training_adapter.family}'"
         )
 
-    epochs = _require_int("training.epochs", training.get("epochs"), minimum=1)
-    batch_size = _require_int("training.batch_size", training.get("batch_size"), minimum=1)
-    checkpoint_every_epochs = _require_int(
-        "training.checkpoint_every_epochs",
-        training.get("checkpoint_every_epochs", 1),
-        minimum=1,
-    )
-    simulate_interrupt_after_epoch = training.get("simulate_interrupt_after_epoch")
-    if simulate_interrupt_after_epoch is not None:
-        simulate_interrupt_after_epoch = _require_int(
-            "training.simulate_interrupt_after_epoch",
-            simulate_interrupt_after_epoch,
-            minimum=1,
-        )
+    try:
+        normalized_training = training_adapter.validate_training(training, dataset)
+    except ValueError as exc:
+        raise SpecValidationError(str(exc)) from exc
 
-    learning_rate = training.get("learning_rate")
-    if not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
-        raise SpecValidationError("'training.learning_rate' must be a positive number")
-
-    checkpoint_prefix = training.get("checkpoint_prefix", "policy_value")
-    if not isinstance(checkpoint_prefix, str) or not checkpoint_prefix:
-        raise SpecValidationError("'training.checkpoint_prefix' must be a non-empty string")
-
-    metrics_filename = training.get("metrics_filename", "epoch_metrics.jsonl")
-    if not isinstance(metrics_filename, str) or not metrics_filename:
-        raise SpecValidationError("'training.metrics_filename' must be a non-empty string")
-
-    resume_from = training.get("resume_from")
-    if resume_from is not None:
-        if not isinstance(resume_from, str) or not resume_from:
-            raise SpecValidationError("'training.resume_from' must be a non-empty string when provided")
-        if not _resolve_repo_path(resume_from).exists():
-            raise SpecValidationError(f"training resume checkpoint does not exist: {resume_from}")
-
-    return {
-        "kind": kind,
-        "epochs": epochs,
-        "batch_size": batch_size,
-        "learning_rate": float(learning_rate),
-        "checkpoint_every_epochs": checkpoint_every_epochs,
-        "checkpoint_prefix": checkpoint_prefix,
-        "metrics_filename": metrics_filename,
-        "resume_from": resume_from,
-        "simulate_interrupt_after_epoch": simulate_interrupt_after_epoch,
-    }
+    resume_from = normalized_training.get("resume_from")
+    if resume_from is not None and not _resolve_repo_path(str(resume_from)).exists():
+        raise SpecValidationError(f"training resume checkpoint does not exist: {resume_from}")
+    return normalized_training
 
 
 def _validate_evaluation(
@@ -276,13 +268,19 @@ def _validate_evaluation(
             f"'evaluation.kind' must be one of {sorted(SUPPORTED_EVALUATION_KINDS)}"
         )
 
-    if architecture.get("family") != "mlp":
-        raise SpecValidationError("'evaluation.kind=alpha_level_suite' requires 'architecture.family=mlp'")
+    family = architecture.get("family")
+    if not isinstance(family, str) or not family:
+        raise SpecValidationError("'evaluation.kind' requires 'architecture.family'")
+
+    try:
+        adapter = get_adapter_for_family(family)
+    except ValueError as exc:
+        raise SpecValidationError(str(exc)) from exc
 
     explicit_checkpoint = evaluation.get("checkpoint")
-    if explicit_checkpoint is None and training.get("kind") != "mlp_policy_value":
+    if explicit_checkpoint is None and training.get("kind") != adapter.training_kind:
         raise SpecValidationError(
-            "'evaluation.kind=alpha_level_suite' requires either 'evaluation.checkpoint' or a preceding 'training.kind=mlp_policy_value' section"
+            f"'evaluation.kind=alpha_level_suite' requires either 'evaluation.checkpoint' or a preceding 'training.kind={adapter.training_kind}' section"
         )
     if explicit_checkpoint is not None:
         if not isinstance(explicit_checkpoint, str) or not explicit_checkpoint:
@@ -408,10 +406,14 @@ def _build_collection_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
 def _build_training_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Expand the training section into a concrete training task when supported."""
 
-    architecture = _as_dict("architecture", raw.get("architecture"))
+    architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
     dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
-    if not training or training.get("kind") != "mlp_policy_value":
+    if not training:
+        return []
+
+    adapter = get_adapter_for_family(str(architecture.get("family")))
+    if training.get("kind") != adapter.training_kind:
         return []
 
     return [
@@ -434,7 +436,7 @@ def _build_training_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
 def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Expand the evaluation section into concrete shard and report tasks when supported."""
 
-    architecture = _as_dict("architecture", raw.get("architecture"))
+    architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
     dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
     evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
@@ -462,6 +464,7 @@ def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
                     "shard_count": len(shard_starts),
                     "architecture_family": architecture.get("family"),
                     "architecture_params": architecture.get("params", {}),
+                    "checkpoint_prefix": training.get("checkpoint_prefix"),
                     "training_kind": training.get("kind"),
                 },
                 command=(),
@@ -477,6 +480,7 @@ def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
             payload_overrides={
                 "architecture_family": architecture.get("family"),
                 "architecture_params": architecture.get("params", {}),
+                "checkpoint_prefix": training.get("checkpoint_prefix"),
                 "training_kind": training.get("kind"),
             },
             command=(),
@@ -621,14 +625,18 @@ def flatten_run_parameters(raw: Mapping[str, Any]) -> Dict[str, str]:
         else:
             parameters[key] = json.dumps(value, sort_keys=True)
 
-    architecture = _as_dict("architecture", raw.get("architecture"))
+    architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
+    collection = _validate_collection(_as_dict("collection", raw.get("collection")))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
+    evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
     store("architecture.family", architecture.get("family"))
     store("architecture.params", architecture.get("params", {}))
-    store("collection", _as_dict("collection", raw.get("collection")))
-    store("dataset.kind", _as_dict("dataset", raw.get("dataset")).get("kind"))
-    store("dataset.sources", _as_dict("dataset", raw.get("dataset")).get("sources", []))
-    store("training", _as_dict("training", raw.get("training")))
-    store("evaluation", _as_dict("evaluation", raw.get("evaluation")))
+    store("collection", collection)
+    store("dataset.kind", dataset.get("kind"))
+    store("dataset.sources", dataset.get("sources", []))
+    store("training", training)
+    store("evaluation", evaluation)
     return parameters
 
 
@@ -661,8 +669,8 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
 
     description = str(raw.get("description", ""))
 
-    architecture = _as_dict("architecture", raw.get("architecture"))
-    if not architecture.get("family"):
+    architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
+    if not architecture:
         raise SpecValidationError("'architecture.family' must be provided")
 
     collection = _validate_collection(_as_dict("collection", raw.get("collection")))

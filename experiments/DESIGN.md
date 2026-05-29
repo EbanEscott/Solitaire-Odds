@@ -220,7 +220,7 @@ evaluation:
   seed_end: 5000
 ```
 
-Later, the same contract can support `family: gnn` with graph-specific params and data preparation rules.
+The same contract now supports both `family: mlp` and `family: gnn`, with each family owning its own parameter validation and trainer arguments.
 
 ## Recommended Implementation Style
 
@@ -313,11 +313,17 @@ Goal: support MLP and GNN under one experiment interface.
 
 Checklist:
 
-- [ ] Introduce an architecture adapter contract in the driver.
-- [ ] Move current MLP support behind that contract.
-- [ ] Define GNN-specific dataset preparation and training parameters.
-- [ ] Support architecture-specific validation rules in experiment specs.
-- [ ] Run comparable experiments across MLP and GNN using the same evaluation suites.
+- [x] Introduce an architecture adapter contract in the driver.
+- [x] Move current MLP support behind that contract.
+- [x] Define GNN-specific dataset preparation and training parameters.
+- [x] Support architecture-specific validation rules in experiment specs.
+- [x] Run comparable experiments across MLP and GNN using the same evaluation suites.
+
+Implementation note:
+
+- `experiments/src/architectures.py` now owns family-specific validation and trainer CLI construction.
+- Specs currently support `architecture.family` values `mlp` and `gnn`, with matching `training.kind` values `mlp_policy_value` and `gnn_policy_value`.
+- The current GNN family is a legal-move graph model over the encoded board state and the active legal-move mask. It reuses archived episode logs and the same `alpha_level_suite` evaluation workflow as the MLP family.
 
 ### Phase 6: Hardening And Scale-Up
 
@@ -341,4 +347,4 @@ The smallest useful slice is:
 4. Resumable MLP training.
 5. One DuckDB-backed report that compares completed runs.
 
-That slice is enough to prove the architecture before adding GNN-specific complexity.
+That slice proved the architecture and created the extension seam used by the Phase 5 multi-family work.
