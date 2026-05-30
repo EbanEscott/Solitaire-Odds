@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .architectures import get_adapter_for_family
+from .architectures import (
+    ARCHIVED_EPISODE_LOGS_DATASET_KIND,
+    RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND,
+)
 from .registry import (
     ArtifactRecord,
     AttemptRecord,
@@ -442,6 +446,43 @@ def _resolve_training_resume_checkpoint(task: TaskRecord, payload: Mapping[str, 
     return None
 
 
+def _resolve_training_dataset_sources(
+    registry: ExperimentRegistry,
+    run_id: str,
+    payload: Mapping[str, Any],
+) -> list[Path]:
+    """Resolve the concrete log files a training task should consume."""
+
+    dataset_kind = payload.get("dataset_kind")
+    if dataset_kind == ARCHIVED_EPISODE_LOGS_DATASET_KIND:
+        dataset_sources = payload.get("dataset_sources", [])
+        if not isinstance(dataset_sources, list) or not dataset_sources:
+            raise ValueError("training payload is missing dataset_sources")
+        return [
+            _resolve_repo_relative_path(str(source))
+            for source in dataset_sources
+            if _resolve_repo_relative_path(str(source)) is not None
+        ]
+
+    if dataset_kind != RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND:
+        raise ValueError(f"unsupported training dataset kind: {dataset_kind}")
+
+    dataset_sources: list[Path] = []
+    for collection_task in registry.list_tasks(run_id):
+        if collection_task.task_kind != "endgame_collect_shard" or collection_task.status != TASK_SUCCEEDED:
+            continue
+        latest_attempt = _latest_attempt(registry, collection_task.task_id)
+        if latest_attempt is None or latest_attempt.status != TASK_SUCCEEDED:
+            continue
+        dataset_sources.extend(_list_episode_logs(Path(latest_attempt.artifact_dir) / "collected-logs"))
+
+    if not dataset_sources:
+        raise ValueError(
+            "training dataset kind 'run_collection_episode_logs' found no successful collected logs in the current run"
+        )
+    return sorted(dataset_sources, key=lambda path: str(path))
+
+
 def _resolve_evaluation_checkpoint(
     *,
     layout: RuntimeLayout,
@@ -478,6 +519,7 @@ def _build_policy_value_train_command(
     payload: Mapping[str, Any],
     task: TaskRecord,
     temp_dir: Path,
+    dataset_sources: list[Path],
 ) -> tuple[list[str], Path, Path, Path | None]:
     """Construct the Python training command and its output locations for one task attempt."""
 
@@ -489,10 +531,6 @@ def _build_policy_value_train_command(
     if not isinstance(architecture_family, str) or not architecture_family:
         raise ValueError("training payload is missing architecture_family")
     adapter = get_adapter_for_family(architecture_family)
-
-    dataset_sources = payload.get("dataset_sources", [])
-    if not isinstance(dataset_sources, list) or not dataset_sources:
-        raise ValueError("training payload is missing dataset_sources")
 
     checkpoint_dir = temp_dir / "checkpoints"
     metrics_output = temp_dir / str(payload.get("metrics_filename", "epoch_metrics.jsonl"))
@@ -528,7 +566,7 @@ def _build_policy_value_train_command(
             str(simulate_interrupt_after_epoch),
         ])
 
-    command.extend(str(_resolve_repo_relative_path(str(source))) for source in dataset_sources)
+    command.extend(str(source) for source in dataset_sources)
     return command, checkpoint_dir, metrics_output, resume_checkpoint
 
 
@@ -698,10 +736,12 @@ def _run_policy_value_train(
 
     payload = json.loads(task.payload_json or "{}")
     working_directory = Path(task.working_directory or REPO_ROOT)
+    resolved_dataset_sources = _resolve_training_dataset_sources(registry, run_id, payload)
     command, checkpoint_dir, metrics_output, resume_checkpoint = _build_policy_value_train_command(
         payload,
         task,
         temp_dir,
+        resolved_dataset_sources,
     )
     _write_json(temp_dir / "command.json", {"command": command})
 
@@ -734,7 +774,10 @@ def _run_policy_value_train(
         "architecture_family": payload.get("architecture_family"),
         "architecture_params": payload.get("architecture_params", {}),
         "dataset_kind": payload.get("dataset_kind"),
-        "dataset_sources": payload.get("dataset_sources", []),
+        "dataset_sources": [
+            _format_repo_or_absolute_path(path)
+            for path in resolved_dataset_sources
+        ],
         "checkpoint_prefix": payload.get("checkpoint_prefix", "policy_value"),
         "checkpoint_files": [
             {

@@ -6,7 +6,12 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Mapping
 
 
-SUPPORTED_DATASET_KIND = "archived_episode_logs"
+ARCHIVED_EPISODE_LOGS_DATASET_KIND = "archived_episode_logs"
+RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND = "run_collection_episode_logs"
+SUPPORTED_DATASET_KINDS = {
+    ARCHIVED_EPISODE_LOGS_DATASET_KIND,
+    RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND,
+}
 
 
 def _require_int(name: str, value: Any, *, minimum: int | None = None) -> int:
@@ -110,9 +115,15 @@ class ArchitectureAdapter(ABC):
     ) -> Dict[str, Any]:
         """Validate a family-specific training section."""
 
-        if dataset.get("kind") != SUPPORTED_DATASET_KIND or not dataset.get("sources"):
+        dataset_kind = dataset.get("kind")
+        if dataset_kind == ARCHIVED_EPISODE_LOGS_DATASET_KIND:
+            if not dataset.get("sources"):
+                raise ValueError(
+                    f"'training.kind={self.training_kind}' requires one or more archived dataset sources when 'dataset.kind={ARCHIVED_EPISODE_LOGS_DATASET_KIND}'"
+                )
+        elif dataset_kind != RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND:
             raise ValueError(
-                f"'training.kind={self.training_kind}' requires 'dataset.kind={SUPPORTED_DATASET_KIND}' with one or more sources"
+                f"'training.kind={self.training_kind}' requires 'dataset.kind' to be one of {sorted(SUPPORTED_DATASET_KINDS)}"
             )
         return _normalize_common_training_fields(training, self.training_kind)
 

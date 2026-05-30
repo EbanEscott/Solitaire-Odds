@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
 from .architectures import (
+    ARCHIVED_EPISODE_LOGS_DATASET_KIND,
+    RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND,
+    SUPPORTED_DATASET_KINDS,
     SUPPORTED_TRAINING_KINDS,
     get_adapter_for_family,
     get_adapter_for_training_kind,
@@ -28,7 +31,6 @@ SUPPORTED_TASK_KINDS = {
     "evaluation_report",
 }
 SUPPORTED_COLLECTION_KINDS = {"endgame_level_dataset"}
-SUPPORTED_DATASET_KINDS = {"archived_episode_logs"}
 SUPPORTED_EVALUATION_KINDS = {"alpha_level_suite"}
 DEFAULT_ENDGAME_COLLECTION_TEST = (
     "ai.games.training.EndgameTrainingDataGenerator.testGenerateEndgameDataset"
@@ -106,7 +108,10 @@ def _validate_sources(dataset: Mapping[str, Any]) -> None:
             raise SpecValidationError(f"dataset source does not exist: {source}")
 
 
-def _validate_dataset(dataset: Mapping[str, Any]) -> Dict[str, Any]:
+def _validate_dataset(
+    dataset: Mapping[str, Any],
+    collection: Mapping[str, Any],
+) -> Dict[str, Any]:
     """Validate dataset configuration and return a normalized representation."""
 
     if not dataset:
@@ -118,10 +123,25 @@ def _validate_dataset(dataset: Mapping[str, Any]) -> Dict[str, Any]:
             f"'dataset.kind' must be one of {sorted(SUPPORTED_DATASET_KINDS)}"
         )
 
-    _validate_sources(dataset)
+    if kind == ARCHIVED_EPISODE_LOGS_DATASET_KIND:
+        _validate_sources(dataset)
+        return {
+            "kind": kind,
+            "sources": list(dataset.get("sources", [])),
+        }
+
+    if dataset.get("sources") not in (None, []):
+        raise SpecValidationError(
+            f"'dataset.kind={RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND}' does not accept explicit 'dataset.sources'; it resolves successful collection artifacts from the same run"
+        )
+    if not collection:
+        raise SpecValidationError(
+            f"'dataset.kind={RUN_COLLECTION_EPISODE_LOGS_DATASET_KIND}' requires a 'collection' section in the same spec"
+        )
+
     return {
         "kind": kind,
-        "sources": list(dataset.get("sources", [])),
+        "sources": [],
     }
 
 
@@ -407,7 +427,8 @@ def _build_training_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]:
     """Expand the training section into a concrete training task when supported."""
 
     architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
-    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    collection = _validate_collection(_as_dict("collection", raw.get("collection")))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")), collection)
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
     if not training:
         return []
@@ -437,7 +458,8 @@ def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
     """Expand the evaluation section into concrete shard and report tasks when supported."""
 
     architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
-    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    collection = _validate_collection(_as_dict("collection", raw.get("collection")))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")), collection)
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
     evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
     if not evaluation or evaluation.get("kind") != "alpha_level_suite":
@@ -627,7 +649,7 @@ def flatten_run_parameters(raw: Mapping[str, Any]) -> Dict[str, str]:
 
     architecture = _validate_architecture(_as_dict("architecture", raw.get("architecture")))
     collection = _validate_collection(_as_dict("collection", raw.get("collection")))
-    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")), collection)
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
     evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
     store("architecture.family", architecture.get("family"))
@@ -674,7 +696,7 @@ def load_experiment_spec(spec_path: str | Path) -> ExperimentSpec:
         raise SpecValidationError("'architecture.family' must be provided")
 
     collection = _validate_collection(_as_dict("collection", raw.get("collection")))
-    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")))
+    dataset = _validate_dataset(_as_dict("dataset", raw.get("dataset")), collection)
     training = _validate_training(_as_dict("training", raw.get("training")), architecture, dataset)
     evaluation = _validate_evaluation(_as_dict("evaluation", raw.get("evaluation")), architecture, training)
     workflow_tasks = _load_workflow(raw)

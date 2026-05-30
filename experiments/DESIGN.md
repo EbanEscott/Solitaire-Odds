@@ -222,6 +222,11 @@ evaluation:
 
 The same contract now supports both `family: mlp` and `family: gnn`, with each family owning its own parameter validation and trainer arguments.
 
+Dataset sourcing now has two supported modes:
+
+- `dataset.kind: archived_episode_logs` reuses existing archived logs listed in `dataset.sources`.
+- `dataset.kind: run_collection_episode_logs` resolves successful collection shard artifacts from the same run so one experiment can collect fresh data, train on it, and then evaluate the resulting checkpoint.
+
 ## Recommended Implementation Style
 
 Keep the proof of concept lightweight.
@@ -286,6 +291,7 @@ Implementation note:
 
 - The trainer now writes both epoch-specific checkpoints and a rolling `*_latest.pt` checkpoint.
 - Resume uses optimizer state, RNG state, completed epoch, and global step from the previous checkpoint.
+- Training can now consume either existing archived logs or successful collection artifacts produced earlier in the same run.
 - The current demo flow intentionally interrupts after epoch 1 and then resumes from the checkpoint saved in the prior attempt artifact directory.
 
 ### Phase 4: Structured Evaluation And Analysis
