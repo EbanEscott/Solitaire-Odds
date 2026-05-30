@@ -40,6 +40,11 @@ class RunRecord:
     spec_hash: str
     current_task_name: str | None
     status_message: str | None
+    created_at: str
+    updated_at: str
+    started_at: str | None
+    completed_at: str | None
+    last_heartbeat_at: str | None
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,28 @@ class AttemptRecord:
     task_id: int
     attempt_number: int
     artifact_dir: str
+    status: str | None = None
+    stdout_path: str | None = None
+    stderr_path: str | None = None
+    exit_code: int | None = None
+    error_message: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    heartbeat_at: str | None = None
+
+
+@dataclass(frozen=True)
+class ArtifactRecord:
+    """Persisted artifact manifest pointer returned from the registry."""
+
+    artifact_id: int
+    run_id: str
+    task_id: int
+    attempt_id: int
+    artifact_kind: str
+    relative_path: str
+    manifest_json: str
+    created_at: str
 
 
 class ExperimentRegistry:
@@ -275,6 +302,14 @@ class ExperimentRegistry:
         if row is None:
             raise KeyError(f"run not found: {run_id}")
         return self._row_to_run(row)
+
+    def list_runs(self) -> list[RunRecord]:
+        """List all persisted runs ordered from newest to oldest update time."""
+
+        rows = self.connection.execute(
+            "SELECT * FROM runs ORDER BY updated_at DESC, created_at DESC, run_id ASC"
+        ).fetchall()
+        return [self._row_to_run(row) for row in rows]
 
     def replace_run_parameters(self, run_id: str, parameters: Mapping[str, str]) -> None:
         """Persist flattened run dimensions for later querying and reporting."""
@@ -668,6 +703,29 @@ class ExperimentRegistry:
         )
         self.connection.commit()
 
+    def list_task_attempts(self, task_id: int) -> list[AttemptRecord]:
+        """List all recorded attempts for one task from newest to oldest."""
+
+        rows = self.connection.execute(
+            "SELECT * FROM task_attempts WHERE task_id = ? ORDER BY attempt_number DESC, attempt_id DESC",
+            (task_id,),
+        ).fetchall()
+        return [self._row_to_attempt(row) for row in rows]
+
+    def list_artifacts(self, run_id: str | None = None) -> list[ArtifactRecord]:
+        """List finalized artifact manifest pointers, optionally filtered to one run."""
+
+        if run_id is None:
+            rows = self.connection.execute(
+                "SELECT * FROM artifacts ORDER BY created_at DESC, artifact_id DESC"
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                "SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at DESC, artifact_id DESC",
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_artifact(row) for row in rows]
+
     def set_run_status(self, run_id: str, status: str, status_message: str | None) -> None:
         """Update top-level run status outside of task finalization."""
 
@@ -709,6 +767,11 @@ class ExperimentRegistry:
             spec_hash=str(row["spec_hash"]),
             current_task_name=row["current_task_name"],
             status_message=row["status_message"],
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+            last_heartbeat_at=row["last_heartbeat_at"],
         )
 
     def _row_to_task(self, row: sqlite3.Row) -> TaskRecord:
@@ -724,4 +787,32 @@ class ExperimentRegistry:
             status=str(row["status"]),
             artifact_dir=str(row["artifact_dir"]),
             last_heartbeat_at=row["last_heartbeat_at"],
+        )
+
+    def _row_to_attempt(self, row: sqlite3.Row) -> AttemptRecord:
+        return AttemptRecord(
+            attempt_id=int(row["attempt_id"]),
+            task_id=int(row["task_id"]),
+            attempt_number=int(row["attempt_number"]),
+            artifact_dir=str(row["artifact_dir"]),
+            status=str(row["status"]),
+            stdout_path=row["stdout_path"],
+            stderr_path=row["stderr_path"],
+            exit_code=row["exit_code"],
+            error_message=row["error_message"],
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+            heartbeat_at=row["heartbeat_at"],
+        )
+
+    def _row_to_artifact(self, row: sqlite3.Row) -> ArtifactRecord:
+        return ArtifactRecord(
+            artifact_id=int(row["artifact_id"]),
+            run_id=str(row["run_id"]),
+            task_id=int(row["task_id"]),
+            attempt_id=int(row["attempt_id"]),
+            artifact_kind=str(row["artifact_kind"]),
+            relative_path=str(row["relative_path"]),
+            manifest_json=str(row["manifest_json"]),
+            created_at=str(row["created_at"]),
         )

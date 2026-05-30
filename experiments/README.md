@@ -185,6 +185,83 @@ python -m experiments.src run experiments/specs/gnn_phase5_demo.json --run-id ph
 python -m experiments.src status phase5-demo
 ```
 
+## Phase 6 Status
+
+Phase 6 now adds operator-facing hardening for long unattended local runs.
+
+Current Phase 6 capabilities:
+
+- Existing heartbeat timestamps are now surfaced through a `doctor` command that writes a markdown runtime health dashboard.
+- `doctor` also writes a machine-readable JSON companion report for automation, with an optional `--json-output` override.
+- `doctor --recover-stale` can reclaim stale running tasks across all runs before writing the report.
+- The health report highlights recent runs, stale tasks, retryable or interrupted tasks, and missing artifacts.
+- A `cleanup` command applies retention policies to stale `.attempt-*.tmp` directories and old files under `experiments/runtime/work`.
+- The driver now persists archived attempt stdout and stderr paths in their finalized locations so later operator reports point at durable artifacts.
+- The Phase 6 workflow is documented for unattended single-machine scheduling through either `cron` or `launchd`.
+- SQLite remains the recommended registry store for the current single-machine control plane.
+
+Example Phase 6 commands:
+
+```bash
+source neural-network/.venv/bin/activate
+
+# Write a runtime health dashboard covering all runs
+python -m experiments.src doctor
+
+# Override the JSON companion output path when automation wants a fixed location
+python -m experiments.src doctor --json-output experiments/runtime/work/runtime_health_custom.json
+
+# Reclaim stale tasks across all runs before writing the report
+python -m experiments.src doctor --recover-stale --stale-after-seconds 300
+
+# Inspect cleanup candidates without deleting anything
+python -m experiments.src cleanup --dry-run
+
+# Apply the default retention policy
+python -m experiments.src cleanup
+```
+
+The default `doctor` output now writes both:
+
+- `experiments/runtime/work/runtime_health_report.md`
+- `experiments/runtime/work/runtime_health_report.json`
+
+Unattended maintenance note:
+
+Cron example:
+
+```bash
+15 * * * * cd /Users/ebo/Code/Solitaire-Odds && source neural-network/.venv/bin/activate && python -m experiments.src doctor --recover-stale && python -m experiments.src cleanup >> experiments/runtime/work/maintenance.log 2>&1
+```
+
+Launchd example:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.solitaireodds.experiments.maintenance</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/zsh</string>
+		<string>-lc</string>
+		<string>cd /Users/ebo/Code/Solitaire-Odds &amp;&amp; source neural-network/.venv/bin/activate &amp;&amp; python -m experiments.src doctor --recover-stale &amp;&amp; python -m experiments.src cleanup</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Minute</key>
+		<integer>15</integer>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/Users/ebo/Code/Solitaire-Odds/experiments/runtime/work/maintenance.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/ebo/Code/Solitaire-Odds/experiments/runtime/work/maintenance.log</string>
+</dict>
+</plist>
+```
+
 Planned responsibilities for this folder:
 
 - Experiment specs and sweep definitions.

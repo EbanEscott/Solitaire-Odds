@@ -331,11 +331,21 @@ Goal: make the single-machine stack reliable enough for long unattended runs.
 
 Checklist:
 
-- [ ] Add stale-heartbeat recovery rules.
-- [ ] Add retention and cleanup policies for temporary workspaces.
-- [ ] Add summary reports for failed runs and missing artifacts.
-- [ ] Add simple local dashboards or reports if notebooks are no longer enough.
-- [ ] Reassess whether SQLite is still sufficient before considering a heavier service stack.
+- [x] Add stale-heartbeat recovery rules.
+- [x] Add retention and cleanup policies for temporary workspaces.
+- [x] Add summary reports for failed runs and missing artifacts.
+- [x] Add simple local dashboards or reports if notebooks are no longer enough.
+- [x] Emit machine-readable runtime health output for automation.
+- [x] Document an unattended local maintenance workflow for `cron` or `launchd`.
+- [x] Reassess whether SQLite is still sufficient before considering a heavier service stack.
+
+Implementation note:
+
+- Heartbeat-based stale-task recovery remains part of `python -m experiments.src run`, and `python -m experiments.src doctor --recover-stale` now exposes the same recovery pass across all runs.
+- `python -m experiments.src doctor` now writes both a markdown runtime dashboard and a JSON companion report that summarize recent runs, stale tasks, retryable or interrupted tasks, and missing artifacts.
+- `python -m experiments.src cleanup` applies a conservative retention policy to stale `.attempt-*.tmp` directories and aged files under `experiments/runtime/work`.
+- The operator workflow is now documented with small `cron` and `launchd` examples so the maintenance pass can run unattended on one machine.
+- SQLite remains sufficient for the current control plane because the workload is still single-machine, the registry access pattern is low-concurrency, and Phase 6 hardening only needed direct scans and point updates rather than a distributed scheduler.
 
 ## Recommended First Build Slice
 

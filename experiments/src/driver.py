@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import shutil
 import subprocess
@@ -10,16 +11,20 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
 from .architectures import get_adapter_for_family
 from .registry import (
+    ArtifactRecord,
+    AttemptRecord,
     ExperimentRegistry,
     RUN_INTERRUPTED,
     RUN_RUNNING,
     RUN_SUCCEEDED,
+    RunRecord,
     TASK_INTERRUPTED,
     TASK_RETRYABLE,
     TASK_RUNNING,
@@ -40,6 +45,15 @@ from .specs import (
 DEFAULT_STALE_AFTER_SECONDS = 300
 DEFAULT_HEARTBEAT_SECONDS = 5
 DEFAULT_SERVICE_STARTUP_TIMEOUT_SECONDS = 30
+DEFAULT_DOCTOR_OUTPUT_FILENAME = "runtime_health_report.md"
+DEFAULT_DOCTOR_JSON_OUTPUT_FILENAME = "runtime_health_report.json"
+DEFAULT_TEMP_ATTEMPT_RETENTION_HOURS = 24
+DEFAULT_WORK_FILE_RETENTION_DAYS = 14
+SQLITE_ASSESSMENT_TEXT = (
+    "SQLite remains sufficient for the current single-machine control plane. "
+    "The registry is local, the task volume is modest, and Phase 6 hardening still relies "
+    "on direct point queries and ordered scans rather than concurrent multi-host scheduling."
+)
 
 
 @dataclass(frozen=True)
@@ -84,6 +98,15 @@ class PlannedTask:
     command: tuple[str, ...]
     working_directory: Path
     artifact_dir: Path
+
+
+@dataclass(frozen=True)
+class CleanupCandidate:
+    """One removable runtime path discovered by the cleanup policy."""
+
+    path: Path
+    category: str
+    age_text: str
 
 
 def _slugify(value: str) -> str:
@@ -235,6 +258,22 @@ def _archive_attempt_artifact(
     )
     _write_json(temp_dir / "manifest.json", manifest)
     temp_dir.rename(final_dir)
+    registry.connection.execute(
+        """
+        UPDATE task_attempts
+        SET artifact_dir = ?,
+            stdout_path = ?,
+            stderr_path = ?
+        WHERE attempt_id = ?
+        """,
+        (
+            str(final_dir),
+            str(final_dir / "stdout.log"),
+            str(final_dir / "stderr.log"),
+            attempt_id,
+        ),
+    )
+    registry.connection.commit()
     registry.register_artifact(
         run_id=run_id,
         task_id=task.task_id,
@@ -823,6 +862,269 @@ def _format_markdown_table(headers: list[str], rows: list[list[str]]) -> str:
     divider_row = "| " + " | ".join("---" for _ in headers) + " |"
     body_rows = ["| " + " | ".join(row) + " |" for row in rows]
     return "\n".join([header_row, divider_row, *body_rows])
+
+
+def _parse_utc_timestamp(timestamp_text: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp recorded by the registry, if present."""
+
+    if timestamp_text is None or not timestamp_text:
+        return None
+    try:
+        return datetime.fromisoformat(timestamp_text)
+    except ValueError:
+        return None
+
+
+def _format_age(delta: timedelta) -> str:
+    """Render a coarse human-readable duration for operator-facing reports."""
+
+    total_seconds = max(0, int(delta.total_seconds()))
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    if total_seconds < 3600:
+        return f"{total_seconds // 60}m"
+    if total_seconds < 86400:
+        return f"{total_seconds // 3600}h"
+    return f"{total_seconds // 86400}d"
+
+
+def _format_repo_or_absolute_path(path: Path) -> str:
+    """Render a path relative to the repo when possible, otherwise as an absolute path."""
+
+    try:
+        return _relative_to_repo(path)
+    except ValueError:
+        return str(path)
+
+
+def _latest_attempt(registry: ExperimentRegistry, task_id: int) -> AttemptRecord | None:
+    """Return the newest recorded attempt for one task, if any exist."""
+
+    attempts = registry.list_task_attempts(task_id)
+    return attempts[0] if attempts else None
+
+
+def _resolve_attempt_log_path(attempt: AttemptRecord | None, filename: str) -> Path | None:
+    """Resolve one attempt log path, tolerating older rows that still point at temp dirs."""
+
+    if attempt is None:
+        return None
+
+    direct_path_text = attempt.stderr_path if filename == "stderr.log" else attempt.stdout_path
+    if direct_path_text:
+        direct_path = Path(direct_path_text)
+        if direct_path.exists():
+            return direct_path
+
+    artifact_dir = Path(attempt.artifact_dir)
+    fallback_path = artifact_dir / filename
+    if fallback_path.exists():
+        return fallback_path
+    return None
+
+
+def _build_runtime_health_report_markdown(
+    *,
+    generated_at: str,
+    recovered_stale_tasks: int,
+    run_status_counts: Mapping[str, int],
+    run_rows: list[list[str]],
+    stale_task_rows: list[list[str]],
+    problematic_task_rows: list[list[str]],
+    missing_artifact_rows: list[list[str]],
+) -> str:
+    """Build a markdown dashboard summarizing runtime health across all runs."""
+
+    total_runs = sum(run_status_counts.values())
+    summary_rows = [
+        ["Generated At", generated_at],
+        ["Total Runs", str(total_runs)],
+        ["Succeeded Runs", str(run_status_counts.get(RUN_SUCCEEDED, 0))],
+        ["Running Runs", str(run_status_counts.get(RUN_RUNNING, 0))],
+        ["Interrupted Runs", str(run_status_counts.get(RUN_INTERRUPTED, 0))],
+        ["Recovered Stale Tasks", str(recovered_stale_tasks)],
+        ["Stale Tasks", str(len(stale_task_rows))],
+        ["Problematic Tasks", str(len(problematic_task_rows))],
+        ["Missing Artifacts", str(len(missing_artifact_rows))],
+    ]
+
+    lines = [
+        "# Runtime Health Report",
+        "",
+        "## Summary",
+        "",
+        _format_markdown_table(["Metric", "Value"], summary_rows),
+        "",
+    ]
+
+    if run_rows:
+        lines.extend(
+            [
+                "## Recent Runs",
+                "",
+                _format_markdown_table(
+                    ["Run", "Experiment", "Status", "Updated", "Current Task", "Message"],
+                    run_rows,
+                ),
+                "",
+            ]
+        )
+
+    if stale_task_rows:
+        lines.extend(
+            [
+                "## Stale Tasks",
+                "",
+                _format_markdown_table(
+                    ["Run", "Task", "Heartbeat Age", "Last Heartbeat", "Artifact Root"],
+                    stale_task_rows,
+                ),
+                "",
+            ]
+        )
+
+    if problematic_task_rows:
+        lines.extend(
+            [
+                "## Problematic Tasks",
+                "",
+                _format_markdown_table(
+                    ["Run", "Task", "Status", "Attempts", "Exit", "Error", "Stderr"],
+                    problematic_task_rows,
+                ),
+                "",
+            ]
+        )
+
+    if missing_artifact_rows:
+        lines.extend(
+            [
+                "## Missing Artifacts",
+                "",
+                _format_markdown_table(
+                    ["Run", "Task", "Issue", "Path"],
+                    missing_artifact_rows,
+                ),
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "## SQLite Assessment",
+            "",
+            SQLITE_ASSESSMENT_TEXT,
+            "",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+def _default_doctor_json_output_path(markdown_output_path: Path) -> Path:
+    """Derive the default JSON companion path for a markdown doctor report."""
+
+    if markdown_output_path.name == DEFAULT_DOCTOR_OUTPUT_FILENAME:
+        return markdown_output_path.with_name(DEFAULT_DOCTOR_JSON_OUTPUT_FILENAME)
+    return markdown_output_path.with_suffix(".json")
+
+
+def _build_runtime_health_report_payload(
+    *,
+    generated_at: str,
+    recovered_stale_tasks: int,
+    run_status_counts: Mapping[str, int],
+    recent_runs: list[dict[str, Any]],
+    stale_tasks: list[dict[str, Any]],
+    problematic_tasks: list[dict[str, Any]],
+    missing_artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the machine-readable runtime health payload written beside the markdown report."""
+
+    return {
+        "report_version": "v1",
+        "generated_at": generated_at,
+        "summary": {
+            "total_runs": int(sum(run_status_counts.values())),
+            "run_status_counts": {key: int(value) for key, value in sorted(run_status_counts.items())},
+            "recovered_stale_tasks": int(recovered_stale_tasks),
+            "stale_tasks": len(stale_tasks),
+            "problematic_tasks": len(problematic_tasks),
+            "missing_artifacts": len(missing_artifacts),
+        },
+        "recent_runs": recent_runs,
+        "stale_tasks": stale_tasks,
+        "problematic_tasks": problematic_tasks,
+        "missing_artifacts": missing_artifacts,
+        "sqlite_assessment": SQLITE_ASSESSMENT_TEXT,
+    }
+
+
+def _find_cleanup_candidates(
+    *,
+    layout: RuntimeLayout,
+    temp_attempt_older_than_hours: int,
+    work_file_older_than_days: int,
+) -> list[CleanupCandidate]:
+    """Discover runtime paths eligible for cleanup under the current retention policy."""
+
+    now = datetime.now(timezone.utc)
+    temp_cutoff = now - timedelta(hours=temp_attempt_older_than_hours)
+    work_cutoff = now - timedelta(days=work_file_older_than_days)
+    candidates: list[CleanupCandidate] = []
+
+    for path in sorted(layout.artifacts_dir.glob("**/.attempt-*.tmp")):
+        if not path.is_dir():
+            continue
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        if modified_at < temp_cutoff:
+            candidates.append(
+                CleanupCandidate(
+                    path=path,
+                    category="temporary attempt directory",
+                    age_text=_format_age(now - modified_at),
+                )
+            )
+
+    for path in sorted(layout.work_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        if modified_at < work_cutoff:
+            candidates.append(
+                CleanupCandidate(
+                    path=path,
+                    category="runtime work file",
+                    age_text=_format_age(now - modified_at),
+                )
+            )
+
+    return candidates
+
+
+def _prune_empty_directories(root: Path) -> int:
+    """Remove empty directories under one runtime root after file cleanup."""
+
+    if not root.exists():
+        return 0
+
+    removed = 0
+    directories = sorted(
+        (path for path in root.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for path in directories:
+        if path == root or not path.exists():
+            continue
+        try:
+            next(path.iterdir())
+        except StopIteration:
+            path.rmdir()
+            removed += 1
+        except FileNotFoundError:
+            continue
+    return removed
 
 
 def _load_latest_task_json_artifact(task: TaskRecord, filename: str) -> dict[str, Any]:
@@ -1603,6 +1905,245 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Inspect runtime health across all runs and write a markdown dashboard report."""
+
+    layout = RuntimeLayout.create()
+    output_path = args.output or (layout.work_dir / DEFAULT_DOCTOR_OUTPUT_FILENAME)
+    json_output_path = args.json_output or _default_doctor_json_output_path(output_path)
+
+    with ExperimentRegistry(layout.database_path) as registry:
+        recovered_stale_tasks = 0
+        if args.recover_stale:
+            for run in registry.list_runs():
+                recovered_stale_tasks += registry.recover_stale_running_tasks(
+                    run.run_id,
+                    args.stale_after_seconds,
+                )
+
+        runs = registry.list_runs()
+        now = datetime.now(timezone.utc)
+        stale_cutoff = now - timedelta(seconds=args.stale_after_seconds)
+        run_status_counts = Counter(run.status for run in runs)
+        generated_at = now.replace(microsecond=0).isoformat()
+
+        recent_runs: list[dict[str, Any]] = []
+        stale_tasks: list[dict[str, Any]] = []
+        problematic_tasks: list[dict[str, Any]] = []
+        missing_artifacts: list[dict[str, Any]] = []
+
+        for run in runs[: args.limit_runs]:
+            recent_runs.append(
+                {
+                    "run_id": run.run_id,
+                    "experiment_id": run.experiment_id,
+                    "status": run.status,
+                    "updated_at": run.updated_at,
+                    "current_task_name": run.current_task_name,
+                    "status_message": run.status_message,
+                }
+            )
+
+        for run in runs:
+            tasks = registry.list_tasks(run.run_id)
+            task_by_id = {task.task_id: task for task in tasks}
+            artifact_rows: list[ArtifactRecord] = registry.list_artifacts(run.run_id)
+            artifact_rows_by_task_id: dict[int, list[ArtifactRecord]] = {}
+            for artifact in artifact_rows:
+                artifact_rows_by_task_id.setdefault(artifact.task_id, []).append(artifact)
+
+            artifact_root = Path(run.artifact_root)
+            run_artifact_root_exists = artifact_root.exists()
+            if not run_artifact_root_exists:
+                missing_artifacts.append(
+                    {
+                        "run_id": run.run_id,
+                        "task_name": None,
+                        "issue": "run artifact root missing",
+                        "path": _format_repo_or_absolute_path(artifact_root),
+                    }
+                )
+
+            for task in tasks:
+                last_heartbeat = _parse_utc_timestamp(task.last_heartbeat_at)
+                if (
+                    task.status == TASK_RUNNING
+                    and last_heartbeat is not None
+                    and args.stale_after_seconds > 0
+                    and last_heartbeat < stale_cutoff
+                ):
+                    stale_tasks.append(
+                        {
+                            "run_id": run.run_id,
+                            "task_name": task.task_name,
+                            "heartbeat_age": _format_age(now - last_heartbeat),
+                            "last_heartbeat_at": task.last_heartbeat_at,
+                            "artifact_root": _format_repo_or_absolute_path(Path(task.artifact_dir)),
+                        }
+                    )
+
+                latest_attempt: AttemptRecord | None = _latest_attempt(registry, task.task_id)
+                if task.status in {TASK_INTERRUPTED, TASK_RETRYABLE}:
+                    attempt_count = len(registry.list_task_attempts(task.task_id))
+                    stderr_log_path = _resolve_attempt_log_path(latest_attempt, "stderr.log")
+                    problematic_tasks.append(
+                        {
+                            "run_id": run.run_id,
+                            "task_name": task.task_name,
+                            "status": task.status,
+                            "attempt_count": attempt_count,
+                            "exit_code": latest_attempt.exit_code if latest_attempt is not None else None,
+                            "error": (latest_attempt.error_message or run.status_message) if latest_attempt is not None else run.status_message,
+                            "stderr_path": _format_repo_or_absolute_path(stderr_log_path) if stderr_log_path is not None else None,
+                        }
+                    )
+
+                if task.status == TASK_SUCCEEDED and not artifact_rows_by_task_id.get(task.task_id):
+                    missing_artifacts.append(
+                        {
+                            "run_id": run.run_id,
+                            "task_name": task.task_name,
+                            "issue": "succeeded task has no registered artifact",
+                            "path": _format_repo_or_absolute_path(Path(task.artifact_dir)),
+                        }
+                    )
+
+            if run_artifact_root_exists:
+                for artifact in artifact_rows:
+                    artifact_path = (REPO_ROOT / artifact.relative_path).resolve()
+                    if not artifact_path.exists():
+                        task = task_by_id.get(artifact.task_id)
+                        missing_artifacts.append(
+                            {
+                                "run_id": run.run_id,
+                                "task_name": task.task_name if task is not None else f"task_id={artifact.task_id}",
+                                "issue": "registered artifact path missing",
+                                "path": _format_repo_or_absolute_path(artifact_path),
+                            }
+                        )
+
+    run_rows = [
+        [
+            row["run_id"],
+            row["experiment_id"],
+            row["status"],
+            row["updated_at"],
+            row["current_task_name"] or "-",
+            row["status_message"] or "-",
+        ]
+        for row in recent_runs
+    ]
+    stale_task_rows = [
+        [
+            row["run_id"],
+            row["task_name"],
+            row["heartbeat_age"],
+            row["last_heartbeat_at"] or "-",
+            row["artifact_root"],
+        ]
+        for row in stale_tasks
+    ]
+    problematic_task_rows = [
+        [
+            row["run_id"],
+            row["task_name"],
+            row["status"],
+            str(row["attempt_count"]),
+            str(row["exit_code"]) if row["exit_code"] is not None else "-",
+            row["error"] or "-",
+            row["stderr_path"] or "-",
+        ]
+        for row in problematic_tasks
+    ]
+    missing_artifact_rows = [
+        [
+            row["run_id"],
+            row["task_name"] or "-",
+            row["issue"],
+            row["path"],
+        ]
+        for row in missing_artifacts
+    ]
+
+    report_markdown = _build_runtime_health_report_markdown(
+        generated_at=generated_at,
+        recovered_stale_tasks=recovered_stale_tasks,
+        run_status_counts=run_status_counts,
+        run_rows=run_rows,
+        stale_task_rows=stale_task_rows,
+        problematic_task_rows=problematic_task_rows,
+        missing_artifact_rows=missing_artifact_rows,
+    )
+    report_payload = _build_runtime_health_report_payload(
+        generated_at=generated_at,
+        recovered_stale_tasks=recovered_stale_tasks,
+        run_status_counts=run_status_counts,
+        recent_runs=recent_runs,
+        stale_tasks=stale_tasks,
+        problematic_tasks=problematic_tasks,
+        missing_artifacts=missing_artifacts,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(report_markdown, encoding="utf-8")
+    _write_json(json_output_path, report_payload)
+
+    print(
+        "Runtime health summary: "
+        f"runs={sum(run_status_counts.values())}, "
+        f"stale_tasks={len(stale_tasks)}, "
+        f"problematic_tasks={len(problematic_tasks)}, "
+        f"missing_artifacts={len(missing_artifacts)}"
+    )
+    if recovered_stale_tasks:
+        print(f"Recovered {recovered_stale_tasks} stale task(s) before writing the report.")
+    print(f"Wrote runtime health report to {_format_repo_or_absolute_path(output_path)}")
+    print(f"Wrote runtime health JSON to {_format_repo_or_absolute_path(json_output_path)}")
+    return 0
+
+
+def _cmd_cleanup(args: argparse.Namespace) -> int:
+    """Apply the runtime cleanup policy to stale temp directories and old work files."""
+
+    layout = RuntimeLayout.create()
+    candidates = _find_cleanup_candidates(
+        layout=layout,
+        temp_attempt_older_than_hours=args.temp_attempt_older_than_hours,
+        work_file_older_than_days=args.work_file_older_than_days,
+    )
+
+    if not candidates:
+        print("No cleanup candidates found.")
+        return 0
+
+    action_text = "Would remove" if args.dry_run else "Removing"
+    for candidate in candidates:
+        print(
+            f"{action_text} {_format_repo_or_absolute_path(candidate.path)} "
+            f"[{candidate.category}; age={candidate.age_text}]"
+        )
+
+    if args.dry_run:
+        print(f"Found {len(candidates)} cleanup candidate(s).")
+        return 0
+
+    removed_count = 0
+    for candidate in candidates:
+        if not candidate.path.exists():
+            continue
+        if candidate.path.is_dir():
+            shutil.rmtree(candidate.path)
+        else:
+            candidate.path.unlink()
+        removed_count += 1
+
+    pruned_empty_directories = _prune_empty_directories(layout.work_dir)
+    pruned_empty_directories += _prune_empty_directories(layout.artifacts_dir)
+    print(
+        f"Removed {removed_count} runtime path(s) and pruned {pruned_empty_directories} empty directory(ies)."
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the CLI parser for the experiments driver."""
 
@@ -1642,6 +2183,68 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="Show run and task status")
     status_parser.add_argument("run_id", help="Run identifier to inspect")
     status_parser.set_defaults(func=_cmd_status)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Write a runtime health dashboard covering failed runs and missing artifacts",
+    )
+    doctor_parser.add_argument(
+        "--output",
+        type=Path,
+        help=(
+            "Markdown report output path "
+            f"(default: experiments/runtime/work/{DEFAULT_DOCTOR_OUTPUT_FILENAME})"
+        ),
+    )
+    doctor_parser.add_argument(
+        "--json-output",
+        type=Path,
+        help=(
+            "JSON report output path "
+            f"(default: experiments/runtime/work/{DEFAULT_DOCTOR_JSON_OUTPUT_FILENAME})"
+        ),
+    )
+    doctor_parser.add_argument(
+        "--stale-after-seconds",
+        type=int,
+        default=DEFAULT_STALE_AFTER_SECONDS,
+        help="Treat running tasks older than this heartbeat threshold as stale in the report",
+    )
+    doctor_parser.add_argument(
+        "--recover-stale",
+        action="store_true",
+        help="Recover stale running tasks across all runs before writing the report",
+    )
+    doctor_parser.add_argument(
+        "--limit-runs",
+        type=int,
+        default=20,
+        help="Maximum number of recent runs to include in the dashboard table",
+    )
+    doctor_parser.set_defaults(func=_cmd_doctor)
+
+    cleanup_parser = subparsers.add_parser(
+        "cleanup",
+        help="Apply retention policies to stale temp attempt directories and old work files",
+    )
+    cleanup_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List the runtime paths that would be removed without deleting them",
+    )
+    cleanup_parser.add_argument(
+        "--temp-attempt-older-than-hours",
+        type=int,
+        default=DEFAULT_TEMP_ATTEMPT_RETENTION_HOURS,
+        help="Delete .attempt-*.tmp directories older than this many hours",
+    )
+    cleanup_parser.add_argument(
+        "--work-file-older-than-days",
+        type=int,
+        default=DEFAULT_WORK_FILE_RETENTION_DAYS,
+        help="Delete files under experiments/runtime/work older than this many days",
+    )
+    cleanup_parser.set_defaults(func=_cmd_cleanup)
 
     return parser
 
