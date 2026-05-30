@@ -1,0 +1,80 @@
+{
+  "api_version": "v1",
+  "experiment_id": "mlp-frontier-upto07-hd512-nl3-dev",
+  "description": "Development cumulative MLP frontier sweep run with hidden_dim=512 and num_layers=3, trained on archived Levels 2 through 7 and evaluated across a fixed ladder spanning Levels 2 through 50.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 512,
+      "num_layers": 3,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log",
+      "engine/logs/archive/level3/20260529T071711Z/episode.log",
+      "engine/logs/archive/level4/20260529T071714Z/episode.log",
+      "engine/logs/archive/level5/20260529T071718Z/episode.log",
+      "engine/logs/archive/level6/20260529T071724Z/episode.log",
+      "engine/logs/archive/level7/20260529T071736Z/episode.log"
+    ]
+  },
+  "training": {
+    "kind": "mlp_policy_value",
+    "epochs": 5,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "checkpoint_every_epochs": 1,
+    "checkpoint_prefix": "policy_value_mlp_frontier_upto07_hd512_nl3_dev",
+    "metrics_filename": "epoch_metrics.jsonl",
+    "resume_from": null
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "levels": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      22,
+      24,
+      26,
+      28,
+      29,
+      30,
+      31,
+      35,
+      40,
+      41,
+      42,
+      45,
+      50
+    ],
+    "games_per_shard": 50,
+    "seed_start": 0,
+    "seed_end": 200,
+    "service_host": "127.0.0.1",
+    "service_port": 8145,
+    "mcts_simulations": 64,
+    "mcts_max_depth": 16,
+    "mcts_cpuct": 1.5
+  }
+}
