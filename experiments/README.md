@@ -5,7 +5,8 @@ This folder is the control plane for long-running AlphaSolitaire experiments.
 The recommendation is to keep the experiments stack Python-based while treating the Java engine as a worker process and source of deterministic game data. That keeps training, analytics, and orchestration close to the current neural-network code without forcing Java to become the owner of Python model workflows.
 
 Start with [DESIGN.md](DESIGN.md) for the current architecture, storage model, resumability rules, and implementation shape.
-See [RESULTS.md](RESULTS.md) for result presentation, experiment-program guidance, and promotion rules.
+See [RESULTS.md](RESULTS.md) for result presentation, runtime housekeeping, and promotion rules.
+Use notebooks under `experiments/notebooks/` for active research questions, goals, and experiment notes.
 
 Run ID note:
 
@@ -58,6 +59,7 @@ This control plane currently supports:
 ### Evaluation And Reporting
 
 - An `evaluation` spec section expands into restartable `alpha_level_eval_shard` tasks plus a follow-on `evaluation_report` task.
+- Use `evaluation.level` for one target level or `evaluation.levels` for a full level ladder in one run.
 - Evaluation starts the model service with the resolved checkpoint for each shard.
 - Deterministic game blocks are controlled through `seed_start`, `seed_end`, and `games_per_shard`.
 - Per-shard summaries are captured as JSON artifacts.
@@ -82,7 +84,7 @@ The DuckDB output now includes both the current-run rollups and cross-run compar
 - `evaluation_rollups_all_runs`
 - `evaluation_run_comparison`
 
-For result presentation, comparison guidance, and the recommended experiment ladder, see [RESULTS.md](RESULTS.md).
+For result presentation, promotion guidance, and runtime housekeeping, see [RESULTS.md](RESULTS.md).
 
 ### Operations And Runtime Health
 

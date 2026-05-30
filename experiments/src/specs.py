@@ -308,7 +308,23 @@ def _validate_evaluation(
         if not _resolve_repo_path(explicit_checkpoint).exists():
             raise SpecValidationError(f"evaluation checkpoint does not exist: {explicit_checkpoint}")
 
-    level = _require_int("evaluation.level", evaluation.get("level"), minimum=1)
+    raw_level = evaluation.get("level")
+    raw_levels = evaluation.get("levels")
+    if raw_level is not None and raw_levels is not None:
+        raise SpecValidationError("provide either 'evaluation.level' or 'evaluation.levels', not both")
+
+    levels: list[int] = []
+    if raw_levels is not None:
+        if not isinstance(raw_levels, list) or not raw_levels:
+            raise SpecValidationError("'evaluation.levels' must be a non-empty array when provided")
+        for index, level_value in enumerate(raw_levels):
+            levels.append(_require_int(f"evaluation.levels[{index}]", level_value, minimum=1))
+        if len(set(levels)) != len(levels):
+            raise SpecValidationError("'evaluation.levels' must not contain duplicates")
+    else:
+        levels.append(_require_int("evaluation.level", raw_level, minimum=1))
+
+    level = levels[0]
     games_per_shard = _require_int(
         "evaluation.games_per_shard",
         evaluation.get("games_per_shard"),
@@ -371,6 +387,7 @@ def _validate_evaluation(
     return {
         "kind": kind,
         "level": level,
+        "levels": levels,
         "games_per_shard": games_per_shard,
         "seed_start": seed_start,
         "seed_end": seed_end,
@@ -470,29 +487,36 @@ def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
     seed_end = int(evaluation["seed_end"])
     games_per_shard = int(evaluation["games_per_shard"])
     shard_starts = list(range(seed_start, seed_end, games_per_shard))
+    levels = [int(level) for level in evaluation.get("levels", [evaluation["level"]])]
 
-    for shard_index, game_start_index in enumerate(shard_starts):
-        requested_games = min(games_per_shard, seed_end - game_start_index)
-        tasks.append(
-            WorkflowTaskSpec(
-                name=f"evaluate-shard-{shard_index + 1:03d}",
-                kind="alpha_level_eval_shard",
-                payload_key="evaluation",
-                payload_overrides={
-                    "requested_games": requested_games,
-                    "game_start_index": game_start_index,
-                    "game_end_index_exclusive": game_start_index + requested_games,
-                    "shard_index": shard_index,
-                    "shard_count": len(shard_starts),
-                    "architecture_family": architecture.get("family"),
-                    "architecture_params": architecture.get("params", {}),
-                    "checkpoint_prefix": training.get("checkpoint_prefix"),
-                    "training_kind": training.get("kind"),
-                },
-                command=(),
-                working_directory="engine",
+    for level in levels:
+        for shard_index, game_start_index in enumerate(shard_starts):
+            requested_games = min(games_per_shard, seed_end - game_start_index)
+            if len(levels) == 1:
+                task_name = f"evaluate-shard-{shard_index + 1:03d}"
+            else:
+                task_name = f"evaluate-level-{level:03d}-shard-{shard_index + 1:03d}"
+            tasks.append(
+                WorkflowTaskSpec(
+                    name=task_name,
+                    kind="alpha_level_eval_shard",
+                    payload_key="evaluation",
+                    payload_overrides={
+                        "level": level,
+                        "requested_games": requested_games,
+                        "game_start_index": game_start_index,
+                        "game_end_index_exclusive": game_start_index + requested_games,
+                        "shard_index": shard_index,
+                        "shard_count": len(shard_starts),
+                        "architecture_family": architecture.get("family"),
+                        "architecture_params": architecture.get("params", {}),
+                        "checkpoint_prefix": training.get("checkpoint_prefix"),
+                        "training_kind": training.get("kind"),
+                    },
+                    command=(),
+                    working_directory="engine",
+                )
             )
-        )
 
     tasks.append(
         WorkflowTaskSpec(
@@ -500,6 +524,7 @@ def _build_evaluation_workflow(raw: Mapping[str, Any]) -> List[WorkflowTaskSpec]
             kind="evaluation_report",
             payload_key="evaluation",
             payload_overrides={
+                "levels": levels,
                 "architecture_family": architecture.get("family"),
                 "architecture_params": architecture.get("params", {}),
                 "checkpoint_prefix": training.get("checkpoint_prefix"),
