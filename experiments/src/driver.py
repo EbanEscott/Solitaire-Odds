@@ -6,6 +6,7 @@ import argparse
 from collections import Counter
 import json
 import shutil
+from statistics import median
 import subprocess
 import sys
 import time
@@ -107,6 +108,39 @@ class CleanupCandidate:
     path: Path
     category: str
     age_text: str
+
+
+@dataclass(frozen=True)
+class TaskRuntimeEstimate:
+    """Estimated runtime for one remaining task before the run starts."""
+
+    task_name: str
+    task_kind: str
+    estimated_seconds: float | None
+    basis: str
+
+
+@dataclass(frozen=True)
+class RunPreflightEstimate:
+    """Aggregate runtime estimate for the remaining tasks in one run."""
+
+    task_estimates: tuple[TaskRuntimeEstimate, ...]
+
+    @property
+    def remaining_task_count(self) -> int:
+        return len(self.task_estimates)
+
+    @property
+    def known_task_count(self) -> int:
+        return sum(1 for estimate in self.task_estimates if estimate.estimated_seconds is not None)
+
+    @property
+    def unknown_task_count(self) -> int:
+        return sum(1 for estimate in self.task_estimates if estimate.estimated_seconds is None)
+
+    @property
+    def estimated_seconds(self) -> float:
+        return sum(estimate.estimated_seconds or 0.0 for estimate in self.task_estimates)
 
 
 def _slugify(value: str) -> str:
@@ -888,6 +922,29 @@ def _format_age(delta: timedelta) -> str:
     return f"{total_seconds // 86400}d"
 
 
+def _format_duration_seconds(seconds: float | None) -> str:
+    """Render a wall-clock duration estimate in a compact human-readable form."""
+
+    if seconds is None:
+        return "unknown"
+
+    total_seconds = max(0, int(round(seconds)))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if secs or not parts:
+        parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
 def _format_repo_or_absolute_path(path: Path) -> str:
     """Render a path relative to the repo when possible, otherwise as an absolute path."""
 
@@ -902,6 +959,250 @@ def _latest_attempt(registry: ExperimentRegistry, task_id: int) -> AttemptRecord
 
     attempts = registry.list_task_attempts(task_id)
     return attempts[0] if attempts else None
+
+
+def _attempt_duration_seconds(attempt: AttemptRecord | None) -> float | None:
+    """Return one attempt's wall-clock duration in seconds when both timestamps exist."""
+
+    if attempt is None:
+        return None
+
+    started_at = _parse_utc_timestamp(attempt.started_at)
+    completed_at = _parse_utc_timestamp(attempt.completed_at)
+    if started_at is None or completed_at is None or completed_at < started_at:
+        return None
+    return (completed_at - started_at).total_seconds()
+
+
+def _matching_history_entries(
+    history_entries: list[dict[str, Any]],
+    payload: Mapping[str, Any],
+    match_keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """Select historical timings whose key parameters match the current payload."""
+
+    matched: list[dict[str, Any]] = []
+    for entry in history_entries:
+        historical_payload = entry["payload"]
+        if all(historical_payload.get(key) == payload.get(key) for key in match_keys):
+            matched.append(entry)
+    return matched
+
+
+def _estimate_task_duration_from_history(
+    *,
+    payload: Mapping[str, Any],
+    history_entries: list[dict[str, Any]],
+    unit_key: str,
+    unit_label: str,
+    match_keys: tuple[str, ...],
+) -> tuple[float | None, str]:
+    """Estimate a task duration from historical per-unit timings when possible."""
+
+    requested_units = payload.get(unit_key)
+    if not isinstance(requested_units, (int, float)) or requested_units <= 0:
+        return None, f"missing '{unit_key}' in task payload"
+
+    matched_entries = _matching_history_entries(history_entries, payload, match_keys)
+    candidate_entries = matched_entries or history_entries
+    unit_rates: list[float] = []
+    for entry in candidate_entries:
+        historical_units = entry["payload"].get(unit_key)
+        if not isinstance(historical_units, (int, float)) or historical_units <= 0:
+            continue
+        unit_rates.append(entry["duration_seconds"] / float(historical_units))
+
+    if not unit_rates:
+        return None, "no historical timing data"
+
+    estimated_seconds = median(unit_rates) * float(requested_units)
+    if matched_entries:
+        return (
+            estimated_seconds,
+            f"median historical {unit_label} rate from {len(unit_rates)} matching successful attempt(s)",
+        )
+    return (
+        estimated_seconds,
+        f"median historical {unit_label} rate from {len(unit_rates)} successful attempt(s)",
+    )
+
+
+def _estimate_task_duration_from_totals(
+    history_entries: list[dict[str, Any]],
+) -> tuple[float | None, str]:
+    """Estimate a task duration from total runtimes when no better model exists."""
+
+    durations = [entry["duration_seconds"] for entry in history_entries]
+    if not durations:
+        return None, "no historical timing data"
+    return median(durations), f"median historical total runtime from {len(durations)} successful attempt(s)"
+
+
+def _successful_history_by_kind(
+    registry: ExperimentRegistry,
+    task_kind: str,
+    cache: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Return cached successful historical attempt timings for one task kind."""
+
+    if task_kind in cache:
+        return cache[task_kind]
+
+    entries: list[dict[str, Any]] = []
+    for historical_task in registry.list_tasks_by_kind(task_kind=task_kind, task_status=TASK_SUCCEEDED):
+        latest_attempt = _latest_attempt(registry, historical_task.task_id)
+        if latest_attempt is None or latest_attempt.status != TASK_SUCCEEDED:
+            continue
+        duration_seconds = _attempt_duration_seconds(latest_attempt)
+        if duration_seconds is None:
+            continue
+        entries.append(
+            {
+                "payload": json.loads(historical_task.payload_json or "{}"),
+                "duration_seconds": duration_seconds,
+            }
+        )
+
+    cache[task_kind] = entries
+    return entries
+
+
+def _estimate_task_runtime(
+    *,
+    registry: ExperimentRegistry,
+    task_name: str,
+    task_kind: str,
+    payload: Mapping[str, Any],
+    history_cache: dict[str, list[dict[str, Any]]],
+) -> TaskRuntimeEstimate:
+    """Estimate one task runtime using successful historical attempts of the same kind."""
+
+    history_entries = _successful_history_by_kind(registry, task_kind, history_cache)
+    estimated_seconds: float | None
+    basis: str
+
+    if task_kind == "endgame_collect_shard":
+        estimated_seconds, basis = _estimate_task_duration_from_history(
+            payload=payload,
+            history_entries=history_entries,
+            unit_key="requested_games",
+            unit_label="game",
+            match_keys=("engine_test", "level", "randomise"),
+        )
+    elif task_kind == "alpha_level_eval_shard":
+        estimated_seconds, basis = _estimate_task_duration_from_history(
+            payload=payload,
+            history_entries=history_entries,
+            unit_key="requested_games",
+            unit_label="game",
+            match_keys=(
+                "engine_test",
+                "level",
+                "architecture_family",
+                "mcts_simulations",
+                "mcts_max_depth",
+                "mcts_cpuct",
+            ),
+        )
+    elif task_kind == "policy_value_train":
+        estimated_seconds, basis = _estimate_task_duration_from_history(
+            payload=payload,
+            history_entries=history_entries,
+            unit_key="epochs",
+            unit_label="epoch",
+            match_keys=("architecture_family", "training_kind", "dataset_kind"),
+        )
+    else:
+        estimated_seconds, basis = _estimate_task_duration_from_totals(history_entries)
+
+    return TaskRuntimeEstimate(
+        task_name=task_name,
+        task_kind=task_kind,
+        estimated_seconds=estimated_seconds,
+        basis=basis,
+    )
+
+
+def _estimate_remaining_runtime(
+    registry: ExperimentRegistry,
+    remaining_tasks: list[tuple[str, str, Mapping[str, Any]]],
+) -> RunPreflightEstimate:
+    """Estimate total runtime for the remaining tasks in the requested run."""
+
+    history_cache: dict[str, list[dict[str, Any]]] = {}
+    task_estimates = tuple(
+        _estimate_task_runtime(
+            registry=registry,
+            task_name=task_name,
+            task_kind=task_kind,
+            payload=payload,
+            history_cache=history_cache,
+        )
+        for task_name, task_kind, payload in remaining_tasks
+    )
+    return RunPreflightEstimate(task_estimates=task_estimates)
+
+
+def _print_run_preflight(run_id: str, preflight: RunPreflightEstimate) -> None:
+    """Print the pre-launch runtime estimate for the remaining tasks in one run."""
+
+    print(f"Preflight estimate for run {run_id}:")
+    if preflight.remaining_task_count == 0:
+        print("- No remaining tasks. The run is already complete.")
+        return
+
+    if preflight.unknown_task_count == 0:
+        print(f"- Estimated remaining runtime: {_format_duration_seconds(preflight.estimated_seconds)}")
+    elif preflight.known_task_count == 0:
+        print(
+            f"- Estimated remaining runtime: unknown; no historical timing data for {preflight.unknown_task_count} remaining task(s)"
+        )
+    else:
+        print(
+            f"- Estimated remaining runtime: at least {_format_duration_seconds(preflight.estimated_seconds)} "
+            f"plus {preflight.unknown_task_count} task(s) without historical timing data"
+        )
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for estimate in preflight.task_estimates:
+        group = grouped.setdefault(
+            estimate.task_kind,
+            {
+                "count": 0,
+                "estimated_seconds": 0.0,
+                "unknown_count": 0,
+                "bases": Counter(),
+            },
+        )
+        group["count"] += 1
+        if estimate.estimated_seconds is None:
+            group["unknown_count"] += 1
+        else:
+            group["estimated_seconds"] += estimate.estimated_seconds
+        group["bases"][estimate.basis] += 1
+
+    for task_kind, group in grouped.items():
+        count = int(group["count"])
+        unknown_count = int(group["unknown_count"])
+        basis, _ = group["bases"].most_common(1)[0]
+        if unknown_count == 0:
+            estimate_text = _format_duration_seconds(float(group["estimated_seconds"]))
+        elif unknown_count == count:
+            estimate_text = "unknown"
+        else:
+            estimate_text = f"at least {_format_duration_seconds(float(group['estimated_seconds']))}"
+        if unknown_count:
+            estimate_text = f"{estimate_text} ({unknown_count} task(s) without historical timing data)"
+        print(f"- {task_kind}: {count} task(s), {estimate_text}. Basis: {basis}.")
+
+
+def _prompt_for_run_confirmation(run_id: str, preflight: RunPreflightEstimate) -> bool:
+    """Ask the operator to confirm the estimated run before launching tasks."""
+
+    if preflight.remaining_task_count == 0:
+        return True
+    response = input(f"Continue with run {run_id} using the estimate above? [y/N] ").strip().lower()
+    return response in {"y", "yes"}
 
 
 def _resolve_attempt_log_path(attempt: AttemptRecord | None, filename: str) -> Path | None:
@@ -1821,6 +2122,49 @@ def _cmd_run(args: argparse.Namespace) -> int:
     tasks = _plan_tasks(spec, run_id, layout)
 
     with ExperimentRegistry(layout.database_path) as registry:
+        persisted_tasks_by_name: dict[str, TaskRecord] = {}
+        try:
+            registry.get_run(run_id)
+        except KeyError:
+            pass
+        else:
+            persisted_tasks_by_name = {
+                task.task_name: task for task in registry.list_tasks(run_id)
+            }
+
+        remaining_tasks: list[tuple[str, str, Mapping[str, Any]]] = []
+        for planned_task in tasks:
+            persisted_task = persisted_tasks_by_name.get(planned_task.task_name)
+            if persisted_task is not None and persisted_task.status == TASK_SUCCEEDED:
+                continue
+            if persisted_task is not None:
+                remaining_tasks.append(
+                    (
+                        persisted_task.task_name,
+                        persisted_task.task_kind,
+                        json.loads(persisted_task.payload_json or "{}"),
+                    )
+                )
+            else:
+                remaining_tasks.append(
+                    (
+                        planned_task.task_name,
+                        planned_task.task_kind,
+                        planned_task.payload,
+                    )
+                )
+
+        preflight = _estimate_remaining_runtime(registry, remaining_tasks)
+        _print_run_preflight(run_id, preflight)
+        if remaining_tasks and not args.yes:
+            if not sys.stdin.isatty():
+                raise RuntimeError(
+                    "run confirmation requires an interactive terminal; rerun with --yes to accept the estimate"
+                )
+            if not _prompt_for_run_confirmation(run_id, preflight):
+                print(f"Cancelled run {run_id} before launching any tasks.")
+                return 0
+
         registry.register_spec(
             spec_hash=spec.spec_hash,
             experiment_id=spec.experiment_id,
@@ -2177,6 +2521,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_HEARTBEAT_SECONDS,
         help="Heartbeat cadence while command tasks are running",
+    )
+    run_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Accept the preflight runtime estimate without an interactive confirmation prompt",
     )
     run_parser.set_defaults(func=_cmd_run)
 

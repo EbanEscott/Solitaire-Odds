@@ -335,6 +335,7 @@ Checklist:
 - [x] Add retention and cleanup policies for temporary workspaces.
 - [x] Add summary reports for failed runs and missing artifacts.
 - [x] Add simple local dashboards or reports if notebooks are no longer enough.
+- [x] Estimate remaining runtime before launch and require confirmation for interactive runs.
 - [x] Emit machine-readable runtime health output for automation.
 - [x] Document an unattended local maintenance workflow for `cron` or `launchd`.
 - [x] Reassess whether SQLite is still sufficient before considering a heavier service stack.
@@ -342,6 +343,7 @@ Checklist:
 Implementation note:
 
 - Heartbeat-based stale-task recovery remains part of `python -m experiments.src run`, and `python -m experiments.src doctor --recover-stale` now exposes the same recovery pass across all runs.
+- `python -m experiments.src run` now computes a coarse preflight runtime estimate for the remaining tasks from successful historical attempt timings, prints that estimate before task launch, and prompts for confirmation unless `--yes` is supplied for unattended execution.
 - `python -m experiments.src doctor` now writes both a markdown runtime dashboard and a JSON companion report that summarize recent runs, stale tasks, retryable or interrupted tasks, and missing artifacts.
 - `python -m experiments.src cleanup` applies a conservative retention policy to stale `.attempt-*.tmp` directories and aged files under `experiments/runtime/work`.
 - The operator workflow is now documented with small `cron` and `launchd` examples so the maintenance pass can run unattended on one machine.

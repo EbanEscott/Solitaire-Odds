@@ -196,6 +196,7 @@ Current Phase 6 capabilities:
 - `doctor --recover-stale` can reclaim stale running tasks across all runs before writing the report.
 - The health report highlights recent runs, stale tasks, retryable or interrupted tasks, and missing artifacts.
 - A `cleanup` command applies retention policies to stale `.attempt-*.tmp` directories and old files under `experiments/runtime/work`.
+- `run` now prints a preflight runtime estimate from successful historical task timings and asks for confirmation before launching work.
 - The driver now persists archived attempt stdout and stderr paths in their finalized locations so later operator reports point at durable artifacts.
 - The Phase 6 workflow is documented for unattended single-machine scheduling through either `cron` or `launchd`.
 - SQLite remains the recommended registry store for the current single-machine control plane.
@@ -207,6 +208,12 @@ source neural-network/.venv/bin/activate
 
 # Write a runtime health dashboard covering all runs
 python -m experiments.src doctor
+
+# Review the estimated runtime and confirm before launching a run
+python -m experiments.src run experiments/specs/alpha_phase4_demo.json --run-id phase6-estimate-demo
+
+# Accept the preflight estimate without a prompt for unattended launches
+python -m experiments.src run experiments/specs/alpha_phase4_demo.json --run-id phase6-estimate-demo --yes
 
 # Override the JSON companion output path when automation wants a fixed location
 python -m experiments.src doctor --json-output experiments/runtime/work/runtime_health_custom.json
@@ -225,6 +232,8 @@ The default `doctor` output now writes both:
 
 - `experiments/runtime/work/runtime_health_report.md`
 - `experiments/runtime/work/runtime_health_report.json`
+
+The preflight runtime estimate is intentionally approximate. It uses successful historical attempt timings for similar task kinds and payloads when that data exists, then falls back to broader task-kind medians when it does not.
 
 Unattended maintenance note:
 
@@ -261,6 +270,8 @@ Launchd example:
 </dict>
 </plist>
 ```
+
+If you launch experiment runs from other unattended entry points, pass `--yes` so the preflight confirmation does not block waiting for operator input.
 
 Planned responsibilities for this folder:
 
