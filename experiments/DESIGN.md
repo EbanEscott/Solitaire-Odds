@@ -1,22 +1,18 @@
 # Experiments Design
 
-## Recommendation
+## Current Stack Choice
 
-The experiments stack should be Python-based.
+The experiments stack is Python-based.
 
-That does not mean moving gameplay or engine logic out of Java. It means the orchestration layer that plans, resumes, records, and analyses experiments should live in Python and call the Java engine through stable CLI boundaries.
+Gameplay, rules, generators, and engine-side tests remain in Java. The orchestration layer that plans, resumes, records, and analyses experiments lives in Python and calls the Java engine through stable CLI boundaries.
 
-## Why Python Over Java
+Current module ownership:
 
-Python is the better fit for this layer because:
+- `experiments/` owns orchestration, run state, artifact management, and analysis outputs.
+- `engine/` owns Solitaire rules, data generation, and engine-side evaluation.
+- `neural-network/` owns datasets, model code, training code, and model serving.
 
-- The current model training, checkpoints, and service already live in `neural-network/`.
-- Experiment analysis will naturally lean on Python tooling such as notebooks, DuckDB, Parquet, pandas, or polars.
-- Orchestration work is mostly subprocess control, artifact management, spec parsing, and metrics aggregation, which is simpler in Python.
-- A Java-based driver would still need to shell out to Python for training and model-side analysis, creating a split-brain control plane.
-- Future GNN work is much more likely to stay Python-first than Java-first.
-
-Java would be the better choice only if the new layer were primarily an engine benchmark harness with deep in-process access to engine internals and almost no model-side workflow. That is not the direction here.
+This split matches the current implementation: training and analysis are Python-first, while the game engine remains Java-first.
 
 ## Goals
 
@@ -26,16 +22,16 @@ Java would be the better choice only if the new layer were primarily an engine b
 - Replace ad hoc markdown-only findings with structured, queryable experiment data.
 - Keep the engine and neural-network modules focused on their existing concerns.
 
-## Non-Goals For The First Proof Of Concept
+## Current Non-Goals
 
 - Multi-machine distributed scheduling.
 - Real-time dashboards served to multiple users.
 - Heavy external orchestration platforms such as Airflow, Ray, MLflow, or Celery.
 - Replacing the existing engine-to-model HTTP evaluation path.
 
-## Placement In The Repository
+## Repository Layout
 
-The new driver belongs in a third top-level folder:
+The experiments control plane lives in a third top-level folder:
 
 ```text
 experiments/
@@ -50,18 +46,18 @@ experiments/
     work/
 ```
 
-Reasoning:
+Current folder ownership:
 
 - `engine/` should stay focused on Solitaire rules, players, generators, and engine-side tests.
 - `neural-network/` should stay focused on datasets, model code, training code, and model serving.
 - `experiments/` is a control-plane concern that coordinates both modules but should not be owned by either.
 
-Tracked versus ignored content should be split cleanly:
+Tracked versus ignored content is split as:
 
 - Track: docs, specs, small schemas, generated summary reports worth reviewing.
 - Ignore: runtime DB files, temporary workspaces, large logs, checkpoints, parquet exports, and large generated artifacts.
 
-## Proposed Architecture
+## Current Architecture
 
 ### Control Plane
 
@@ -76,7 +72,7 @@ The experiments driver owns:
 
 ### Worker Boundaries
 
-The driver should call existing module entry points rather than reimplement them:
+The driver calls existing module entry points rather than reimplementing them:
 
 - Java engine for episode generation and evaluation.
 - Python trainer for model training.
@@ -84,13 +80,13 @@ The driver should call existing module entry points rather than reimplement them
 
 This keeps the contracts narrow and prevents the orchestration layer from reaching into internals too early.
 
-## Protocol And Storage Recommendations
+## Current Protocol And Storage Model
 
-Use different technologies for different jobs instead of forcing one tool to do everything.
+The current stack uses different technologies for different jobs.
 
 ### 1. Experiment Specs
 
-- Format: YAML or JSON.
+- Format: JSON.
 - Purpose: human-authored, versioned experiment definitions.
 - Scope: architecture family, dataset lineage, training config, evaluation config, and sweep params.
 
@@ -110,7 +106,7 @@ Use different technologies for different jobs instead of forcing one tool to do 
 
 - Format: SQLite.
 - Purpose: source of truth for run state, resumability, task status, lineage pointers, and heartbeats.
-- Reason: embedded, portable, simple to inspect, and enough for a single-machine proof of concept.
+- Current fit: embedded, portable, simple to inspect, and sufficient for the current single-machine stack.
 
 ### 5. Analysis Store
 
@@ -126,9 +122,9 @@ Use different technologies for different jobs instead of forcing one tool to do 
 
 ## Resumability Model
 
-Resumability should come from small idempotent work units, not from hoping one giant process never fails.
+Resumability comes from small idempotent work units, not from one giant process staying alive indefinitely.
 
-The basic hierarchy should be:
+The current hierarchy is:
 
 - Experiment: a named intent such as `mlp-hidden-dim-sweep-v1`.
 - Run: one concrete config generated from a spec.
@@ -150,9 +146,9 @@ Rules for resumability:
 - Make output directories immutable after successful completion.
 - Record command line, code revision, parent checkpoint, and data sources for every run.
 
-## Suggested Data Model
+## Current Registry Model
 
-The registry schema can stay small at first. These tables are enough for a proof of concept:
+The registry stays intentionally small. Current core tables:
 
 - `experiment_specs`
 - `runs`
@@ -183,41 +179,45 @@ Useful run dimensions to persist:
 
 ## Architecture-Aware Experiment Contract
 
-The driver should not assume every model is an MLP.
+The driver does not assume every model is an MLP.
 
-Use a common experiment contract with architecture-specific parameters nested under a family key.
+The current contract nests architecture-specific parameters under a family key.
 
 Example:
 
-```yaml
-api_version: v1
-experiment_id: mlp_baseline_sweep_v1
-
-architecture:
-  family: mlp
-  params:
-    hidden_dim: 512
-    num_layers: 3
-    batch_norm: false
-    residual: false
-
-dataset:
-  kind: archived_episode_logs
-  sources:
-    - ../engine/logs/archive/level2/20260529T071709Z/episode.log
-    - ../engine/logs/archive/level3/20260529T071711Z/episode.log
-
-training:
-  epochs: 20
-  batch_size: 64
-  learning_rate: 0.001
-  resume_from: null
-
-evaluation:
-  suite: alpha_seeded_levels
-  games_per_shard: 100
-  seed_start: 0
-  seed_end: 5000
+```json
+{
+  "api_version": "v1",
+  "experiment_id": "mlp_baseline_sweep_v1",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 512,
+      "num_layers": 3,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log",
+      "engine/logs/archive/level3/20260529T071711Z/episode.log"
+    ]
+  },
+  "training": {
+    "epochs": 20,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "resume_from": null
+  },
+  "evaluation": {
+    "suite": "alpha_seeded_levels",
+    "games_per_shard": 100,
+    "seed_start": 0,
+    "seed_end": 5000
+  }
+}
 ```
 
 The same contract now supports both `family: mlp` and `family: gnn`, with each family owning its own parameter validation and trainer arguments.
@@ -227,142 +227,92 @@ Dataset sourcing now has two supported modes:
 - `dataset.kind: archived_episode_logs` reuses existing archived logs listed in `dataset.sources`.
 - `dataset.kind: run_collection_episode_logs` resolves successful collection shard artifacts from the same run so one experiment can collect fresh data, train on it, and then evaluate the resulting checkpoint.
 
-## Recommended Implementation Style
+## Current Implementation Approach
 
-Keep the proof of concept lightweight.
+The current control plane stays lightweight.
 
-- Start with Python standard library where possible: `argparse`, `subprocess`, `sqlite3`, `json`, `pathlib`, `dataclasses`.
-- Add DuckDB when the structured analytics phase starts.
-- Add pandas or polars only when notebook or reporting ergonomics justify it.
-- Avoid heavy experiment platforms until the single-machine workflow is clearly insufficient.
+- The orchestration core uses Python standard library modules such as `argparse`, `subprocess`, `sqlite3`, `json`, `pathlib`, and `dataclasses`.
+- Structured evaluation reporting uses DuckDB and Parquet outputs.
+- The stack does not depend on heavier orchestration platforms such as Airflow, Ray, MLflow, or Celery.
 
-## Proof Of Concept Phases
+## Current Implementation Status
 
-### Phase 1: Driver Skeleton
+### Orchestration And Registry
 
-Goal: run one MLP experiment from a spec and resume it after interruption.
+The current driver is a Python CLI under `experiments/src` that reads versioned JSON specs, expands them into concrete tasks, records run state in SQLite, and resumes work by `run_id`.
 
-Checklist:
+Current implementation details:
 
-- [x] Create `experiments/specs/` and define a versioned experiment spec format.
-- [x] Create `experiments/src/` with a small driver CLI.
-- [x] Implement SQLite registry tables for runs, tasks, attempts, and artifacts.
-- [x] Implement run status transitions and heartbeat handling.
-- [x] Define artifact directory naming and manifest rules.
-- [x] Prove that a stopped run can be resumed without duplicating completed tasks.
+- Runs, tasks, attempts, artifact manifests, and flattened run parameters are persisted in the registry.
+- Every task attempt writes into a temporary artifact directory and only becomes durable after validation and finalization.
+- Task heartbeats are written while work is active so stale attempts can be reclaimed.
+- Resume semantics are task-oriented: successful tasks are skipped, interrupted or retryable tasks are eligible to run again, and the run record remains the source of truth for overall status.
 
-Implementation note:
+### Collection And Dataset Sourcing
 
-- The current Phase 1 workflow derives `collect`, `train`, and `evaluate` tasks from the spec and executes them as `noop` tasks by default. That is intentional. The goal of this phase is to prove spec loading, registry behavior, artifact layout, heartbeat tracking, and resume semantics before wiring the real engine and trainer subprocesses in later phases.
+The current collection path generates deterministic endgame datasets through the Java engine in restartable shards.
 
-### Phase 2: Sharded Data Collection
+Current implementation details:
 
-Goal: generate reproducible episode datasets from the Java engine in restartable shards.
+- `collection.shard_count` and `collection.games_per_shard` define the shard plan.
+- Multi-shard collection requires `collection.randomise=true` so shards do not reproduce the same deterministic data.
+- Each shard can receive an explicit `endgame.random.seed`, preserving reproducibility while allowing shards to differ.
+- Generated `episode*.log` files are moved into finalized task artifacts together with stdout, stderr, command metadata, and a collection summary.
+- Dataset sourcing supports both archived logs and same-run collection artifacts.
 
-Checklist:
+### Training
 
-- [x] Define a shard unit for collection such as fixed seed blocks or game-count blocks.
-- [x] Wrap the engine invocation behind a stable driver task.
-- [x] Archive shard outputs into immutable artifact directories.
-- [x] Capture stdout, stderr, command line, and code revision for each shard.
-- [x] Validate shard completeness before marking it successful.
-- [x] Support retry of failed or interrupted shards only.
+The current training path drives the Python trainer through one `policy_value_train` task per run.
 
-Implementation note:
+Current implementation details:
 
-- The current shard contract uses `collection.shard_count` and `collection.games_per_shard`.
-- Multi-shard collection requires `collection.randomise=true` so repeated engine invocations do not regenerate the same deterministic dataset.
-- Each shard now receives an explicit `endgame.random.seed`, which preserves reproducibility while allowing shards to differ from each other.
+- Training writes epoch checkpoints, a rolling `*_latest.pt` checkpoint, JSONL metrics, and a structured training summary.
+- Resume uses optimizer state, RNG state, completed epoch, and global step from the latest valid checkpoint of the same task.
+- Training supports both `mlp_policy_value` and `gnn_policy_value`.
+- Training datasets can come from existing archived logs or from successful collection artifacts produced earlier in the same run.
 
-### Phase 3: Resumable MLP Training
+### Evaluation And Analysis
 
-Goal: train the current MLP through the driver with periodic checkpoints and restart support.
+The current evaluation path runs seeded AlphaSolitaire evaluation in restartable shards and then materializes structured reporting outputs.
 
-Checklist:
+Current implementation details:
 
-- [x] Extend training to save periodic checkpoints, not just a final checkpoint.
-- [x] Persist optimizer state, scheduler state if added, RNG state, and current epoch or step.
-- [x] Resume training from the latest valid checkpoint.
-- [x] Emit structured per-epoch metrics for later analysis.
-- [x] Record produced checkpoints and lineage in the registry.
-- [x] Validate recovery from a simulated interruption mid-training.
+- Evaluation expands into one task per deterministic game block using `seed_start`, `seed_end`, and `games_per_shard`.
+- Each shard starts the model service from the resolved checkpoint, runs `AlphaSolitaireLevelTest`, and captures a structured JSON summary artifact.
+- A follow-on report task aggregates shard summaries into JSONL, Parquet, DuckDB views, SQL, and markdown.
+- Cross-run analysis includes successful completed historical evaluation runs so DuckDB can expose run-to-run comparison views.
 
-Implementation note:
+### Architecture Support
 
-- The trainer now writes both epoch-specific checkpoints and a rolling `*_latest.pt` checkpoint.
-- Resume uses optimizer state, RNG state, completed epoch, and global step from the previous checkpoint.
-- Training can now consume either existing archived logs or successful collection artifacts produced earlier in the same run.
-- The current demo flow intentionally interrupts after epoch 1 and then resumes from the checkpoint saved in the prior attempt artifact directory.
+The current experiment contract is architecture-aware rather than MLP-specific.
 
-### Phase 4: Structured Evaluation And Analysis
+Current implementation details:
 
-Goal: replace manual findings with structured experiment outputs that can be queried and compared.
+- `experiments/src/architectures.py` owns family-specific validation and trainer CLI construction.
+- Specs support `architecture.family` values `mlp` and `gnn`.
+- Matching training kinds are `mlp_policy_value` and `gnn_policy_value`.
+- The current GNN family is a legal-move graph model over the encoded board state and the active legal-move mask.
+- MLP and GNN use the same evaluation workflow and checkpoint resolution model.
 
-Checklist:
+### Operations And Hardening
 
-- [x] Run seeded evaluation in restartable shards.
-- [x] Normalize evaluation summaries into Parquet tables.
-- [x] Add DuckDB queries or views for win rate, confidence interval, runtime, and lineage comparisons.
-- [x] Create one notebook or local report that can slice results by architecture and hyperparameters.
-- [x] Generate markdown summaries from structured data instead of writing them by hand.
+The current single-machine stack includes operator-facing runtime health and maintenance commands.
 
-Implementation note:
+Current implementation details:
 
-- Evaluation now expands into one task per deterministic game block using `seed_start`, `seed_end`, and `games_per_shard`.
-- Each shard starts its own model service from the resolved checkpoint, runs `AlphaSolitaireLevelTest`, and captures a structured JSON summary artifact.
-- A final report task aggregates the shard summaries into JSONL, Parquet, DuckDB views, and a generated markdown report with Wilson confidence intervals.
-- The report task also loads successful evaluation shard summaries from other completed runs so DuckDB can expose cross-run rollups and run-to-run comparison views.
+- `python -m experiments.src doctor` writes both a markdown runtime dashboard and a JSON companion report.
+- `doctor --recover-stale` exposes stale-task recovery across all runs.
+- `python -m experiments.src cleanup` applies conservative retention rules to stale temporary attempt directories and aged work files.
+- `python -m experiments.src run` prints a coarse preflight runtime estimate and prompts for confirmation unless `--yes` is supplied.
+- Small `cron` and `launchd` workflows are sufficient for unattended maintenance on one machine.
+- SQLite remains sufficient because the workload is still single-machine and the registry access pattern is low-concurrency.
 
-### Phase 5: Architecture Adapter Layer
+## Current End-To-End Slice
 
-Goal: support MLP and GNN under one experiment interface.
+The implemented end-to-end slice now looks like this:
 
-Checklist:
-
-- [x] Introduce an architecture adapter contract in the driver.
-- [x] Move current MLP support behind that contract.
-- [x] Define GNN-specific dataset preparation and training parameters.
-- [x] Support architecture-specific validation rules in experiment specs.
-- [x] Run comparable experiments across MLP and GNN using the same evaluation suites.
-
-Implementation note:
-
-- `experiments/src/architectures.py` now owns family-specific validation and trainer CLI construction.
-- Specs currently support `architecture.family` values `mlp` and `gnn`, with matching `training.kind` values `mlp_policy_value` and `gnn_policy_value`.
-- The current GNN family is a legal-move graph model over the encoded board state and the active legal-move mask. It reuses archived episode logs and the same `alpha_level_suite` evaluation workflow as the MLP family.
-
-### Phase 6: Hardening And Scale-Up
-
-Goal: make the single-machine stack reliable enough for long unattended runs.
-
-Checklist:
-
-- [x] Add stale-heartbeat recovery rules.
-- [x] Add retention and cleanup policies for temporary workspaces.
-- [x] Add summary reports for failed runs and missing artifacts.
-- [x] Add simple local dashboards or reports if notebooks are no longer enough.
-- [x] Estimate remaining runtime before launch and require confirmation for interactive runs.
-- [x] Emit machine-readable runtime health output for automation.
-- [x] Document an unattended local maintenance workflow for `cron` or `launchd`.
-- [x] Reassess whether SQLite is still sufficient before considering a heavier service stack.
-
-Implementation note:
-
-- Heartbeat-based stale-task recovery remains part of `python -m experiments.src run`, and `python -m experiments.src doctor --recover-stale` now exposes the same recovery pass across all runs.
-- `python -m experiments.src run` now computes a coarse preflight runtime estimate for the remaining tasks from successful historical attempt timings, prints that estimate before task launch, and prompts for confirmation unless `--yes` is supplied for unattended execution.
-- `python -m experiments.src doctor` now writes both a markdown runtime dashboard and a JSON companion report that summarize recent runs, stale tasks, retryable or interrupted tasks, and missing artifacts.
-- `python -m experiments.src cleanup` applies a conservative retention policy to stale `.attempt-*.tmp` directories and aged files under `experiments/runtime/work`.
-- The operator workflow is now documented with small `cron` and `launchd` examples so the maintenance pass can run unattended on one machine.
-- SQLite remains sufficient for the current control plane because the workload is still single-machine, the registry access pattern is low-concurrency, and Phase 6 hardening only needed direct scans and point updates rather than a distributed scheduler.
-
-## Recommended First Build Slice
-
-The smallest useful slice is:
-
-1. A Python driver that reads one MLP experiment spec.
-2. A SQLite registry that tracks collection, training, and evaluation tasks.
-3. Sharded engine collection.
-4. Resumable MLP training.
-5. One DuckDB-backed report that compares completed runs.
-
-That slice proved the architecture and created the extension seam used by the Phase 5 multi-family work.
+1. Read a versioned experiment spec.
+2. Collect fresh logs or reference archived logs.
+3. Train an MLP or GNN checkpoint with resumable attempts.
+4. Evaluate that checkpoint in deterministic shards.
+5. Materialize structured analysis outputs and runtime health reports.
