@@ -24,6 +24,10 @@ OUTPUT_DIR = REPO_ROOT / "experiments" / "specs"
 # where prior archived-model runs broke near Levels 19, 30-31, and 42.
 EVALUATION_LEVELS = list(range(2, 21)) + [22, 24, 26, 28, 29, 30, 31, 35, 40, 41, 42, 45, 50]
 FRONTIER_LEVELS = list(range(2, 11))
+# Use a single shard per level. Deterministic seeded evaluation can yield fewer
+# actual games than requested, which makes later shards empty and causes the run
+# to fail before the ladder completes.
+EVALUATION_REQUESTED_GAMES = 200
 MLP_CONFIGS = (
     {"slug": "hd128_nl1", "hidden_dim": 128, "num_layers": 1},
     {"slug": "hd256_nl2", "hidden_dim": 256, "num_layers": 2},
@@ -94,9 +98,9 @@ def _build_spec(frontier_level: int, config_index: int, config: dict[str, int | 
         "evaluation": {
             "kind": "alpha_level_suite",
             "levels": EVALUATION_LEVELS,
-            "games_per_shard": 50,
+            "games_per_shard": EVALUATION_REQUESTED_GAMES,
             "seed_start": 0,
-            "seed_end": 200,
+            "seed_end": EVALUATION_REQUESTED_GAMES,
             "service_host": "127.0.0.1",
             "service_port": _build_service_port(config_index, frontier_level),
             "mcts_simulations": 64,
