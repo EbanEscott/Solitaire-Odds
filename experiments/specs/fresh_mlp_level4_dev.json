@@ -1,0 +1,46 @@
+{
+  "api_version": "v1",
+  "experiment_id": "fresh-mlp-collect-level4-eval-level4-dev",
+  "description": "Development fresh-data MLP comparison run that collects Level 4 logs, trains on the collected data, and evaluates on Level 4.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "collection": {
+    "kind": "endgame_level_dataset",
+    "level": 4,
+    "shard_count": 4,
+    "games_per_shard": 25,
+    "randomise": true,
+    "seed_base": 4100
+  },
+  "dataset": {
+    "kind": "run_collection_episode_logs"
+  },
+  "training": {
+    "kind": "mlp_policy_value",
+    "epochs": 3,
+    "batch_size": 16,
+    "learning_rate": 0.001,
+    "checkpoint_every_epochs": 1,
+    "checkpoint_prefix": "policy_value_fresh_mlp_l4_dev",
+    "metrics_filename": "epoch_metrics.jsonl",
+    "resume_from": null
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "level": 4,
+    "games_per_shard": 5,
+    "seed_start": 0,
+    "seed_end": 20,
+    "service_port": 8026,
+    "mcts_simulations": 64,
+    "mcts_max_depth": 16,
+    "mcts_cpuct": 1.5
+  }
+}

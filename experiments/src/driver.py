@@ -5,17 +5,19 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import os
 import shutil
 from statistics import median
 import subprocess
 import sys
+from threading import Thread
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, TextIO
 
 from .architectures import get_adapter_for_family
 from .architectures import (
@@ -633,6 +635,27 @@ def _stop_process(process: subprocess.Popen[str] | None) -> None:
         process.wait(timeout=5)
 
 
+def _forward_process_output(
+    pipe: TextIO | None,
+    log_handle: TextIO,
+    console_handle: TextIO,
+    prefix: str,
+) -> None:
+    """Copy one subprocess stream into the attempt log and, optionally, the operator console."""
+
+    if pipe is None:
+        return
+
+    try:
+        for line in pipe:
+            log_handle.write(line)
+            log_handle.flush()
+            console_handle.write(f"{prefix}{line}")
+            console_handle.flush()
+    finally:
+        pipe.close()
+
+
 def _run_endgame_collect_shard(
     *,
     registry: ExperimentRegistry,
@@ -644,6 +667,7 @@ def _run_endgame_collect_shard(
     stdout_path: Path,
     stderr_path: Path,
     heartbeat_seconds: int,
+    live_output: bool,
 ) -> tuple[int, str | None]:
     """Run one endgame collection shard and archive its generated episode logs."""
 
@@ -666,6 +690,19 @@ def _run_endgame_collect_shard(
     )
     registry.connection.commit()
 
+    print(
+        "  Collection shard details: "
+        f"level={payload.get('level')}, "
+        f"requested_games={payload.get('requested_games')}, "
+        f"randomise={payload.get('randomise', False)}, "
+        f"seed={payload.get('shard_seed')}"
+    )
+    print(
+        "  Collection logs: "
+        f"stdout={_format_repo_or_absolute_path(stdout_path)}, "
+        f"stderr={_format_repo_or_absolute_path(stderr_path)}"
+    )
+
     # The engine currently writes episode logs to a shared working directory. Move any existing
     # files out of the way first so the shard can capture only the logs produced by this attempt.
     _move_episode_logs(engine_logs_dir, backup_dir)
@@ -682,6 +719,7 @@ def _run_endgame_collect_shard(
             stdout_path=stdout_path,
             stderr_path=stderr_path,
             heartbeat_seconds=heartbeat_seconds,
+            live_output=live_output,
         )
     finally:
         generated_logs = _move_episode_logs(engine_logs_dir, collected_logs_dir)
@@ -731,6 +769,7 @@ def _run_policy_value_train(
     stdout_path: Path,
     stderr_path: Path,
     heartbeat_seconds: int,
+    live_output: bool,
 ) -> tuple[int, str | None]:
     """Run one resumable policy-value training attempt and summarize its checkpoint outputs."""
 
@@ -755,6 +794,23 @@ def _run_policy_value_train(
     )
     registry.connection.commit()
 
+    print(
+        "  Training details: "
+        f"family={payload.get('architecture_family')}, "
+        f"dataset_kind={payload.get('dataset_kind')}, "
+        f"dataset_sources={len(resolved_dataset_sources)}, "
+        f"epochs={payload.get('epochs')}, "
+        f"batch_size={payload.get('batch_size')}"
+    )
+    print(
+        "  Training outputs: "
+        f"checkpoint_prefix={payload.get('checkpoint_prefix', 'policy_value')}, "
+        f"metrics={_format_repo_or_absolute_path(metrics_output)}, "
+        f"stdout={_format_repo_or_absolute_path(stdout_path)}"
+    )
+    if resume_checkpoint is not None:
+        print(f"  Resuming from checkpoint: {_format_repo_or_absolute_path(resume_checkpoint)}")
+
     exit_code = _run_command_task(
         registry=registry,
         run_id=run_id,
@@ -765,6 +821,7 @@ def _run_policy_value_train(
         stdout_path=stdout_path,
         stderr_path=stderr_path,
         heartbeat_seconds=heartbeat_seconds,
+        live_output=live_output,
     )
 
     checkpoint_files = sorted(path for path in checkpoint_dir.glob("*.pt") if path.is_file())
@@ -819,6 +876,7 @@ def _run_alpha_level_eval_shard(
     stderr_path: Path,
     heartbeat_seconds: int,
     layout: RuntimeLayout,
+    live_output: bool,
 ) -> tuple[int, str | None]:
     """Run one AlphaSolitaire evaluation shard against a driver-managed model service."""
 
@@ -864,10 +922,30 @@ def _run_alpha_level_eval_shard(
     service_stderr_path = temp_dir / "service_stderr.log"
     service_process: subprocess.Popen[str] | None = None
 
+    print(
+        "  Evaluation details: "
+        f"level={payload.get('level')}, "
+        f"games={payload.get('requested_games')}, "
+        f"range={payload.get('game_start_index')}..{payload.get('game_end_index_exclusive')}, "
+        f"checkpoint={_format_repo_or_absolute_path(checkpoint_path)}"
+    )
+    print(
+        "  Evaluation outputs: "
+        f"summary={_format_repo_or_absolute_path(raw_summary_output)}, "
+        f"stdout={_format_repo_or_absolute_path(stdout_path)}, "
+        f"stderr={_format_repo_or_absolute_path(stderr_path)}"
+    )
+    print(
+        "  Model service logs: "
+        f"stdout={_format_repo_or_absolute_path(service_stdout_path)}, "
+        f"stderr={_format_repo_or_absolute_path(service_stderr_path)}"
+    )
+
     try:
         with service_stdout_path.open("w", encoding="utf-8") as service_stdout_handle, service_stderr_path.open(
             "w", encoding="utf-8"
         ) as service_stderr_handle:
+            print(f"  Starting model service at {service_base_url}")
             service_process = subprocess.Popen(
                 service_command,
                 cwd=str(neural_dir),
@@ -880,6 +958,8 @@ def _run_alpha_level_eval_shard(
             if service_error is not None:
                 return 1, service_error
 
+            print("  Model service is ready; starting engine evaluation.")
+
             exit_code = _run_command_task(
                 registry=registry,
                 run_id=run_id,
@@ -890,6 +970,7 @@ def _run_alpha_level_eval_shard(
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
+                live_output=live_output,
             )
     finally:
         _stop_process(service_process)
@@ -1895,23 +1976,54 @@ def _run_command_task(
     stdout_path: Path,
     stderr_path: Path,
     heartbeat_seconds: int,
+    live_output: bool,
 ) -> int:
     """Run one command task while continuously refreshing registry heartbeats."""
+
+    environment = os.environ.copy()
+    environment.setdefault("PYTHONUNBUFFERED", "1")
 
     with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open(
         "w", encoding="utf-8"
     ) as stderr_handle:
-        process = subprocess.Popen(
-            command,
-            cwd=str(working_directory),
-            stdout=stdout_handle,
-            stderr=stderr_handle,
-            text=True,
-        )
+        if live_output:
+            process = subprocess.Popen(
+                command,
+                cwd=str(working_directory),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                env=environment,
+            )
+            stdout_thread = Thread(
+                target=_forward_process_output,
+                args=(process.stdout, stdout_handle, sys.stdout, f"[{task.task_name}] "),
+                daemon=True,
+            )
+            stderr_thread = Thread(
+                target=_forward_process_output,
+                args=(process.stderr, stderr_handle, sys.stderr, f"[{task.task_name} stderr] "),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+        else:
+            process = subprocess.Popen(
+                command,
+                cwd=str(working_directory),
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                text=True,
+                env=environment,
+            )
 
         while True:
             exit_code = process.poll()
             if exit_code is not None:
+                if live_output:
+                    stdout_thread.join(timeout=1)
+                    stderr_thread.join(timeout=1)
                 # Emit a final heartbeat on completion so stale-recovery logic does not briefly
                 # see a finished command as abandoned if the process exits between poll cycles.
                 registry.heartbeat(run_id, task.task_id, attempt_id)
@@ -1928,6 +2040,7 @@ def _execute_task(
     layout: RuntimeLayout,
     registry: ExperimentRegistry,
     heartbeat_seconds: int,
+    live_output: bool,
 ) -> None:
     """Execute one task attempt and finalize its artifact directory atomically."""
 
@@ -1979,6 +2092,7 @@ def _execute_task(
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
+                live_output=live_output,
             )
         elif task.task_kind == "endgame_collect_shard":
             exit_code, error_message = _run_endgame_collect_shard(
@@ -1991,6 +2105,7 @@ def _execute_task(
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
+                live_output=live_output,
             )
         elif task.task_kind == "policy_value_train":
             exit_code, error_message = _run_policy_value_train(
@@ -2003,6 +2118,7 @@ def _execute_task(
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
+                live_output=live_output,
             )
         elif task.task_kind == "alpha_level_eval_shard":
             exit_code, error_message = _run_alpha_level_eval_shard(
@@ -2016,6 +2132,7 @@ def _execute_task(
                 stderr_path=stderr_path,
                 heartbeat_seconds=heartbeat_seconds,
                 layout=layout,
+                live_output=live_output,
             )
         elif task.task_kind == "evaluation_report":
             exit_code, error_message = _run_evaluation_report(
@@ -2074,6 +2191,10 @@ def _execute_task(
             exit_code=0,
             error_message=None,
             status_message=None,
+        )
+        print(
+            f"Completed task {task.task_order:02d} {task.task_name} [{task.task_kind}] "
+            f"artifacts={_format_repo_or_absolute_path(final_dir)}"
         )
     except KeyboardInterrupt:
         # Interrupted attempts are still archived with a manifest so resume logic and post-mortem
@@ -2265,6 +2386,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 layout=layout,
                 registry=registry,
                 heartbeat_seconds=args.heartbeat_seconds,
+                live_output=args.live_output,
             )
             executed += 1
 
@@ -2569,6 +2691,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes",
         action="store_true",
         help="Accept the preflight runtime estimate without an interactive confirmation prompt",
+    )
+    run_parser.add_argument(
+        "--live-output",
+        action="store_true",
+        help="Stream child process stdout and stderr to the console while still writing attempt logs",
     )
     run_parser.set_defaults(func=_cmd_run)
 

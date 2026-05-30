@@ -1,0 +1,43 @@
+{
+  "api_version": "v1",
+  "experiment_id": "archived-mlp-train-l2to4-eval-level4-dev",
+  "description": "Development archived-data MLP comparison run trained on archived Levels 2 through 4 and evaluated on Level 4.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log",
+      "engine/logs/archive/level3/20260529T071711Z/episode.log",
+      "engine/logs/archive/level4/20260529T071714Z/episode.log"
+    ]
+  },
+  "training": {
+    "kind": "mlp_policy_value",
+    "epochs": 3,
+    "batch_size": 16,
+    "learning_rate": 0.001,
+    "checkpoint_every_epochs": 1,
+    "checkpoint_prefix": "policy_value_archived_mlp_l2to4_l4_dev",
+    "metrics_filename": "epoch_metrics.jsonl",
+    "resume_from": null
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "level": 4,
+    "games_per_shard": 5,
+    "seed_start": 0,
+    "seed_end": 20,
+    "service_port": 8024,
+    "mcts_simulations": 64,
+    "mcts_max_depth": 16,
+    "mcts_cpuct": 1.5
+  }
+}

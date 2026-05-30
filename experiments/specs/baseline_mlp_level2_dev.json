@@ -1,0 +1,26 @@
+{
+  "api_version": "v1",
+  "experiment_id": "baseline-mlp-level10ckpt-eval-level2-dev",
+  "description": "Development baseline evaluation for the versioned Level 10 MLP checkpoint on Level 2.",
+  "architecture": {
+    "family": "mlp",
+    "params": {
+      "hidden_dim": 256,
+      "num_layers": 2,
+      "batch_norm": false,
+      "residual": false
+    }
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "checkpoint": "neural-network/checkpoints/policy_value_level10_20260529T183825.pt",
+    "level": 2,
+    "games_per_shard": 5,
+    "seed_start": 0,
+    "seed_end": 20,
+    "service_port": 8022,
+    "mcts_simulations": 64,
+    "mcts_max_depth": 16,
+    "mcts_cpuct": 1.5
+  }
+}

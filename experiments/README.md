@@ -5,6 +5,7 @@ This folder is the control plane for long-running AlphaSolitaire experiments.
 The recommendation is to keep the experiments stack Python-based while treating the Java engine as a worker process and source of deterministic game data. That keeps training, analytics, and orchestration close to the current neural-network code without forcing Java to become the owner of Python model workflows.
 
 Start with [DESIGN.md](DESIGN.md) for the current architecture, storage model, resumability rules, and implementation shape.
+See [RESULTS.md](RESULTS.md) for result presentation, experiment-program guidance, and promotion rules.
 
 Run ID note:
 
@@ -36,6 +37,7 @@ This control plane currently supports:
 - `run` creates or resumes a persisted run and skips tasks that already succeeded.
 - `status` shows run and task state from the registry.
 - `run` prints a coarse preflight runtime estimate before launch and prompts for confirmation unless `--yes` is supplied.
+- `run --live-output` streams child task stdout and stderr to the console while still writing the per-attempt log files.
 
 ### Collection
 
@@ -79,6 +81,8 @@ The DuckDB output now includes both the current-run rollups and cross-run compar
 - `evaluation_rollups_current_run`
 - `evaluation_rollups_all_runs`
 - `evaluation_run_comparison`
+
+For result presentation, comparison guidance, and the recommended experiment ladder, see [RESULTS.md](RESULTS.md).
 
 ### Operations And Runtime Health
 
@@ -126,6 +130,9 @@ python -m experiments.src doctor
 
 # Accept the preflight estimate without a prompt for unattended launches
 python -m experiments.src run experiments/specs/alpha_phase4_demo.json --run-id unattended-demo --yes
+
+# Stream the underlying task output while the run is executing
+python -m experiments.src run experiments/specs/baseline_mlp_level2_dev.json --run-id baseline-verbose-demo --yes --live-output
 
 # Override the JSON companion output path when automation wants a fixed location
 python -m experiments.src doctor --json-output experiments/runtime/work/runtime_health_custom.json

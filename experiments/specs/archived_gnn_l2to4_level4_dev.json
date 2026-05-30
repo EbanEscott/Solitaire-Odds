@@ -1,0 +1,44 @@
+{
+  "api_version": "v1",
+  "experiment_id": "archived-gnn-train-l2to4-eval-level4-dev",
+  "description": "Development archived-data GNN comparison run trained on archived Levels 2 through 4 and evaluated on Level 4.",
+  "architecture": {
+    "family": "gnn",
+    "params": {
+      "hidden_dim": 128,
+      "num_layers": 2,
+      "action_embedding_dim": 64,
+      "message_passing_steps": 2,
+      "dropout": 0.0
+    }
+  },
+  "dataset": {
+    "kind": "archived_episode_logs",
+    "sources": [
+      "engine/logs/archive/level2/20260529T071709Z/episode.log",
+      "engine/logs/archive/level3/20260529T071711Z/episode.log",
+      "engine/logs/archive/level4/20260529T071714Z/episode.log"
+    ]
+  },
+  "training": {
+    "kind": "gnn_policy_value",
+    "epochs": 3,
+    "batch_size": 16,
+    "learning_rate": 0.001,
+    "checkpoint_every_epochs": 1,
+    "checkpoint_prefix": "policy_value_archived_gnn_l2to4_l4_dev",
+    "metrics_filename": "epoch_metrics.jsonl",
+    "resume_from": null
+  },
+  "evaluation": {
+    "kind": "alpha_level_suite",
+    "level": 4,
+    "games_per_shard": 5,
+    "seed_start": 0,
+    "seed_end": 20,
+    "service_port": 8025,
+    "mcts_simulations": 64,
+    "mcts_max_depth": 16,
+    "mcts_cpuct": 1.5
+  }
+}
