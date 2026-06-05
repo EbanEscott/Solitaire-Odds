@@ -2744,6 +2744,20 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    """Start the thin local read-only web UI for experiment progress."""
+
+    from .ui import run_ui_server
+
+    return run_ui_server(
+        host=args.host,
+        port=args.port,
+        refresh_seconds=args.refresh_seconds,
+        limit_runs=args.limit_runs,
+        log_tail_lines=args.log_tail_lines,
+    )
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Inspect runtime health across all runs and write a markdown dashboard report."""
 
@@ -3039,6 +3053,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stream child process stdout and stderr to the console while still writing attempt logs",
     )
     run_parser.set_defaults(func=_cmd_run)
+
+    ui_parser = subparsers.add_parser("ui", help="Start the thin local web UI for experiment progress")
+    ui_parser.add_argument("--host", default="127.0.0.1", help="Host interface for the local UI server")
+    ui_parser.add_argument("--port", type=int, default=8765, help="Port for the local UI server")
+    ui_parser.add_argument(
+        "--refresh-seconds",
+        type=int,
+        default=5,
+        help="Auto-refresh cadence for the overview and detail pages",
+    )
+    ui_parser.add_argument(
+        "--limit-runs",
+        type=int,
+        default=20,
+        help="Maximum number of recent runs to show on the overview page",
+    )
+    ui_parser.add_argument(
+        "--log-tail-lines",
+        type=int,
+        default=80,
+        help="Number of log lines to show in inline tail views",
+    )
+    ui_parser.set_defaults(func=_cmd_ui)
 
     status_parser = subparsers.add_parser("status", help="Show run and task status")
     status_parser.add_argument("run_id", help="Run identifier to inspect")

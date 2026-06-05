@@ -37,6 +37,7 @@ This control plane currently supports:
 - `plan` validates a spec and expands it into the concrete task graph for a run.
 - `run` creates or resumes a persisted run and skips tasks that already succeeded.
 - `status` shows run and task state from the registry.
+- `ui` starts a thin local read-only web UI for overall run progress, current task state, and log drill-down.
 - `run` prints a coarse preflight runtime estimate before launch and prompts for confirmation unless `--yes` is supplied.
 - `run --live-output` prints run and task progress headings, the active log level, rolling ETA context, and a summarized live view of child task output while still writing the full per-attempt stdout and stderr log files.
 - `--log-level DEBUG` restores the raw child-process stream when you want full detail; the default `INFO` view keeps the summarized operator-focused output and filters a few known noisy Java/Gradle stderr lines.
@@ -127,6 +128,9 @@ python -m experiments.src run experiments/specs/alpha_phase4_demo.json --run-id 
 
 # Inspect run state
 python -m experiments.src status fresh-data-demo
+
+# Start the thin local UI and open http://127.0.0.1:8765/runs
+python -m experiments.src ui
 
 # Write a runtime health dashboard covering all runs
 python -m experiments.src doctor
