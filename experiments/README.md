@@ -38,7 +38,8 @@ This control plane currently supports:
 - `run` creates or resumes a persisted run and skips tasks that already succeeded.
 - `status` shows run and task state from the registry.
 - `run` prints a coarse preflight runtime estimate before launch and prompts for confirmation unless `--yes` is supplied.
-- `run --live-output` streams child task stdout and stderr to the console while still writing the per-attempt log files.
+- `run --live-output` prints run and task progress headings, the active log level, rolling ETA context, and a summarized live view of child task output while still writing the full per-attempt stdout and stderr log files.
+- `--log-level DEBUG` restores the raw child-process stream when you want full detail; the default `INFO` view keeps the summarized operator-focused output and filters a few known noisy Java/Gradle stderr lines.
 
 ### Collection
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import logging
 import os
+import re
 import shutil
 from statistics import median
 import subprocess
@@ -17,7 +19,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, TextIO
+from typing import Any, Callable, Mapping, TextIO
 
 from .architectures import get_adapter_for_family
 from .architectures import (
@@ -61,6 +63,55 @@ SQLITE_ASSESSMENT_TEXT = (
     "The registry is local, the task volume is modest, and Phase 6 hardening still relies "
     "on direct point queries and ordered scans rather than concurrent multi-host scheduling."
 )
+
+LOG = logging.getLogger(__name__)
+CONSOLE_LOG_LEVEL = logging.INFO
+
+
+class _MaxLevelFilter(logging.Filter):
+    """Allow records strictly below one upper severity bound."""
+
+    def __init__(self, max_level: int) -> None:
+        super().__init__()
+        self._max_level = max_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < self._max_level
+
+
+def _configure_logging(level_name: str) -> None:
+    """Configure concise console logging for the experiments driver."""
+
+    global CONSOLE_LOG_LEVEL
+
+    numeric_level = getattr(logging, level_name.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"unsupported log level: {level_name}")
+    CONSOLE_LOG_LEVEL = numeric_level
+
+    formatter = logging.Formatter("%(message)s")
+
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(numeric_level)
+    stdout_handler.addFilter(_MaxLevelFilter(logging.WARNING))
+    stdout_handler.setFormatter(formatter)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(max(numeric_level, logging.WARNING))
+    stderr_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(stdout_handler)
+    root_logger.addHandler(stderr_handler)
+
+
+def _log_lines(level: int, *lines: str) -> None:
+    """Emit one or more operator-facing lines at a consistent log level."""
+
+    for line in lines:
+        LOG.log(level, line)
 
 
 @dataclass(frozen=True)
@@ -147,6 +198,44 @@ class RunPreflightEstimate:
     @property
     def estimated_seconds(self) -> float:
         return sum(estimate.estimated_seconds or 0.0 for estimate in self.task_estimates)
+
+
+@dataclass
+class RunExecutionProgress:
+    """Track operator-facing progress and ETA while a run is executing."""
+
+    total_tasks: int
+    completed_tasks: int
+    known_remaining_seconds: float
+    unknown_remaining_tasks: int
+    started_at: datetime
+    task_estimates: dict[str, float | None]
+
+    @property
+    def remaining_tasks(self) -> int:
+        return max(0, self.total_tasks - self.completed_tasks)
+
+    def estimated_remaining_text(self) -> str:
+        """Render the current run-level ETA including any unknown tasks."""
+
+        if self.unknown_remaining_tasks == 0:
+            return _format_duration_seconds(self.known_remaining_seconds)
+        if self.known_remaining_seconds <= 0:
+            return f"unknown ({self.unknown_remaining_tasks} task(s) without timing data)"
+        return (
+            f"at least {_format_duration_seconds(self.known_remaining_seconds)} "
+            f"plus {self.unknown_remaining_tasks} task(s) without timing data"
+        )
+
+    def mark_task_completed(self, task_name: str) -> None:
+        """Advance run progress after one task completes successfully."""
+
+        self.completed_tasks += 1
+        task_estimate = self.task_estimates.get(task_name)
+        if task_estimate is None:
+            self.unknown_remaining_tasks = max(0, self.unknown_remaining_tasks - 1)
+            return
+        self.known_remaining_seconds = max(0.0, self.known_remaining_seconds - task_estimate)
 
 
 def _slugify(value: str) -> str:
@@ -640,6 +729,7 @@ def _forward_process_output(
     log_handle: TextIO,
     console_handle: TextIO,
     prefix: str,
+    render_line: Callable[[str], str | None] | None = None,
 ) -> None:
     """Copy one subprocess stream into the attempt log and, optionally, the operator console."""
 
@@ -650,7 +740,12 @@ def _forward_process_output(
         for line in pipe:
             log_handle.write(line)
             log_handle.flush()
-            console_handle.write(f"{prefix}{line}")
+            rendered_line = line if render_line is None else render_line(line)
+            if rendered_line is None:
+                continue
+            if not rendered_line.endswith("\n"):
+                rendered_line = f"{rendered_line}\n"
+            console_handle.write(f"{prefix}{rendered_line}")
             console_handle.flush()
     finally:
         pipe.close()
@@ -690,14 +785,14 @@ def _run_endgame_collect_shard(
     )
     registry.connection.commit()
 
-    print(
+    LOG.info(
         "  Collection shard details: "
         f"level={payload.get('level')}, "
         f"requested_games={payload.get('requested_games')}, "
         f"randomise={payload.get('randomise', False)}, "
         f"seed={payload.get('shard_seed')}"
     )
-    print(
+    LOG.info(
         "  Collection logs: "
         f"stdout={_format_repo_or_absolute_path(stdout_path)}, "
         f"stderr={_format_repo_or_absolute_path(stderr_path)}"
@@ -794,7 +889,7 @@ def _run_policy_value_train(
     )
     registry.connection.commit()
 
-    print(
+    LOG.info(
         "  Training details: "
         f"family={payload.get('architecture_family')}, "
         f"dataset_kind={payload.get('dataset_kind')}, "
@@ -802,14 +897,14 @@ def _run_policy_value_train(
         f"epochs={payload.get('epochs')}, "
         f"batch_size={payload.get('batch_size')}"
     )
-    print(
+    LOG.info(
         "  Training outputs: "
         f"checkpoint_prefix={payload.get('checkpoint_prefix', 'policy_value')}, "
         f"metrics={_format_repo_or_absolute_path(metrics_output)}, "
         f"stdout={_format_repo_or_absolute_path(stdout_path)}"
     )
     if resume_checkpoint is not None:
-        print(f"  Resuming from checkpoint: {_format_repo_or_absolute_path(resume_checkpoint)}")
+        LOG.info("  Resuming from checkpoint: %s", _format_repo_or_absolute_path(resume_checkpoint))
 
     exit_code = _run_command_task(
         registry=registry,
@@ -922,20 +1017,20 @@ def _run_alpha_level_eval_shard(
     service_stderr_path = temp_dir / "service_stderr.log"
     service_process: subprocess.Popen[str] | None = None
 
-    print(
+    LOG.info(
         "  Evaluation details: "
         f"level={payload.get('level')}, "
         f"games={payload.get('requested_games')}, "
         f"range={payload.get('game_start_index')}..{payload.get('game_end_index_exclusive')}, "
         f"checkpoint={_format_repo_or_absolute_path(checkpoint_path)}"
     )
-    print(
+    LOG.info(
         "  Evaluation outputs: "
         f"summary={_format_repo_or_absolute_path(raw_summary_output)}, "
         f"stdout={_format_repo_or_absolute_path(stdout_path)}, "
         f"stderr={_format_repo_or_absolute_path(stderr_path)}"
     )
-    print(
+    LOG.info(
         "  Model service logs: "
         f"stdout={_format_repo_or_absolute_path(service_stdout_path)}, "
         f"stderr={_format_repo_or_absolute_path(service_stderr_path)}"
@@ -945,7 +1040,7 @@ def _run_alpha_level_eval_shard(
         with service_stdout_path.open("w", encoding="utf-8") as service_stdout_handle, service_stderr_path.open(
             "w", encoding="utf-8"
         ) as service_stderr_handle:
-            print(f"  Starting model service at {service_base_url}")
+            LOG.info("  Starting model service at %s", service_base_url)
             service_process = subprocess.Popen(
                 service_command,
                 cwd=str(neural_dir),
@@ -958,7 +1053,7 @@ def _run_alpha_level_eval_shard(
             if service_error is not None:
                 return 1, service_error
 
-            print("  Model service is ready; starting engine evaluation.")
+            LOG.info("  Model service is ready; starting engine evaluation.")
 
             exit_code = _run_command_task(
                 registry=registry,
@@ -1076,6 +1171,213 @@ def _format_repo_or_absolute_path(path: Path) -> str:
         return _relative_to_repo(path)
     except ValueError:
         return str(path)
+
+
+def _task_stage_label(task_kind: str) -> str:
+    """Map one task kind to a short operator-facing stage label."""
+
+    return {
+        "endgame_collect_shard": "COLLECT",
+        "policy_value_train": "TRAIN",
+        "alpha_level_eval_shard": "EVALUATE",
+        "evaluation_report": "REPORT",
+    }.get(task_kind, task_kind.upper())
+
+
+def _format_elapsed_since(started_at: datetime) -> str:
+    """Render elapsed wall-clock time since one run started."""
+
+    return _format_duration_seconds((datetime.now(timezone.utc) - started_at).total_seconds())
+
+
+def _print_run_execution_header(
+    *,
+    spec: ExperimentSpec,
+    run_id: str,
+    progress: RunExecutionProgress,
+    resumed: bool,
+    recovered_stale_tasks: int,
+) -> None:
+    """Print a compact run summary before task execution begins."""
+
+    root_level_name = logging.getLevelName(CONSOLE_LOG_LEVEL)
+
+    _log_lines(
+        logging.INFO,
+        "",
+        "=" * 80,
+        f"Experiment run: {run_id}",
+        f"Experiment ID: {spec.experiment_id}",
+        f"Spec: {_relative_to_repo(spec.spec_path)}",
+        f"Log level: {root_level_name}",
+        f"Tasks: {progress.completed_tasks}/{progress.total_tasks} completed, "
+        f"{progress.remaining_tasks} remaining",
+        f"Elapsed: {_format_elapsed_since(progress.started_at)}",
+        f"Estimated remaining: {progress.estimated_remaining_text()}",
+    )
+    if resumed:
+        LOG.info("Mode: resume existing run")
+    if recovered_stale_tasks:
+        LOG.info("Recovered stale tasks before launch: %s", recovered_stale_tasks)
+    LOG.info("%s", "=" * 80)
+
+
+def _print_task_execution_header(
+    *,
+    task: TaskRecord,
+    progress: RunExecutionProgress,
+) -> None:
+    """Print a concise banner for the task about to start."""
+
+    stage_label = _task_stage_label(task.task_kind)
+    task_estimate = progress.task_estimates.get(task.task_name)
+
+    _log_lines(
+        logging.INFO,
+        "",
+        f"[{task.task_order:02d}/{progress.total_tasks}] {stage_label} :: {task.task_name}",
+        f"  Run progress: {progress.completed_tasks}/{progress.total_tasks} complete, "
+        f"{progress.remaining_tasks} remaining",
+        f"  Elapsed: {_format_elapsed_since(progress.started_at)}",
+        f"  Run ETA: {progress.estimated_remaining_text()}",
+    )
+    if task_estimate is not None:
+        LOG.info("  Task ETA: %s", _format_duration_seconds(task_estimate))
+
+
+def _strip_java_log_prefix(line: str) -> str:
+    """Remove the Java timestamp/logger prefix when present."""
+
+    if " - " not in line:
+        return line
+    return line.split(" - ", 1)[1]
+
+
+def _build_live_output_renderer(task: TaskRecord, stream_name: str) -> Callable[[str], str | None] | None:
+    """Return an optional task-aware renderer that summarizes noisy child output."""
+
+    if CONSOLE_LOG_LEVEL <= logging.DEBUG:
+        return None
+
+    if stream_name == "stderr":
+        if task.task_kind == "alpha_level_eval_shard":
+            suppressed_prefixes = (
+                "Note: Some input files use or override a deprecated API.",
+                "Note: Recompile with -Xlint:deprecation for details.",
+                "WARNING: COMPAT locale provider will be removed in a future release",
+            )
+
+            def render_evaluation_stderr(line: str) -> str | None:
+                stripped = line.strip()
+                if not stripped:
+                    return None
+                if stripped.startswith("Jun ") and "LocaleProviderAdapter <clinit>" in stripped:
+                    return None
+                if stripped.startswith(suppressed_prefixes):
+                    return None
+                return stripped
+
+            return render_evaluation_stderr
+        return None
+
+    if task.task_kind == "policy_value_train":
+        checkpoint_pattern = re.compile(r"^Saved (?:model )?checkpoint to (?P<path>.+)$")
+        batch_pattern = re.compile(r"^\s+Epoch \d+/\d+ - Batch \d+/\d+$")
+
+        def render_training(line: str) -> str | None:
+            stripped = line.strip()
+            if not stripped:
+                return None
+            if batch_pattern.match(line.rstrip("\n")):
+                return None
+            checkpoint_match = checkpoint_pattern.match(stripped)
+            if checkpoint_match is not None:
+                checkpoint_path = Path(checkpoint_match.group("path"))
+                return f"Checkpoint saved: {checkpoint_path.name}"
+            return stripped
+
+        return render_training
+
+    if task.task_kind == "alpha_level_eval_shard":
+        progress_pattern = re.compile(r"\[Level (?P<level>\d+)\] Testing game (?P<current>\d+)/(?P<total>\d+)")
+        state: dict[str, Any] = {
+            "started_at": None,
+            "last_bucket": -1,
+        }
+
+        def render_evaluation(line: str) -> str | None:
+            stripped = line.strip()
+            if not stripped:
+                return None
+
+            normalized = _strip_java_log_prefix(stripped)
+            if normalized.startswith("> Task :"):
+                return None
+            if normalized.startswith("AlphaSolitaireLevelTest > Test AlphaSolitairePlayer"):
+                return None
+            if normalized.startswith("Test summary:"):
+                return None
+            if normalized.startswith("BUILD SUCCESSFUL"):
+                return None
+            if normalized.startswith("actionable tasks:"):
+                return None
+            if normalized.startswith("[Incubating] Problems report"):
+                return None
+            if normalized.startswith("Average branching factor across levels:"):
+                return None
+            if normalized.startswith("Seed strategy:"):
+                return None
+
+            progress_match = progress_pattern.search(normalized)
+            if progress_match is not None:
+                current = int(progress_match.group("current"))
+                total = int(progress_match.group("total"))
+                level = progress_match.group("level")
+                if state["started_at"] is None:
+                    state["started_at"] = time.monotonic()
+                bucket = min(100, int((current / total) * 100))
+                bucket -= bucket % 10
+                should_emit = current == 1 or current == total or bucket > state["last_bucket"]
+                if not should_emit:
+                    return None
+                state["last_bucket"] = bucket
+                elapsed_seconds = max(0.001, time.monotonic() - state["started_at"])
+                remaining_seconds = (elapsed_seconds / current) * max(0, total - current)
+                return (
+                    f"Level {level} progress: {current}/{total} games "
+                    f"({int((current / total) * 100)}%), stage ETA {_format_duration_seconds(remaining_seconds)}"
+                )
+
+            if normalized.startswith("Starting AlphaSolitairePlayer evaluation:"):
+                return normalized
+            if normalized.startswith("ALPHASOLITAIRE EVALUATION SUMMARY"):
+                return normalized
+            if normalized.startswith("Games Tested:"):
+                return normalized
+            if normalized.startswith("Games Won:"):
+                return normalized
+            if normalized.startswith("Games Lost:"):
+                return normalized
+            if normalized.startswith("Win Rate:"):
+                return normalized
+            if normalized.startswith("Avg Moves:"):
+                return normalized
+            if normalized.startswith("Avg Time:"):
+                return normalized
+            if normalized.startswith("Total Time:"):
+                return normalized
+            if normalized.startswith("Lost games"):
+                return normalized
+            if normalized.startswith(">> game "):
+                return normalized
+            if normalized.startswith("===="):
+                return normalized
+
+            return None
+
+        return render_evaluation
+
+    return None
 
 
 def _latest_attempt(registry: ExperimentRegistry, task_id: int) -> AttemptRecord | None:
@@ -1270,21 +1572,23 @@ def _estimate_remaining_runtime(
 def _print_run_preflight(run_id: str, preflight: RunPreflightEstimate) -> None:
     """Print the pre-launch runtime estimate for the remaining tasks in one run."""
 
-    print(f"Preflight estimate for run {run_id}:")
+    LOG.info("Preflight estimate for run %s:", run_id)
     if preflight.remaining_task_count == 0:
-        print("- No remaining tasks. The run is already complete.")
+        LOG.info("- No remaining tasks. The run is already complete.")
         return
 
     if preflight.unknown_task_count == 0:
-        print(f"- Estimated remaining runtime: {_format_duration_seconds(preflight.estimated_seconds)}")
+        LOG.info("- Estimated remaining runtime: %s", _format_duration_seconds(preflight.estimated_seconds))
     elif preflight.known_task_count == 0:
-        print(
-            f"- Estimated remaining runtime: unknown; no historical timing data for {preflight.unknown_task_count} remaining task(s)"
+        LOG.info(
+            "- Estimated remaining runtime: unknown; no historical timing data for %s remaining task(s)",
+            preflight.unknown_task_count,
         )
     else:
-        print(
-            f"- Estimated remaining runtime: at least {_format_duration_seconds(preflight.estimated_seconds)} "
-            f"plus {preflight.unknown_task_count} task(s) without historical timing data"
+        LOG.info(
+            "- Estimated remaining runtime: at least %s plus %s task(s) without historical timing data",
+            _format_duration_seconds(preflight.estimated_seconds),
+            preflight.unknown_task_count,
         )
 
     grouped: dict[str, dict[str, Any]] = {}
@@ -1317,7 +1621,7 @@ def _print_run_preflight(run_id: str, preflight: RunPreflightEstimate) -> None:
             estimate_text = f"at least {_format_duration_seconds(float(group['estimated_seconds']))}"
         if unknown_count:
             estimate_text = f"{estimate_text} ({unknown_count} task(s) without historical timing data)"
-        print(f"- {task_kind}: {count} task(s), {estimate_text}. Basis: {basis}.")
+        LOG.info("- %s: %s task(s), %s. Basis: %s.", task_kind, count, estimate_text, basis)
 
 
 def _prompt_for_run_confirmation(run_id: str, preflight: RunPreflightEstimate) -> bool:
@@ -1987,6 +2291,8 @@ def _run_command_task(
         "w", encoding="utf-8"
     ) as stderr_handle:
         if live_output:
+            stdout_renderer = _build_live_output_renderer(task, "stdout")
+            stderr_renderer = _build_live_output_renderer(task, "stderr")
             process = subprocess.Popen(
                 command,
                 cwd=str(working_directory),
@@ -1998,12 +2304,12 @@ def _run_command_task(
             )
             stdout_thread = Thread(
                 target=_forward_process_output,
-                args=(process.stdout, stdout_handle, sys.stdout, f"[{task.task_name}] "),
+                args=(process.stdout, stdout_handle, sys.stdout, f"[{task.task_name}] ", stdout_renderer),
                 daemon=True,
             )
             stderr_thread = Thread(
                 target=_forward_process_output,
-                args=(process.stderr, stderr_handle, sys.stderr, f"[{task.task_name} stderr] "),
+                args=(process.stderr, stderr_handle, sys.stderr, f"[{task.task_name} stderr] ", stderr_renderer),
                 daemon=True,
             )
             stdout_thread.start()
@@ -2192,9 +2498,12 @@ def _execute_task(
             error_message=None,
             status_message=None,
         )
-        print(
-            f"Completed task {task.task_order:02d} {task.task_name} [{task.task_kind}] "
-            f"artifacts={_format_repo_or_absolute_path(final_dir)}"
+        LOG.info(
+            "Completed task %02d %s [%s] artifacts=%s",
+            task.task_order,
+            task.task_name,
+            task.task_kind,
+            _format_repo_or_absolute_path(final_dir),
         )
     except KeyboardInterrupt:
         # Interrupted attempts are still archived with a manifest so resume logic and post-mortem
@@ -2267,12 +2576,15 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     run_id = args.run_id or spec.experiment_id
     tasks = _plan_tasks(spec, run_id, layout)
 
-    print(f"Run ID: {run_id}")
-    print(f"Spec: {_relative_to_repo(spec.spec_path)}")
+    LOG.info("Run ID: %s", run_id)
+    LOG.info("Spec: %s", _relative_to_repo(spec.spec_path))
     for task in tasks:
-        print(
-            f"- {task.task_order:02d} {task.task_name} [{task.task_kind}] "
-            f"artifact_root={_relative_to_repo(task.artifact_dir)}"
+        LOG.info(
+            "- %02d %s [%s] artifact_root=%s",
+            task.task_order,
+            task.task_name,
+            task.task_kind,
+            _relative_to_repo(task.artifact_dir),
         )
     return 0
 
@@ -2326,7 +2638,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     "run confirmation requires an interactive terminal; rerun with --yes to accept the estimate"
                 )
             if not _prompt_for_run_confirmation(run_id, preflight):
-                print(f"Cancelled run {run_id} before launching any tasks.")
+                LOG.info("Cancelled run %s before launching any tasks.", run_id)
                 return 0
 
         registry.register_spec(
@@ -2337,6 +2649,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             spec_json=spec.to_json(),
         )
 
+        resumed = bool(persisted_tasks_by_name)
         run = registry.create_or_resume_run(
             run_id=run_id,
             experiment_id=spec.experiment_id,
@@ -2347,18 +2660,33 @@ def _cmd_run(args: argparse.Namespace) -> int:
         registry.replace_run_parameters(run_id, flatten_run_parameters(spec.raw))
 
         recovered = registry.recover_stale_running_tasks(run_id, args.stale_after_seconds)
-        if recovered:
-            print(f"Recovered {recovered} stale task(s) before resuming run {run_id}.")
 
         registry.ensure_tasks(run_id, (_task_row_payload(task) for task in tasks))
 
         executed = 0
         task_rows = registry.list_tasks(run_id)
+        progress = RunExecutionProgress(
+            total_tasks=len(task_rows),
+            completed_tasks=sum(1 for task in task_rows if task.status == TASK_SUCCEEDED),
+            known_remaining_seconds=preflight.estimated_seconds,
+            unknown_remaining_tasks=preflight.unknown_task_count,
+            started_at=_parse_utc_timestamp(run.started_at) or datetime.now(timezone.utc),
+            task_estimates={
+                estimate.task_name: estimate.estimated_seconds for estimate in preflight.task_estimates
+            },
+        )
+        _print_run_execution_header(
+            spec=spec,
+            run_id=run_id,
+            progress=progress,
+            resumed=resumed,
+            recovered_stale_tasks=recovered,
+        )
+
         for task in task_rows:
             if task.status == TASK_SUCCEEDED:
                 # Completed tasks are never re-executed for the same run id. This is the core of
                 # the resume guarantee and keeps reruns idempotent at the task boundary.
-                print(f"Skipping completed task: {task.task_name}")
                 continue
             if task.status == TASK_RUNNING:
                 raise RuntimeError(
@@ -2372,13 +2700,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     RUN_INTERRUPTED,
                     "Run paused after reaching the requested max task limit",
                 )
-                print(
-                    f"Paused run {run_id} after {executed} task(s). "
-                    "Re-run the same command to resume."
+                LOG.info(
+                    "Paused run %s after %s task(s). Re-run the same command to resume.",
+                    run_id,
+                    executed,
                 )
                 return 0
 
-            print(f"Running task {task.task_order:02d} {task.task_name} [{task.task_kind}]")
+            _print_task_execution_header(task=task, progress=progress)
             _execute_task(
                 spec=spec,
                 run_id=run_id,
@@ -2389,9 +2718,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 live_output=args.live_output,
             )
             executed += 1
+            progress.mark_task_completed(task.task_name)
 
         registry.set_run_status(run_id, RUN_SUCCEEDED, "Run completed successfully")
-        print(f"Run {run_id} completed successfully.")
+        LOG.info("Run %s completed successfully.", run_id)
         return 0
 
 
@@ -2401,16 +2731,16 @@ def _cmd_status(args: argparse.Namespace) -> int:
     layout = RuntimeLayout.create()
     with ExperimentRegistry(layout.database_path) as registry:
         run = registry.get_run(args.run_id)
-        print(f"Run ID: {run.run_id}")
-        print(f"Experiment: {run.experiment_id}")
-        print(f"Status: {run.status}")
+        LOG.info("Run ID: %s", run.run_id)
+        LOG.info("Experiment: %s", run.experiment_id)
+        LOG.info("Status: %s", run.status)
         if run.status_message:
-            print(f"Message: {run.status_message}")
+            LOG.info("Message: %s", run.status_message)
         if run.current_task_name:
-            print(f"Current Task: {run.current_task_name}")
-        print("Tasks:")
+            LOG.info("Current Task: %s", run.current_task_name)
+        LOG.info("Tasks:")
         for task in registry.list_tasks(run.run_id):
-            print(f"- {task.task_order:02d} {task.task_name}: {task.status}")
+            LOG.info("- %02d %s: %s", task.task_order, task.task_name, task.status)
     return 0
 
 
@@ -2596,17 +2926,17 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     output_path.write_text(report_markdown, encoding="utf-8")
     _write_json(json_output_path, report_payload)
 
-    print(
-        "Runtime health summary: "
-        f"runs={sum(run_status_counts.values())}, "
-        f"stale_tasks={len(stale_tasks)}, "
-        f"problematic_tasks={len(problematic_tasks)}, "
-        f"missing_artifacts={len(missing_artifacts)}"
+    LOG.info(
+        "Runtime health summary: runs=%s, stale_tasks=%s, problematic_tasks=%s, missing_artifacts=%s",
+        sum(run_status_counts.values()),
+        len(stale_tasks),
+        len(problematic_tasks),
+        len(missing_artifacts),
     )
     if recovered_stale_tasks:
-        print(f"Recovered {recovered_stale_tasks} stale task(s) before writing the report.")
-    print(f"Wrote runtime health report to {_format_repo_or_absolute_path(output_path)}")
-    print(f"Wrote runtime health JSON to {_format_repo_or_absolute_path(json_output_path)}")
+        LOG.info("Recovered %s stale task(s) before writing the report.", recovered_stale_tasks)
+    LOG.info("Wrote runtime health report to %s", _format_repo_or_absolute_path(output_path))
+    LOG.info("Wrote runtime health JSON to %s", _format_repo_or_absolute_path(json_output_path))
     return 0
 
 
@@ -2621,18 +2951,21 @@ def _cmd_cleanup(args: argparse.Namespace) -> int:
     )
 
     if not candidates:
-        print("No cleanup candidates found.")
+        LOG.info("No cleanup candidates found.")
         return 0
 
     action_text = "Would remove" if args.dry_run else "Removing"
     for candidate in candidates:
-        print(
-            f"{action_text} {_format_repo_or_absolute_path(candidate.path)} "
-            f"[{candidate.category}; age={candidate.age_text}]"
+        LOG.info(
+            "%s %s [%s; age=%s]",
+            action_text,
+            _format_repo_or_absolute_path(candidate.path),
+            candidate.category,
+            candidate.age_text,
         )
 
     if args.dry_run:
-        print(f"Found {len(candidates)} cleanup candidate(s).")
+        LOG.info("Found %s cleanup candidate(s).", len(candidates))
         return 0
 
     removed_count = 0
@@ -2647,8 +2980,10 @@ def _cmd_cleanup(args: argparse.Namespace) -> int:
 
     pruned_empty_directories = _prune_empty_directories(layout.work_dir)
     pruned_empty_directories += _prune_empty_directories(layout.artifacts_dir)
-    print(
-        f"Removed {removed_count} runtime path(s) and pruned {pruned_empty_directories} empty directory(ies)."
+    LOG.info(
+        "Removed %s runtime path(s) and pruned %s empty directory(ies).",
+        removed_count,
+        pruned_empty_directories,
     )
     return 0
 
@@ -2659,6 +2994,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m experiments.src",
         description="AlphaSolitaire experiment driver",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        help="Console verbosity for driver messages and child-output summarization",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -2773,12 +3114,13 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+    _configure_logging(args.log_level)
     try:
         raise SystemExit(args.func(args))
     except SpecValidationError as exc:
         # Validation errors are user-fixable input issues, so reserve a distinct exit code.
-        print(f"Spec validation error: {exc}", file=sys.stderr)
+        LOG.error("Spec validation error: %s", exc)
         raise SystemExit(2) from exc
     except (KeyError, RuntimeError, ValueError) as exc:
-        print(str(exc), file=sys.stderr)
+        LOG.error("%s", exc)
         raise SystemExit(1) from exc
