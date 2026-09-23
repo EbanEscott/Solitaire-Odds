@@ -46,6 +46,15 @@ Exactly one player profile must be active at a time. Run with `-Dspring.profiles
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-human" "-Dtraining.mode=true"
 ```
 
+**Codex CLI player using a ChatGPT subscription:**
+```bash
+codex login status # must report: Logged in using ChatGPT
+./gradlew bootRun --console=plain \
+  "-Dspring.profiles.active=ai-codex" \
+  "-Dcodex.model=gpt-5.6-sol" \
+  "-Dcodex.reasoning.effort=medium"
+```
+
 **AI player with guidance mode disabled** (suppress recommended moves and feedback):
 ```bash
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-astar" "-Dguidance.mode=false"
@@ -111,6 +120,7 @@ Large language model-backed players via remote APIs or local inference:
 ```bash
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama"        # Ollama via Spring AI (requires local Ollama)
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-openai"        # OpenAI via API (requires OPENAI_API_KEY or openai.apiKey)
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-codex"         # Codex CLI via ChatGPT subscription
 ```
 
 Ollama model selection:
@@ -136,6 +146,14 @@ OpenAI setup:
   - `gpt-4o`, `gpt-4o-realtime-preview`
 - Run the OpenAI-backed player with:  
   `./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-openai"`
+
+Codex CLI setup (ChatGPT subscription rather than API billing):
+- Install Codex CLI and sign in with ChatGPT; `codex login status` must report `Logged in using ChatGPT`.
+- Configure the model with `-Dcodex.model` and reasoning effort with `-Dcodex.reasoning.effort`.
+- Use `-Dcodex.models=gpt-5.6-luna,gpt-5.6-sol,gpt-6-astra` to compare several models in one benchmark.
+- The player refuses non-ChatGPT authentication and removes API-key environment variables from CLI subprocesses.
+- Run a small benchmark first:
+  `./gradlew test --tests ai.games.results.CodexCliPlayerResultsTest --console=plain --rerun-tasks "-Dcodex.tests=true" "-Dcodex.models=gpt-5.6-luna,gpt-5.6-sol,gpt-6-astra" "-Dtest.games=1"`
 
 ## Build & Test
 
