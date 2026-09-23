@@ -39,7 +39,9 @@ public class OpenAIPlayer extends AIPlayer implements Player {
      * Default constructor for non-Spring contexts (e.g., tests).
      */
     public OpenAIPlayer() {
-        this.chatClient = buildChatClient(resolveApiKey(""), DEFAULT_MODEL);
+        this(
+                System.getProperty("openai.apiKey", ""),
+                configuredModelName());
     }
 
     @Autowired
@@ -47,6 +49,10 @@ public class OpenAIPlayer extends AIPlayer implements Player {
             @Value("${openai.apiKey:}") String apiKey,
             @Value("${openai.model:" + DEFAULT_MODEL + "}") String modelName) {
         this.chatClient = buildChatClient(resolveApiKey(apiKey), modelName);
+    }
+
+    public static String configuredModelName() {
+        return System.getProperty("openai.model", DEFAULT_MODEL);
     }
 
     @Override

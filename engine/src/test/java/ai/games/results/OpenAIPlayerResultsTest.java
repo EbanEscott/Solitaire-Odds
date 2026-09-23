@@ -29,7 +29,7 @@ public class OpenAIPlayerResultsTest {
 
         int gamesToPlay = ResultsConfig.GAMES;
         System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
-        String modelName = System.getProperty("openai.model", "gpt-4o");
+        String modelName = OpenAIPlayer.configuredModelName();
         Stats stats = runGames("OpenAI", OpenAIPlayer::new, gamesToPlay);
 
         String notes = "OpenAI " + modelName + " via API; see [code](src/main/java/ai/games/player/ai/OpenAIPlayer.java).";
