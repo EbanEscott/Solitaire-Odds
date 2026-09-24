@@ -32,6 +32,11 @@ public class OpenAIPlayer extends AIPlayer implements Player {
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
     private static final Pattern RATE_LIMIT_DELAY = Pattern.compile("try again in ([0-9.]+)s");
     private static final String DEFAULT_MODEL = "gpt-4o";
+    private static final String SYSTEM_PROMPT = """
+            You are playing Klondike Solitaire. Use your existing knowledge of the game.
+            Choose exactly one command from the supplied legal moves and return only that
+            command, with no explanation or formatting.
+            """;
 
     private final ChatClient chatClient;
 
@@ -119,7 +124,7 @@ public class OpenAIPlayer extends AIPlayer implements Player {
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 return chatClient.prompt()
-                        .system(OllamaPlayer.SYSTEM_PROMPT)
+                        .system(SYSTEM_PROMPT)
                         .user(prompt)
                         .call()
                         .content();

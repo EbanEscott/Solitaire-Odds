@@ -2,210 +2,277 @@ package ai.games.player.ai;
 
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
-import java.util.regex.Pattern;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.ollama.api.ThinkOption;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * Ollama-backed AI player using Spring AI. Requires a local Ollama server with
- * a chat model available.
+ * Stateful Ollama-backed Solitaire player using Spring AI.
  *
- * Uses in-memory ChatMemory so the model can "remember" earlier turns in the
- * same game session.
+ * <p>Each instance represents one game. Before seeing the deal, the model states the Klondike
+ * strategy it already knows. That model-authored strategy is pinned for the game while a bounded
+ * window retains recent boards, commands, and feedback. The engine supplies the complete legal
+ * move list but no rules, strategic guidance, or recommended move.
  */
 @Component
 @Profile("ai-ollama")
 public class OllamaPlayer extends AIPlayer implements Player {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaPlayer.class);
-    private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private static final String LOCAL_OLLAMA_URL = "http://localhost:11434";
     private static final String DEFAULT_MODEL = "llama3";
+    private static final int DEFAULT_MEMORY_TURNS = 8;
+    private static final int DEFAULT_CONTEXT_TOKENS = 32_768;
+    private static final int DEFAULT_MAX_OUTPUT_TOKENS = 1_024;
+    private static final String DEFAULT_THINKING = "off";
 
     private final ChatClient chatClient;
+    private final ChatMemory chatMemory;
+    private final String conversationId;
+    private final String modelName;
+    private final int memoryTurns;
 
-    static final String SYSTEM_PROMPT = """
-            Developer: # Role and Objective
-            - You are an expert Klondike Solitaire player. Your role is to select and output exactly one legal move from the current board configuration.
-            - When a "Legal moves now:" list is provided to you, treat it as the complete set of allowed moves for this turn.
+    private boolean strategyInitialized;
+    private int turnNumber;
 
-            # Instructions
-            - You do not know any rules that are not stated below. Follow the stated rules exactly.
-            - Output only a single legal command line; do not include explanations or additional text.
-            - Perform a concise checklist (3-7 bullets) of sub-tasks internally to select the move. Do NOT output the checklist.
-            - After determining a move, validate internally that it is legal by the stated rules before outputting.
-            - If a "Legal moves now:" list is present in the user message:
-              - You MUST output exactly ONE line copied verbatim from that list.
-              - You MUST NOT invent, edit, reformat, or combine moves.
-              - If only one legal move is listed, output it.
-              - If multiple legal moves are listed, choose the best one using the Decision Priorities section below.
-              - If "turn" is listed, it is legal. If "turn" is not listed, you cannot output "turn".
-              - Any output that does not exactly match a listed legal move is wrong.
-            - If a "Guidance for this turn:" section is present in the user message:
-              - Treat these bullet points as strong guidance from the game engine.
-              - Avoid issuing commands that the guidance tells you to avoid (e.g., \"don't move T6 Q♥ T2\").
-              - When guidance suggests \"quit\" and no clearly improving move exists, strongly prefer outputting \"quit\".
+    /** Creates a local player with system-property defaults for command-line and test use. */
+    public OllamaPlayer() {
+        this(DEFAULT_MODEL);
+    }
 
-            ## Game Rules
+    /** Creates a local player for one explicitly selected Ollama model. */
+    public OllamaPlayer(String modelName) {
+        this(
+                modelName,
+                Integer.getInteger("ollama.memory.turns", DEFAULT_MEMORY_TURNS),
+                Integer.getInteger("ollama.context.tokens", DEFAULT_CONTEXT_TOKENS),
+                Integer.getInteger("ollama.max.output.tokens", DEFAULT_MAX_OUTPUT_TOKENS),
+                System.getProperty("ollama.thinking", DEFAULT_THINKING));
+    }
 
-            ### 1. Objective
-            - Move all cards to the four FOUNDATION piles (F1–F4), building each suit from Ace (A) up to King (K).
+    /** Creates the Spring-managed player from application or JVM properties. */
+    @Autowired
+    public OllamaPlayer(
+            @Value("${ollama.model:" + DEFAULT_MODEL + "}") String modelName,
+            @Value("${ollama.memory.turns:" + DEFAULT_MEMORY_TURNS + "}") int memoryTurns,
+            @Value("${ollama.context.tokens:" + DEFAULT_CONTEXT_TOKENS + "}") int contextTokens,
+            @Value("${ollama.max.output.tokens:" + DEFAULT_MAX_OUTPUT_TOKENS + "}") int maxOutputTokens,
+            @Value("${ollama.thinking:" + DEFAULT_THINKING + "}") String thinking) {
+        this(
+                buildLocalChatModel(modelName, contextTokens, maxOutputTokens, thinking),
+                modelName,
+                memoryTurns,
+                UUID.randomUUID().toString());
+    }
 
-            ### 2. Foundations (F1–F4)
-            - Each foundation starts empty.
-            - You may place an Ace on an empty foundation.
-            - After an Ace, place a card only if it is:
-              - the same suit as the top card
-              - exactly one rank higher than the top card
-            - Example: If F1 top is 6♣, you may place 7♣ on F1.
+    /** Package-visible constructor used by focused tests with an in-process chat model. */
+    OllamaPlayer(ChatModel chatModel, String modelName, int memoryTurns, String conversationId) {
+        if (memoryTurns < 1) {
+            throw new IllegalArgumentException("Ollama memory turns must be at least 1");
+        }
+        this.modelName = modelName;
+        this.memoryTurns = memoryTurns;
+        this.conversationId = conversationId;
 
-            ### 3. Tableau (T1–T7)
-            - Seven columns where active play occurs.
-            - You may move a visible (face-up) card or a visible stack starting from a face-up card.
-
-            #### Suit colours (very important)
-            - Red suits: ♥ (hearts), ♦ (diamonds)
-            - Black suits: ♠ (spades), ♣ (clubs)
-
-            #### Tableau build rules
-            - Cards must alternate colours (red on black or black on red)
-            - Ranks must descend by exactly one
-            - Example: You can place 7♥ on 8♣, or Q♠ on K♦.
-            - Empty tableau:
-              - Only a King or a King-led visible stack can be placed into an empty tableau column.
-
-            ### 4. Stock and Talon (Waste)
-            - STOCK contains face-down undealt cards.
-            - Use "turn" to flip cards from STOCK to TALON.
-            - The top of TALON is playable and is referenced as W.
-            - If STOCK is empty, "turn" is not possible.
-
-            ### 5. Allowed Moves
-            - Only face-up cards are movable.
-            - From tableau: move a single face-up card or a contiguous face-up stack.
-            - From talon: move only the top talon card W.
-            - From foundation: move only the top card (single-card moves from foundation).
-
-            ## Board Layout (as provided to you)
-            - FOUNDATION: F1–F4 show their top card or "--" if empty.
-            - TABLEAU: T1–T7 show columns. Face-down cards appear as "..▼" or similar. The lowest visible card in the column (closest to the player) is the top playable card.
-            - STOCKPILE & TALON: STOCK shows a count (e.g., "24 down"). TALON shows the top card; W refers to this card.
-
-            ## Commands (output exactly ONE line)
-            - turn
-            - quit
-            - move <FROM> <TO>
-
-            ### Move Syntax
-            - FROM: W (top of talon), T1–T7 (visible tableau card/stack start), F1–F4 (foundation top card)
-            - TO: T1–T7 or F1–F4
-
-            #### Examples
-            - move W T3
-            - move T6 A♣ F1
-            - move T7 Q♣ T5
-
-            ## Legality Checklist
-            - A) Foundation move is legal only if:
-              - target is empty AND card is Ace, OR
-              - same suit AND exactly one rank higher than foundation's top card
-            - B) Tableau move legal only if:
-              - target is empty AND moving card is King, OR
-              - target's top is opposite colour AND exactly one rank higher than moving card
-            - C) You may reference only visible (face-up) cards
-            - D) If no legal move improves the position, choose "turn"
-            - E) If STOCK is empty and no legal moves exist, choose "quit"
-
-            ## Decision Priorities (in order)
-            1. Move any Ace to an empty foundation immediately.
-            2. Move any legal card to foundation if it does not block uncovering tableau cards.
-            3. Prefer tableau moves that reveal a face-down card.
-            4. Prefer moves that create or use empty tableau columns for Kings.
-            5. Prefer moves that extend correct alternating descending stacks.
-            6. If W (top of talon) has a legal move above, do it before turning.
-            7. Otherwise, "turn".
-            8. If "turn" is impossible and no legal moves exist, "quit".
-
-            ## Final Constraint
-            - Output exactly ONE legal command line only.
-            - When "Legal moves now:" is provided, your output must be an exact copy of one listed move.
-            - Do NOT provide explanations.
-            """;
-
+        // One pinned system message plus one user/assistant pair for each retained gameplay turn.
+        this.chatMemory = MessageWindowChatMemory.builder()
+                .maxMessages(1 + (memoryTurns * 2))
+                .build();
+        MessageChatMemoryAdvisor memoryAdvisor = MessageChatMemoryAdvisor.builder(chatMemory)
+                .conversationId(conversationId)
+                .build();
+        this.chatClient = ChatClient.builder(chatModel)
+                .defaultAdvisors(memoryAdvisor)
+                .build();
+    }
 
     /**
-     * Default constructor for non-Spring contexts (e.g., tests).
+     * Chooses one engine-validated legal move while retaining recent game context.
+     *
+     * @param solitaire authoritative current game state
+     * @param moves engine recommendations, intentionally ignored for this unguided experiment
+     * @param feedback execution feedback from the preceding command, if any
+     * @return one command copied from the complete legal-move list
      */
-    public OllamaPlayer() {
-        this(buildLocalChatClient(DEFAULT_MODEL));
-    }
-
-    @Autowired
-    public OllamaPlayer(@Value("${ollama.model:" + DEFAULT_MODEL + "}") String modelName) {
-        this(buildLocalChatClient(modelName));
-    }
-
-    private OllamaPlayer(ChatClient chatClient) {
-        this.chatClient = chatClient;
-    }
-
     @Override
-    public String nextCommand(Solitaire solitaire, String moves, String feedback) {
-        String board = stripAnsi(solitaire.toString());
-        String cleanMoves = stripAnsi(moves);
-        String cleanFeedback = stripAnsi(feedback);
-
-        StringBuilder prompt = new StringBuilder(board);
-        if (cleanFeedback != null && !cleanFeedback.isBlank()) {
-            prompt.append("\n\n").append(cleanFeedback.trim());
-        }
-        if (cleanMoves != null && !cleanMoves.isBlank()) {
-            prompt.append("\n\n").append(cleanMoves.trim());
+    public synchronized String nextCommand(Solitaire solitaire, String moves, String feedback) {
+        // The model's own strategy is established before it sees the first deal.
+        if (!strategyInitialized) {
+            initializeStrategy();
         }
 
+        // Generate legal actions independently of GuidanceService so guidance can remain disabled.
+        List<String> legalMoves = new ArrayList<>(LegalMovesHelper.listLegalMoves(solitaire));
+        if (legalMoves.isEmpty()) {
+            legalMoves.add("quit");
+        }
+
+        turnNumber++;
+        String prompt = LlmGamePrompts.buildTurnPrompt(solitaire, feedback, legalMoves, false);
         if (log.isTraceEnabled()) {
-            log.trace("Ollama prompt (user): {}", prompt);
+            log.trace("Ollama turn {} prompt for conversation {}:\n{}", turnNumber, conversationId, prompt);
         }
 
+        // Ollama enforces the dynamic enum before Spring AI returns the JSON response.
         String response = chatClient.prompt()
-                .system(SYSTEM_PROMPT)
-                .user(prompt.toString())
+                .user(prompt)
+                .options(OllamaChatOptions.builder()
+                        .format(commandSchema(legalMoves))
+                        .build())
                 .call()
                 .content();
+        String selectedCommand = parseCommand(response);
 
+        // Keep the engine as the final authority even when structured output is enabled.
+        if (!legalMoves.contains(selectedCommand)) {
+            throw new IllegalStateException(
+                    "Ollama returned a command outside the legal-move list: " + selectedCommand);
+        }
         if (log.isTraceEnabled()) {
-            log.trace("Ollama response: {}", response);
+            log.trace("Ollama turn {} response for conversation {}: {}", turnNumber, conversationId, response);
+        }
+        return selectedCommand;
+    }
+
+    /** Asks for existing knowledge, then pins that answer above the rolling turn window. */
+    private void initializeStrategy() {
+        String strategy = chatClient.prompt()
+                .user(LlmGamePrompts.STRATEGY_PROMPT)
+                .call()
+                .content();
+        if (strategy == null || strategy.isBlank()) {
+            throw new IllegalStateException("Ollama returned an empty pre-game strategy");
         }
 
-        return response == null ? "quit" : response.trim();
+        // Replace the temporary strategy exchange with one preserved system message. Spring AI's
+        // MessageWindowChatMemory evicts old user/assistant turns but always retains this message.
+        chatMemory.clear(conversationId);
+        chatMemory.add(conversationId, new SystemMessage(persistentSystemPrompt(strategy.trim())));
+        strategyInitialized = true;
+
+        log.info("Started Ollama game conversation {} using {} with {} retained turns",
+                conversationId, modelName, memoryTurns);
+        if (log.isDebugEnabled()) {
+            log.debug("Ollama pre-game strategy for conversation {}:\n{}", conversationId, strategy.trim());
+        }
     }
 
-    private static String stripAnsi(String input) {
-        return input == null ? null : ANSI.matcher(input).replaceAll("");
+    /** Combines model-authored strategy with the non-strategic game interface. */
+    static String persistentSystemPrompt(String strategy) {
+        return "# Strategy you described before the game\n"
+                + strategy
+                + "\n\n"
+                + LlmGamePrompts.GAME_INTERFACE;
     }
 
-    private static ChatClient buildLocalChatClient(String modelName) {
+    /** Creates the JSON schema that restricts the model to this turn's legal commands. */
+    static Map<String, Object> commandSchema(List<String> legalMoves) {
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put("type", "string");
+        command.put("enum", List.copyOf(legalMoves));
+
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("command", command);
+
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", properties);
+        schema.put("required", List.of("command"));
+        schema.put("additionalProperties", false);
+        return schema;
+    }
+
+    /** Extracts the command from Ollama's structured response. */
+    static String parseCommand(String response) {
+        if (response == null || response.isBlank()) {
+            throw new IllegalStateException("Ollama returned an empty move response");
+        }
+        try {
+            JsonNode command = JSON.readTree(response).get("command");
+            if (command == null || !command.isTextual() || command.asText().isBlank()) {
+                throw new IllegalStateException("Ollama response did not contain a command: " + response);
+            }
+            return command.asText();
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Could not parse Ollama move response: " + response, exception);
+        }
+    }
+
+    /** Exposes the game-scoped conversation identifier for experiment diagnostics. */
+    public String getConversationId() {
+        return conversationId;
+    }
+
+    /** Returns a snapshot of retained messages for package-level verification. */
+    List<Message> retainedMessages() {
+        return chatMemory.get(conversationId);
+    }
+
+    /** Builds the local model with an explicit context budget and visible overflow failures. */
+    private static ChatModel buildLocalChatModel(
+            String modelName, int contextTokens, int maxOutputTokens, String thinking) {
+        if (contextTokens < 1) {
+            throw new IllegalArgumentException("Ollama context tokens must be at least 1");
+        }
+        if (maxOutputTokens < 1) {
+            throw new IllegalArgumentException("Ollama maximum output tokens must be at least 1");
+        }
         OllamaApi api = OllamaApi.builder()
                 .baseUrl(LOCAL_OLLAMA_URL)
                 .build();
-
-        OllamaChatModel model = OllamaChatModel.builder()
+        OllamaChatOptions.Builder options = OllamaChatOptions.builder()
+                .model(modelName)
+                .numCtx(contextTokens)
+                .numPredict(maxOutputTokens)
+                .truncate(false);
+        configureThinking(options, thinking);
+        return OllamaChatModel.builder()
                 .ollamaApi(api)
-                .defaultOptions(OllamaChatOptions.builder()
-                        .model(modelName)
-                        .build())
+                .defaultOptions(options.build())
                 .build();
+    }
 
-        return ChatClient.builder(model).build();
+    /** Applies a model-compatible thinking mode while allowing explicit Ollama auto-detection. */
+    static void configureThinking(OllamaChatOptions.Builder options, String thinking) {
+        String normalized = thinking == null ? DEFAULT_THINKING : thinking.trim().toLowerCase();
+        switch (normalized) {
+            case "auto" -> {
+                // Leave the option unset so Ollama chooses the model's default behavior.
+            }
+            case "off", "false", "none" -> options.disableThinking();
+            case "on", "true" -> options.enableThinking();
+            case "low" -> options.thinkOption(ThinkOption.ThinkLevel.LOW);
+            case "medium" -> options.thinkOption(ThinkOption.ThinkLevel.MEDIUM);
+            case "high" -> options.thinkOption(ThinkOption.ThinkLevel.HIGH);
+            default -> throw new IllegalArgumentException(
+                    "Unsupported Ollama thinking mode '" + thinking
+                            + "'; use auto, off, on, low, medium, or high");
+        }
     }
 }

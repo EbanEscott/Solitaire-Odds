@@ -127,6 +127,9 @@ Ollama model selection:
 - Default model is set in `src/main/resources/application.properties` (`ollama.model=llama3`).
 - Override per run: `./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama" "-Dollama.model=mistral-large:123b"`
 - Or set env: `$env:OLLAMA_MODEL="mistral-large:123b"; ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama"`
+- Each `OllamaPlayer` instance represents one game. It first asks the model to state the Klondike strategy it already knows, pins that model-authored strategy, and retains a rolling window of recent board turns.
+- Configure the rolling window with `-Dollama.memory.turns=8` and the Ollama context budget with `-Dollama.context.tokens=32768`. Input truncation is disabled so an unexpected overflow fails visibly.
+- Thinking defaults to `off` so thinking-capable local models cannot spend an unbounded number of tokens choosing one move. Use `-Dollama.thinking=auto|on|low|medium|high` for controlled reasoning experiments and cap each response with `-Dollama.max.output.tokens=1024`.
 - Recommended benchmark models (configured in Ollama and passed via `ollama.model` or `ollama.models`):
   - `gpt-oss:120b`
   - `llama4:scout`

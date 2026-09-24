@@ -58,14 +58,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, AutoCloseable {
     private static final String NO_DIAGNOSTICS = "no diagnostics emitted";
 
     /** The only strategic prompt: the model must supply its own knowledge before seeing a board. */
-    static final String STRATEGY_PROMPT = """
-            You are about to play one complete game of Klondike Solitaire.
-
-            Before the game begins, describe the Klondike rules and playing strategy you already know.
-            Explain how you intend to choose moves and plan across the game. Rely on your existing
-            knowledge: do not use tools, inspect files, or ask questions. Your response will remain in
-            this conversation as your strategy for the game.
-            """;
+    static final String STRATEGY_PROMPT = LlmGamePrompts.STRATEGY_PROMPT;
 
     // -----------------------------
     // Per-game session state
@@ -590,27 +583,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, AutoCloseable {
      */
     static String buildTurnPrompt(
             Solitaire solitaire, String feedback, List<String> legalMoves, boolean firstTurn) {
-        StringBuilder prompt = new StringBuilder();
-
-        // Establish protocol once, leaving game strategy to the model's preceding answer.
-        if (firstTurn) {
-            prompt.append("# Game interface\n")
-                    .append("The game now begins. Each turn provides the complete current board and the complete ")
-                    .append("legal-move list. Locations use F1-F4 for foundations, T1-T7 for tableau columns, ")
-                    .append("and W for the top waste card. Choose exactly one listed command without inventing ")
-                    .append("or rewriting it. Remember earlier boards, commands, and feedback when planning later moves.\n");
-        }
-        // Re-send the complete current state so decisions do not depend on reconstructing the board.
-        prompt.append("\n\n# Current board\n")
-                .append(stripAnsi(solitaire.toString()))
-                .append("\n\n# Complete legal-move list\n");
-        legalMoves.forEach(move -> prompt.append("- ").append(move).append('\n'));
-        // Feedback reports execution problems but does not recommend a strategic move.
-        if (feedback != null && !feedback.isBlank()) {
-            prompt.append("\n# Engine feedback\n").append(stripAnsi(feedback.trim())).append('\n');
-        }
-        prompt.append("\nReturn only the JSON object required by the response schema.");
-        return prompt.toString();
+        return LlmGamePrompts.buildTurnPrompt(solitaire, feedback, legalMoves, firstTurn);
     }
 
     // -----------------------------
