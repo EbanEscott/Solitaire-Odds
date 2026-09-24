@@ -151,6 +151,9 @@ Codex CLI setup (ChatGPT subscription rather than API billing):
 - Install Codex CLI and sign in with ChatGPT; `codex login status` must report `Logged in using ChatGPT`.
 - Configure the model with `-Dcodex.model` and reasoning effort with `-Dcodex.reasoning.effort`.
 - Use `-Dcodex.models=gpt-5.6-luna,gpt-5.6-sol,gpt-6-astra` to compare several models in one benchmark.
+- Each game uses a new persistent Codex session. Before the first board, the model is asked to state the Klondike strategy it already knows; every move then resumes that session so the model retains its strategy, earlier boards, commands, and feedback. Sessions are never reused across games.
+- Codex result runs disable engine guidance, so the benchmark measures the model's self-authored strategy rather than engine recommendations.
+- Transient capacity, timeout, and transport failures are retried up to five times with exponential backoff. Override this with `-Dcodex.retry.max.attempts` and `-Dcodex.retry.initial.delay.millis`; authentication and usage-limit failures are not retried.
 - The player refuses non-ChatGPT authentication and removes API-key environment variables from CLI subprocesses.
 - Run a small benchmark first:
   `./gradlew test --tests ai.games.results.CodexCliPlayerResultsTest --console=plain --rerun-tasks "-Dcodex.tests=true" "-Dcodex.models=gpt-5.6-luna,gpt-5.6-sol,gpt-6-astra" "-Dtest.games=1"`

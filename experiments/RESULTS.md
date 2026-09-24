@@ -56,6 +56,7 @@ This document is intentionally not the place for active experiment narratives, r
 Use tracked notebooks for that material. Current notebook:
 
 - `experiments/notebooks/mlp_cliff_research.ipynb` — research questions, MLP-only cliff hypotheses, confidence-interval sizing notes, and a small data-ingest scaffold.
+- `experiments/notebooks/llm_player_research.ipynb` — persistent-session LLM hypotheses, prompt-version history, run ledger, failure analysis, and README promotion checklist.
 
 ## Runtime Housekeeping
 

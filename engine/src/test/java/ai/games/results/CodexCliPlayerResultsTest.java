@@ -12,9 +12,17 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Batch runner for Codex CLI authenticated through a ChatGPT subscription. */
+/**
+ * Batch runner for the Codex CLI-backed player.
+ *
+ * <p>Requires Codex CLI to be authenticated through a ChatGPT subscription. Enable with
+ * {@code -Dcodex.tests=true}; configure models with {@code -Dcodex.models} and reasoning with
+ * {@code -Dcodex.reasoning.effort}.
+ */
 public class CodexCliPlayerResultsTest {
     private static final Logger log = LoggerFactory.getLogger(CodexCliPlayerResultsTest.class);
+    private static final String TABLE_HEADER = "| Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |";
+    private static final String TABLE_DIVIDER = "|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|";
 
     @Test
     void playMultipleGamesAndReport() {
@@ -22,12 +30,16 @@ public class CodexCliPlayerResultsTest {
 
         int gamesToPlay = ResultsConfig.GAMES;
         System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
+
+        System.out.println(TABLE_HEADER);
+        System.out.println(TABLE_DIVIDER);
         for (String modelName : configuredModels()) {
             String reasoningEffort = CodexCliPlayer.configuredReasoningEffort(modelName);
             Stats stats = runGames(modelName, reasoningEffort, gamesToPlay);
 
             String notes = "OpenAI " + modelName + " via Codex CLI (ChatGPT subscription, reasoning="
-                    + reasoningEffort + "); see [code](src/main/java/ai/games/player/ai/CodexCliPlayer.java).";
+                    + reasoningEffort
+                    + ", persistent session, self-authored strategy, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CodexCliPlayer.java).";
             String summary = String.format(
                     "| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                     "Codex CLI " + modelName,
@@ -70,19 +82,34 @@ public class CodexCliPlayerResultsTest {
             }
             System.setProperty("game.index", String.valueOf(gameNumber));
             System.setProperty("game.total", String.valueOf(games));
-            GameResult result = new Game(new CodexCliPlayer(modelName, reasoningEffort)).play();
-            stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
+            try (CodexCliPlayer player = new CodexCliPlayer(modelName, reasoningEffort)) {
+                Game game = new Game(player);
+                game.setGuidanceEnabled(false);
+                GameResult result = game.play();
+                stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
+                log.info(
+                        "Codex game result: model={}, reasoning={}, game={}/{}, session={}, won={}, moves={}, durationSeconds={}, finalCommand={}",
+                        modelName,
+                        reasoningEffort,
+                        gameNumber,
+                        games,
+                        player.getSessionId(),
+                        result.isWon(),
+                        result.getMoves(),
+                        String.format("%.3f", result.getDurationNanos() / 1_000_000_000.0),
+                        player.getLastCommand());
+            }
         }
         return stats;
     }
 
     private static class Stats {
         final int games;
-        int wins;
-        long totalTimeNanos;
-        int totalMoves;
-        int bestWinStreak;
-        int currentStreak;
+        int wins = 0;
+        long totalTimeNanos = 0;
+        int totalMoves = 0;
+        int bestWinStreak = 0;
+        int currentStreak = 0;
 
         Stats(int games) {
             this.games = games;

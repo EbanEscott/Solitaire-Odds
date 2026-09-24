@@ -10,7 +10,11 @@ The current best player is *A\* search* with a win rate of 36.87% ± 0.95% acros
 
 ## Test Results
 
-The last test run was performed at Jan 26, 2026 9:44 PM AEST.
+The latest test run completed on Sep 25, 2026 at 3:34 AM AEST.
+
+### Search-based players
+
+These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
@@ -20,8 +24,14 @@ The last test run was performed at Jan 26, 2026 9:44 PM AEST.
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](engine/src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
 | A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 40094.651s | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
-| OpenAI                       | LLM    | 100 | 13 | 13.00% ± 6.59% | 124.992s | 12499.187s | 168.69 | 2 | OpenAI gpt-5-mini via API; see [code](engine/src/main/java/ai/games/player/ai/OpenAIPlayer.java). |
-| Alibaba                      | LLM    | 10 | 0 | 0.00% ± 0.00% | 235.863s | 2358.627s | 311.60 | 0 | Alibaba qwen3-coder:30b via Ollama; see [code](engine/src/main/java/ai/games/player/ai/OllamaPlayer.java) and [model](https://ollama.com/library/qwen3-coder). |
+
+### LLM-backed players
+
+The Codex CLI baseline used 100 independent random deals completed across Sep 24-25, 2026.
+
+| Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
+|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
+| OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 474.557s | 47455.715s | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
 * **Player** Name of the decision or optimisation method or LLM-backed player being tested.
 * **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
@@ -35,9 +45,9 @@ The last test run was performed at Jan 26, 2026 9:44 PM AEST.
 * **Best Win Streak** Longest run of consecutive wins within the batch.
 * **Notes** Free-form notes and clickable links to the implementing classes or external model pages.
 
-> Why do search-based AI far out perform LLM's at games like Solitaire? In short: LLMs don't maintain or reason over complete card-game states, they don't do efficient tree-search or simulation, and so they can't reliably choose optimal moves in a structured card-game like Solitaire.
+> Why does A* search still outperform LLM-backed play at Solitaire? Search can explore and compare complete game states directly. The persistent-session LLM can now maintain enough context to win games using its own strategy, but it does not perform the same efficient tree search and is roughly two orders of magnitude slower per game.
 >
-> LLMs can describe good play. They cannot compute good play.
+> Persistent context turned good strategic descriptions into an 18% measured win rate, but deliberate search remains stronger and much faster.
 
 ## Players
 
@@ -52,10 +62,11 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
   - **A\* Search**: Treats Solitaire as a shortest-path problem and uses an admissible-ish heuristic to guide exploration toward winning states.
 
 - **LLM-backed players** — Use language models to propose moves:
+  - **OpenAI Codex CLI (Sol)**: Asks the model to state its existing strategy before the deal, then keeps the strategy, every board, and every selected move in one persistent session for the game. The engine supplies legal moves but no strategic guidance.
   - **OpenAI**: Sends the current state and move options to an OpenAI chat model (e.g., `gpt-5-mini`) over HTTP and executes the model’s chosen move.
   - **Alibaba (Ollama)**: Uses the `qwen3-coder:30b` model via a local Ollama server; the engine prompts the model with a structured description of the board and legal moves and follows its recommendation.
 
-> LLM-backed players performed very poorly because they do not keep any internal state of the game play. It was not until the prompts were significantly refined that they began to win any games. At that point, it felt like the prompts were encoding game rules rather than relying on the model's reasoning.
+> The current LLM benchmark asks the model to state the strategy it already knows, then retains that strategy, earlier boards, commands, and feedback in one persistent session per game. Older stateless API and Ollama results remain available in Git history.
 
 - **Neural MCTS player (AlphaSolitaire)** — Hybrid search + learned evaluation:
   - **AlphaSolitaire (MCTS + NN)**: Uses Monte Carlo Tree Search guided by a neural policy–value network trained in the `neural-network` module. The Java engine calls the Python service to evaluate states and choose statistically strong moves.
