@@ -239,8 +239,12 @@ head -1 logs/episode.log
 ```
 
 Each episode log line contains:
+- `EPISODE_GAME`: run ID plus model, session/conversation, prompt, and pre-game strategy metadata when the player supplies it
 - `EPISODE_STEP`: per-move state, legal/recommended moves, chosen action
-- `EPISODE_SUMMARY`: end-of-game statistics (win/loss, move count, duration)
+- `EPISODE_SUMMARY`: end-of-game statistics, termination reason, duration, and final board progress
+
+Set `-Dexperiment.run.id=<descriptive-id>` to select one batch from the append-only log later. If
+omitted, the engine assigns an `auto-...` run ID for that JVM.
 
 These logs are consumed by the Python neural network training pipeline in `../neural-network`.
 

@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
  */
 final class LlmGamePrompts {
 
+    static final String PROMPT_VERSION = "P0";
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
 
     static final String STRATEGY_PROMPT = """

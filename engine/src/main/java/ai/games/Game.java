@@ -6,6 +6,7 @@ import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.ExperimentMetadataProvider;
 import ai.games.player.GuidanceService;
 import ai.games.player.GuidanceService.TurnView;
 import ai.games.player.LegalMovesHelper;
@@ -130,6 +131,9 @@ public class Game implements CommandLineRunner {
         int successfulMoves = 0;
         long startNanos = System.nanoTime();
         boolean won = false;
+        boolean gameMetadataLogged = false;
+        String terminationReason = "stopped";
+        String finalCommand = null;
         
         // Cap iterations at ~8× a typical winning game (≈120–135 moves incl. stock turns). Anything beyond this
         // is overwhelmingly likely to be looping or non-productive searching, so we bail out to keep runs finite.
@@ -162,6 +166,7 @@ public class Game implements CommandLineRunner {
             
             if (isWon(solitaire)) {
                 won = true;
+                terminationReason = "won";
                 if (log.isDebugEnabled()) {
                     log.debug("🎉🤗🎉 Congrats, you moved every card to the foundations! 🎉🤗🎉");
                     log.debug("Game won by {}", player.getClass().getSimpleName());
@@ -180,6 +185,7 @@ public class Game implements CommandLineRunner {
             // recommended moves and feedback we just prepared.
             String input = player.nextCommand(solitaire, moves, feedback);
             if (input == null) {
+                terminationReason = "input_closed";
                 if (log.isDebugEnabled()) {
                     log.debug("Input closed. Exiting for player {}", player.getClass().getSimpleName());
                 }
@@ -191,6 +197,20 @@ public class Game implements CommandLineRunner {
             if (input.startsWith("- ")) {
                 input = input.substring(2).trim();
             }
+            finalCommand = input;
+
+            // Capture dynamic session and strategy metadata after the player's first response.
+            if (EpisodeLogger.isEnabled() && !gameMetadataLogged) {
+                java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+                if (player instanceof ExperimentMetadataProvider provider) {
+                    metadata.putAll(provider.getExperimentMetadata());
+                }
+                metadata.put("guidance", guidanceMode.isMode());
+                metadata.put("training_mode", trainingMode.isMode());
+                metadata.put("max_iterations", maxIterations);
+                EpisodeLogger.logGameMetadata(solverId, metadata);
+                gameMetadataLogged = true;
+            }
 
             // Log this step for training, if enabled (requires state capture before move execution).
             java.util.List<String> legalMovesAtStart = LegalMovesHelper.listLegalMoves(solitaire);
@@ -200,6 +220,7 @@ public class Game implements CommandLineRunner {
             if (guidanceMode.isMode() && guidanceService != null) {
                 boolean pingPongLimitHit = guidanceService.trackPingPongs(input, aiMode, player);
                 if (pingPongLimitHit) {
+                    terminationReason = "ping_pong_limit";
                     feedback = "Ping-pong limit exceeded; forcing quit.";
                     illegalFeedback = "";
                     break;
@@ -209,6 +230,7 @@ public class Game implements CommandLineRunner {
             // Update iteration count and enforce a hard safety cap.
             iterations++;
             if (iterations > maxIterations) {
+                terminationReason = "move_cap";
                 if (log.isDebugEnabled()) {
                     log.debug(
                             "Maximum iteration limit reached ({}); stopping game loop for {} to avoid runaway execution.",
@@ -260,12 +282,21 @@ public class Game implements CommandLineRunner {
             }
 
             if (quitRequested) {
+                terminationReason = "quit";
                 break;
             }
         }
         long durationNanos = System.nanoTime() - startNanos;
         if (EpisodeLogger.isEnabled()) {
-            EpisodeLogger.logSummary(solitaire, solverId, iterations, successfulMoves, won, durationNanos);
+            EpisodeLogger.logSummary(
+                    solitaire,
+                    solverId,
+                    iterations,
+                    successfulMoves,
+                    won,
+                    durationNanos,
+                    terminationReason,
+                    finalCommand);
         }
         return new GameResult(won, successfulMoves, durationNanos);
     }

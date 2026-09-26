@@ -10,7 +10,19 @@ The current best player is *A\* search* with a win rate of 36.87% ± 0.95% acros
 
 ## Test Results
 
-The latest test run completed on Sep 25, 2026 at 3:34 AM AEST.
+The latest test run completed on Sep 26, 2026 at 12:44 PM AEST.
+
+* **Player** Name of the decision or optimisation method or LLM-backed player being tested.
+* **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
+* **Games Played** Total number of solitaire games the algorithm attempted.
+* **Games Won** Count of games successfully completed.
+* **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
+* **Avg Time/Game** Mean time taken to finish or fail a game.
+* **Total Time** Sum of all time spent playing the batch of games.
+* **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
+* **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
+* **Best Win Streak** Longest run of consecutive wins within the batch.
+* **Notes** Free-form notes and clickable links to the implementing classes or external model pages.
 
 ### Search-based players
 
@@ -27,27 +39,16 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
 ### LLM-backed players
 
-The Codex CLI baseline used 100 independent random deals completed across Sep 24-25, 2026.
+The Codex CLI baselines used 100 independent random deals per model, completed across Sep 24-26, 2026.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
 | OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 474.557s | 47455.715s | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-
-* **Player** Name of the decision or optimisation method or LLM-backed player being tested.
-* **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
-* **Games Played** Total number of solitaire games the algorithm attempted.
-* **Games Won** Count of games successfully completed.
-* **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
-* **Avg Time/Game** Mean time taken to finish or fail a game.
-* **Total Time** Sum of all time spent playing the batch of games.
-* **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
-* **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
-* **Best Win Streak** Longest run of consecutive wins within the batch.
-* **Notes** Free-form notes and clickable links to the implementing classes or external model pages.
+| OpenAI Codex CLI (Luna)      | LLM    | 100 | 5 | 5.00% ± 4.27% | 890.632s | 89063.176s | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
 > Why does A* search still outperform LLM-backed play at Solitaire? Search can explore and compare complete game states directly. The persistent-session LLM can now maintain enough context to win games using its own strategy, but it does not perform the same efficient tree search and is roughly two orders of magnitude slower per game.
 >
-> Persistent context turned good strategic descriptions into an 18% measured win rate, but deliberate search remains stronger and much faster.
+> Persistent context let both tested models turn their own strategic descriptions into wins: Sol reached 18%, while Luna reached 5%. Deliberate search remains stronger and much faster.
 
 ## Players
 
@@ -63,6 +64,7 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
 
 - **LLM-backed players** — Use language models to propose moves:
   - **OpenAI Codex CLI (Sol)**: Asks the model to state its existing strategy before the deal, then keeps the strategy, every board, and every selected move in one persistent session for the game. The engine supplies legal moves but no strategic guidance.
+  - **OpenAI Codex CLI (Luna)**: Uses the same persistent-session P0 protocol as Sol, with a separate session for each random deal and no engine-supplied strategy or guidance.
   - **OpenAI**: Sends the current state and move options to an OpenAI chat model (e.g., `gpt-5-mini`) over HTTP and executes the model’s chosen move.
   - **Alibaba (Ollama)**: Uses the `qwen3-coder:30b` model via a local Ollama server; the engine prompts the model with a structured description of the board and legal moves and follows its recommendation.
 

@@ -107,6 +107,7 @@ public class OllamaPlayerResultsTest {
             System.setProperty("game.total", String.valueOf(games));
             Player ai = playerSupplier.get();
             Game game = new Game(ai);
+            game.setGuidanceEnabled(false);
             GameResult result = game.play();
             stats.recordGame(result.isWon(), result.getMoves(), result.getDurationNanos());
         }

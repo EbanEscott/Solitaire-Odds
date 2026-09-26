@@ -49,6 +49,14 @@ class OllamaPlayerTest {
         assertTrue(model.prompts.get(0).getContents().contains("strategy you already know"));
         assertTrue(model.prompts.get(1).getContents().contains("# Complete legal-move list"));
         assertFalse(model.prompts.get(1).getContents().contains("ignored recommendation"));
+
+        Map<String, Object> metadata = player.getExperimentMetadata();
+        assertEquals("Ollama", metadata.get("provider"));
+        assertEquals("test-model", metadata.get("model"));
+        assertEquals("game-1", metadata.get("conversation_id"));
+        assertEquals("P0", metadata.get("prompt_version"));
+        assertEquals("Move useful cards to foundations and expose hidden tableau cards.",
+                metadata.get("pre_game_strategy"));
     }
 
     @Test

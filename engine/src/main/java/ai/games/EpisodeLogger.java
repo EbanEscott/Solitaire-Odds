@@ -3,10 +3,12 @@ package ai.games;
 import ai.games.game.Card;
 import ai.games.game.Solitaire;
 import ai.games.game.UnknownCardGuess;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Responsible for emitting structured JSON logs for episode training data.
@@ -16,13 +18,31 @@ import java.util.Map;
  */
 public class EpisodeLogger {
     private static final Logger log = LoggerFactory.getLogger(EpisodeLogger.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final boolean ENABLED = Boolean.getBoolean("log.episodes");
+    private static final String RUN_ID = System.getProperty("experiment.run.id", "auto-" + UUID.randomUUID());
 
     /**
      * Return true if episode logging is enabled via -Dlog.episodes=true.
      */
     public static boolean isEnabled() {
         return ENABLED;
+    }
+
+    /** Emits one game-scoped metadata record before the first move record. */
+    public static void logGameMetadata(String solverId, Map<String, Object> metadata) {
+        try {
+            StringBuilder sb = new StringBuilder("{\"type\":\"game\"");
+            appendRunContext(sb);
+            sb.append(",\"solver\":").append(JSON.writeValueAsString(solverId));
+            sb.append(",\"metadata\":").append(JSON.writeValueAsString(metadata));
+            sb.append('}');
+            log.info("EPISODE_GAME {}", sb);
+        } catch (Exception e) {
+            if (log.isDebugEnabled()) {
+                log.debug("Failed to log episode game metadata", e);
+            }
+        }
     }
 
     /**
@@ -81,12 +101,7 @@ public class EpisodeLogger {
 
             StringBuilder sb = new StringBuilder();
             sb.append("{\"type\":\"step\"");
-            if (gameIndex != null) {
-                sb.append(",\"game_index\":").append(gameIndex);
-            }
-            if (gameTotal != null) {
-                sb.append(",\"game_total\":").append(gameTotal);
-            }
+            appendRunContext(sb, gameIndex, gameTotal);
             sb.append(",\"solver\":\"").append(solverId).append("\"");
             sb.append(",\"step_index\":").append(stepIndex);
             sb.append(",\"state_key\":").append(stateKey);
@@ -265,7 +280,9 @@ public class EpisodeLogger {
             int iterations,
             int successfulMoves,
             boolean won,
-            long durationNanos) {
+            long durationNanos,
+            String terminationReason,
+            String finalCommand) {
 
         try {
             String gameIndex = System.getProperty("game.index");
@@ -273,17 +290,20 @@ public class EpisodeLogger {
 
             StringBuilder sb = new StringBuilder();
             sb.append("{\"type\":\"summary\"");
-            if (gameIndex != null) {
-                sb.append(",\"game_index\":").append(gameIndex);
-            }
-            if (gameTotal != null) {
-                sb.append(",\"game_total\":").append(gameTotal);
-            }
+            appendRunContext(sb, gameIndex, gameTotal);
             sb.append(",\"solver\":\"").append(solverId).append("\"");
             sb.append(",\"iterations\":").append(iterations);
             sb.append(",\"successful_moves\":").append(successfulMoves);
             sb.append(",\"won\":").append(won);
             sb.append(",\"duration_nanos\":").append(durationNanos);
+            sb.append(",\"termination_reason\":").append(JSON.writeValueAsString(terminationReason));
+            sb.append(",\"final_command\":").append(JSON.writeValueAsString(finalCommand));
+            sb.append(",\"final_state_key\":").append(solitaire.getStateKey());
+            sb.append(",\"final_foundation_cards\":")
+                    .append(solitaire.getFoundation().stream().mapToInt(List::size).sum());
+            sb.append(",\"final_tableau_face_down\":")
+                    .append(solitaire.getTableauFaceDownCounts().stream().mapToInt(Integer::intValue).sum());
+            sb.append(",\"final_stock_size\":").append(solitaire.getStockpile().size());
             sb.append('}');
 
             if (log.isInfoEnabled()) {
@@ -293,6 +313,25 @@ public class EpisodeLogger {
             if (log.isDebugEnabled()) {
                 log.debug("Failed to log episode summary", e);
             }
+        }
+    }
+
+    /** Adds optional run and required game counters shared by all episode record types. */
+    private static void appendRunContext(StringBuilder sb) {
+        appendRunContext(sb, System.getProperty("game.index"), System.getProperty("game.total"));
+    }
+
+    private static void appendRunContext(StringBuilder sb, String gameIndex, String gameTotal) {
+        try {
+            sb.append(",\"run_id\":").append(JSON.writeValueAsString(RUN_ID));
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not serialize experiment run ID", e);
+        }
+        if (gameIndex != null) {
+            sb.append(",\"game_index\":").append(gameIndex);
+        }
+        if (gameTotal != null) {
+            sb.append(",\"game_total\":").append(gameTotal);
         }
     }
 }

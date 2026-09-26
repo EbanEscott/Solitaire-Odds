@@ -2,6 +2,7 @@ package ai.games.player.ai;
 
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.ExperimentMetadataProvider;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,7 +40,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Profile("ai-codex")
-public class CodexCliPlayer extends AIPlayer implements Player, AutoCloseable {
+public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetadataProvider, AutoCloseable {
 
     // -----------------------------
     // Experiment configuration
@@ -75,6 +76,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, AutoCloseable {
     // Game-scoped session state. A CodexCliPlayer instance must never be shared between games.
     private Path workDirectory;
     private String sessionId;
+    private String preGameStrategy;
     private String lastCommand;
     private int turnNumber;
     private boolean closed;
@@ -258,6 +260,20 @@ public class CodexCliPlayer extends AIPlayer implements Player, AutoCloseable {
         return lastCommand;
     }
 
+    /** Describes the exact model protocol used by this game for episode analysis. */
+    @Override
+    public synchronized Map<String, Object> getExperimentMetadata() {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("provider", "OpenAI");
+        metadata.put("model", modelName);
+        metadata.put("reasoning", reasoningEffort);
+        metadata.put("session_id", sessionId);
+        metadata.put("prompt_version", LlmGamePrompts.PROMPT_VERSION);
+        metadata.put("pre_game_strategy", preGameStrategy);
+        metadata.put("stateful", true);
+        return metadata;
+    }
+
     /**
      * Starts the game-scoped session and asks the model to formulate its own Klondike strategy.
      *
@@ -273,15 +289,15 @@ public class CodexCliPlayer extends AIPlayer implements Player, AutoCloseable {
 
         // The thread.started event gives us a concurrency-safe ID; --last is intentionally avoided.
         sessionId = parseSessionId(Files.readString(stdoutPath, StandardCharsets.UTF_8));
-        String strategy = Files.readString(strategyPath, StandardCharsets.UTF_8).trim();
-        if (strategy.isBlank()) {
+        preGameStrategy = Files.readString(strategyPath, StandardCharsets.UTF_8).trim();
+        if (preGameStrategy.isBlank()) {
             throw new IllegalStateException("Codex CLI returned an empty pre-game strategy");
         }
         // The session ID is the durable link to Codex's stored transcript for later investigation.
         log.info("Started Codex CLI game session {} using {} with reasoning={}",
                 sessionId, modelName, reasoningEffort);
         if (log.isDebugEnabled()) {
-            log.debug("Codex CLI pre-game strategy for session {}:\n{}", sessionId, strategy);
+            log.debug("Codex CLI pre-game strategy for session {}:\n{}", sessionId, preGameStrategy);
         }
     }
 

@@ -7,6 +7,8 @@ The recommendation is to keep the experiments stack Python-based while treating 
 Start with [DESIGN.md](DESIGN.md) for the current architecture, storage model, resumability rules, and implementation shape.
 See [RESULTS.md](RESULTS.md) for result presentation, runtime housekeeping, and promotion rules.
 Use notebooks under `experiments/notebooks/` for active research questions, goals, and experiment notes.
+Use [LLM_EVALUATION.md](LLM_EVALUATION.md) for the 10-game LLM screening rubric, review checklist,
+and episode-analysis workflow.
 
 Run ID note:
 

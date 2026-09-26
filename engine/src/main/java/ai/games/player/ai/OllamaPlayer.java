@@ -2,6 +2,7 @@ package ai.games.player.ai;
 
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.ExperimentMetadataProvider;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -40,7 +41,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Profile("ai-ollama")
-public class OllamaPlayer extends AIPlayer implements Player {
+public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadataProvider {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaPlayer.class);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -57,8 +58,12 @@ public class OllamaPlayer extends AIPlayer implements Player {
     private final String conversationId;
     private final String modelName;
     private final int memoryTurns;
+    private final int contextTokens;
+    private final int maxOutputTokens;
+    private final String thinking;
 
     private boolean strategyInitialized;
+    private String preGameStrategy;
     private int turnNumber;
 
     /** Creates a local player with system-property defaults for command-line and test use. */
@@ -88,17 +93,42 @@ public class OllamaPlayer extends AIPlayer implements Player {
                 buildLocalChatModel(modelName, contextTokens, maxOutputTokens, thinking),
                 modelName,
                 memoryTurns,
-                UUID.randomUUID().toString());
+                UUID.randomUUID().toString(),
+                contextTokens,
+                maxOutputTokens,
+                thinking);
     }
 
     /** Package-visible constructor used by focused tests with an in-process chat model. */
     OllamaPlayer(ChatModel chatModel, String modelName, int memoryTurns, String conversationId) {
+        this(
+                chatModel,
+                modelName,
+                memoryTurns,
+                conversationId,
+                DEFAULT_CONTEXT_TOKENS,
+                DEFAULT_MAX_OUTPUT_TOKENS,
+                DEFAULT_THINKING);
+    }
+
+    /** Central constructor retaining the exact per-game experiment configuration. */
+    private OllamaPlayer(
+            ChatModel chatModel,
+            String modelName,
+            int memoryTurns,
+            String conversationId,
+            int contextTokens,
+            int maxOutputTokens,
+            String thinking) {
         if (memoryTurns < 1) {
             throw new IllegalArgumentException("Ollama memory turns must be at least 1");
         }
         this.modelName = modelName;
         this.memoryTurns = memoryTurns;
         this.conversationId = conversationId;
+        this.contextTokens = contextTokens;
+        this.maxOutputTokens = maxOutputTokens;
+        this.thinking = normalizeThinking(thinking);
 
         // One pinned system message plus one user/assistant pair for each retained gameplay turn.
         this.chatMemory = MessageWindowChatMemory.builder()
@@ -173,13 +203,14 @@ public class OllamaPlayer extends AIPlayer implements Player {
         // Replace the temporary strategy exchange with one preserved system message. Spring AI's
         // MessageWindowChatMemory evicts old user/assistant turns but always retains this message.
         chatMemory.clear(conversationId);
-        chatMemory.add(conversationId, new SystemMessage(persistentSystemPrompt(strategy.trim())));
+        preGameStrategy = strategy.trim();
+        chatMemory.add(conversationId, new SystemMessage(persistentSystemPrompt(preGameStrategy)));
         strategyInitialized = true;
 
         log.info("Started Ollama game conversation {} using {} with {} retained turns",
                 conversationId, modelName, memoryTurns);
         if (log.isDebugEnabled()) {
-            log.debug("Ollama pre-game strategy for conversation {}:\n{}", conversationId, strategy.trim());
+            log.debug("Ollama pre-game strategy for conversation {}:\n{}", conversationId, preGameStrategy);
         }
     }
 
@@ -229,6 +260,23 @@ public class OllamaPlayer extends AIPlayer implements Player {
         return conversationId;
     }
 
+    /** Describes the exact model protocol used by this game for episode analysis. */
+    @Override
+    public synchronized Map<String, Object> getExperimentMetadata() {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("provider", "Ollama");
+        metadata.put("model", modelName);
+        metadata.put("thinking", thinking);
+        metadata.put("conversation_id", conversationId);
+        metadata.put("prompt_version", LlmGamePrompts.PROMPT_VERSION);
+        metadata.put("pre_game_strategy", preGameStrategy);
+        metadata.put("stateful", true);
+        metadata.put("memory_turns", memoryTurns);
+        metadata.put("context_tokens", contextTokens);
+        metadata.put("max_output_tokens", maxOutputTokens);
+        return metadata;
+    }
+
     /** Returns a snapshot of retained messages for package-level verification. */
     List<Message> retainedMessages() {
         return chatMemory.get(conversationId);
@@ -260,7 +308,7 @@ public class OllamaPlayer extends AIPlayer implements Player {
 
     /** Applies a model-compatible thinking mode while allowing explicit Ollama auto-detection. */
     static void configureThinking(OllamaChatOptions.Builder options, String thinking) {
-        String normalized = thinking == null ? DEFAULT_THINKING : thinking.trim().toLowerCase();
+        String normalized = normalizeThinking(thinking);
         switch (normalized) {
             case "auto" -> {
                 // Leave the option unset so Ollama chooses the model's default behavior.
@@ -274,5 +322,15 @@ public class OllamaPlayer extends AIPlayer implements Player {
                     "Unsupported Ollama thinking mode '" + thinking
                             + "'; use auto, off, on, low, medium, or high");
         }
+    }
+
+    /** Normalizes aliases so logs compare equivalent thinking configurations consistently. */
+    private static String normalizeThinking(String thinking) {
+        String normalized = thinking == null ? DEFAULT_THINKING : thinking.trim().toLowerCase();
+        return switch (normalized) {
+            case "false", "none" -> "off";
+            case "true" -> "on";
+            default -> normalized;
+        };
     }
 }
