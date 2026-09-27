@@ -22,7 +22,7 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 - `src/main/java/ai/games/player/ai/` — AI players (all `@Profile`-gated):
   - Search: `RuleBasedHeuristicsPlayer`, `GreedySearchPlayer`, `BeamSearchPlayer`, `HillClimberPlayer`, `MonteCarloPlayer`, `AStarPlayer`
   - Neural: `alpha/AlphaSolitairePlayer` (policy-value network)
-  - LLM: `OpenAIPlayer`, `OllamaPlayer`
+  - LLM: `OpenAIPlayer`, `OllamaPlayer`, `CodexCliPlayer`, `CopilotCliPlayer`
 
 ### Build Files
 `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
@@ -121,6 +121,7 @@ Large language model-backed players via remote APIs or local inference:
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-ollama"        # Ollama via Spring AI (requires local Ollama)
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-openai"        # OpenAI via API (requires OPENAI_API_KEY or openai.apiKey)
 ./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-codex"         # Codex CLI via ChatGPT subscription
+./gradlew bootRun --console=plain "-Dspring.profiles.active=ai-copilot"       # GitHub Copilot CLI subscription
 ```
 
 Ollama model selection:
@@ -160,6 +161,15 @@ Codex CLI setup (ChatGPT subscription rather than API billing):
 - The player refuses non-ChatGPT authentication and removes API-key environment variables from CLI subprocesses.
 - Run a small benchmark first:
   `./gradlew test --tests ai.games.results.CodexCliPlayerResultsTest --console=plain --rerun-tasks "-Dcodex.tests=true" "-Dcodex.models=gpt-5.6-luna,gpt-5.6-sol,gpt-6-astra" "-Dtest.games=1"`
+
+GitHub Copilot CLI setup:
+- Install `copilot`, authenticate it with the GitHub account that owns the Copilot subscription, and use `/model` interactively to confirm model availability.
+- Configure one model with `-Dcopilot.model` or a sweep with `-Dcopilot.models`; the default is `claude-haiku-4.5`.
+- Each game uses a fresh persistent Copilot session and the same P0 self-authored-strategy protocol as the Codex player. Copilot runs in an empty temporary directory with custom instructions, MCP servers, and tools disabled.
+- Copilot has no strict response-schema flag, so the player validates returned JSON against the engine's legal moves and makes up to three in-session formatting corrections. Configure this with `-Dcopilot.response.max.attempts`.
+- Copilot result runs disable engine guidance and log the session ID plus Copilot's reported premium-request usage for every completed game.
+- Run a one-game smoke test with a 200-move cap:
+  `./gradlew test --tests ai.games.results.CopilotCliPlayerResultsTest --console=plain --rerun-tasks "-Dcopilot.tests=true" "-Dcopilot.models=claude-haiku-4.5" "-Dtest.games=1" "-Dtest.max.moves.per.game=200" "-Dlog.episodes=true"`
 
 ## Build & Test
 
@@ -209,6 +219,7 @@ LLM player benchmarks (enable with flags):
 ./gradlew test --tests ai.games.results.OpenAIPlayerResultsTest --console=plain --rerun-tasks "-Dopenai.tests=true"
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks "-Dollama.tests=true"
 ./gradlew test --tests ai.games.results.OllamaPlayerResultsTest --console=plain --rerun-tasks "-Dollama.tests=true" "-Dollama.models=gpt-oss:120b,llama4:scout,gemma3:27b,qwen3-coder:30b,mistral-large:123b,deepseek-r1:70b"
+./gradlew test --tests ai.games.results.CopilotCliPlayerResultsTest --console=plain --rerun-tasks "-Dcopilot.tests=true" "-Dcopilot.models=claude-haiku-4.5" "-Dtest.games=1" "-Dtest.max.moves.per.game=200"
 ./gradlew test --tests ai.games.results.AlphaSolitairePlayerResultsTest --console=plain --rerun-tasks "-Dalphasolitaire.tests=true"
 ```
 

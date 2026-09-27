@@ -65,6 +65,7 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
 - **LLM-backed players** — Use language models to propose moves:
   - **OpenAI Codex CLI (Sol)**: Asks the model to state its existing strategy before the deal, then keeps the strategy, every board, and every selected move in one persistent session for the game. The engine supplies legal moves but no strategic guidance.
   - **OpenAI Codex CLI (Luna)**: Uses the same persistent-session P0 protocol as Sol, with a separate session for each random deal and no engine-supplied strategy or guidance.
+  - **Anthropic (GitHub Copilot CLI)**: Runs selectable Claude models through a Copilot subscription using the same P0 prompt and one persistent session per random deal. The engine supplies legal moves but no strategy or guidance.
   - **OpenAI**: Sends the current state and move options to an OpenAI chat model (e.g., `gpt-5-mini`) over HTTP and executes the model’s chosen move.
   - **Alibaba (Ollama)**: Uses the `qwen3-coder:30b` model via a local Ollama server; the engine prompts the model with a structured description of the board and legal moves and follows its recommendation.
 
