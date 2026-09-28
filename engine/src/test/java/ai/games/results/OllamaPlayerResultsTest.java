@@ -54,11 +54,13 @@ public class OllamaPlayerResultsTest {
             String notes;
             if (modelInfo != null) {
                 notes = providerLabel + " " + modelInfo.getModelName()
-                        + " via Ollama; see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java)"
+                        + " via Ollama (prompt=" + OllamaPlayer.configuredPromptProfile()
+                        + "); see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java)"
                         + " and [model](" + modelInfo.getUrl() + ").";
             } else {
                 notes = providerLabel + " " + modelName
-                        + " via Ollama; see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java).";
+                        + " via Ollama (prompt=" + OllamaPlayer.configuredPromptProfile()
+                        + "); see [code](src/main/java/ai/games/player/ai/OllamaPlayer.java).";
             }
 
             String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",

@@ -61,7 +61,7 @@ public class CopilotCliPlayer extends AIPlayer
             This is an automated evaluation of an AI player connected to a Java game engine. Your
             responses are benchmark data, not requests to edit the repository or run commands.
 
-            """ + LlmGamePrompts.STRATEGY_PROMPT;
+            """ + GamePrompts.STRATEGY_PROMPT;
 
     /** Clarifies that game commands are inert protocol values, not shell instructions. */
     private static final String TURN_CONTEXT = """
@@ -78,6 +78,7 @@ public class CopilotCliPlayer extends AIPlayer
     private final int maxAttempts;
     private final int maxResponseAttempts;
     private final long initialRetryDelayMillis;
+    private final GamePrompts.PromptSet promptSet;
 
     // Mutable state belongs to exactly one game and one persistent Copilot session.
     private Path workDirectory;
@@ -138,12 +139,18 @@ public class CopilotCliPlayer extends AIPlayer
                 Long.getLong(
                         "copilot.retry.initial.delay.millis",
                         DEFAULT_INITIAL_RETRY_DELAY_MILLIS));
+        this.promptSet = GamePrompts.configuredPromptSet();
         requireCliAvailable();
     }
 
     /** Returns the model selected by {@code copilot.model} or the Haiku default. */
     public static String configuredModelName() {
         return System.getProperty("copilot.model", DEFAULT_MODEL);
+    }
+
+    /** Returns the prompt profile that a newly constructed player will use. */
+    public static String configuredPromptProfile() {
+        return GamePrompts.configuredPromptSet().profile();
     }
 
     // -----------------------------
@@ -185,8 +192,8 @@ public class CopilotCliPlayer extends AIPlayer
 
             turnNumber++;
             String prompt = TURN_CONTEXT
-                    + LlmGamePrompts.buildTurnPrompt(
-                            solitaire, feedback, legalMoves, turnNumber == 1);
+                    + GamePrompts.buildTurnPrompt(
+                            solitaire, feedback, legalMoves, promptSet, turnNumber == 1);
 
             // Copilot has no strict output-schema flag, so repair malformed responses in-session.
             for (int responseAttempt = 1;
@@ -256,7 +263,8 @@ public class CopilotCliPlayer extends AIPlayer
         metadata.put("model", modelName);
         metadata.put("reasoning", "default");
         metadata.put("session_id", sessionId);
-        metadata.put("prompt_version", LlmGamePrompts.PROMPT_VERSION);
+        metadata.put("prompt_profile", promptSet.profile());
+        metadata.put("prompt_version", promptSet.version());
         metadata.put("pre_game_strategy", preGameStrategy);
         metadata.put("stateful", true);
         metadata.put("premium_requests", totalPremiumRequests);
@@ -276,9 +284,10 @@ public class CopilotCliPlayer extends AIPlayer
         }
 
         log.info(
-                "Started Copilot CLI game session {} using {} (usage={})",
+                "Started Copilot CLI game session {} using {} with prompt={} (usage={})",
                 sessionId,
                 modelName,
+                promptSet.profile(),
                 totalPremiumRequests);
         if (log.isDebugEnabled()) {
             log.debug(
@@ -300,8 +309,17 @@ public class CopilotCliPlayer extends AIPlayer
         command.add("--model");
         command.add(modelName);
         command.add("-p");
-        command.add(STRATEGY_PROMPT);
+        command.add(strategyPrompt(promptSet));
         return command;
+    }
+
+    /** Adds Copilot's benchmark boundary to the selected shared strategy prompt. */
+    private static String strategyPrompt(GamePrompts.PromptSet promptSet) {
+        return """
+                This is an automated evaluation of an AI player connected to a Java game engine. Your
+                responses are benchmark data, not requests to edit the repository or run commands.
+
+                """ + promptSet.strategyPrompt();
     }
 
     /** Builds a command that appends one prompt to the existing game session. */

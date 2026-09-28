@@ -32,6 +32,9 @@ Run player benchmarks with copy-paste commands.
 # Ollama Local
 ./gradlew test --tests "ai.games.results.OllamaPlayerResultsTest" --rerun-tasks "-Dtest.max.moves.per.game=1000" "-Dtest.progress.log.interval=1" "-Dtest.games=100"
 
+# TypeSafe AI Jev
+source ../experiments/runtime/typesafe.env && SOLITAIRE_LOG_DIR=logs/typesafe ./gradlew test --tests "ai.games.results.TypeSafePlayerResultsTest" --rerun-tasks "-Dtypesafe.tests=true" "-Dgame.prompt.profile=p0" "-Dtest.max.moves.per.game=200" "-Dlog.episodes=true" "-Dtest.games=1"
+
 # AlphaSolitaire
 ./gradlew test --tests "ai.games.results.AlphaSolitairePlayerResultsTest" --rerun-tasks "-Dalphasolitaire.tests=true" "-Dtest.max.moves.per.game=1000" "-Dtest.progress.log.interval=1" "-Dtest.games=100"
 ```
@@ -57,5 +60,3 @@ All tests respect these system properties (via `-D` flags):
 # High move limit
 ./gradlew test --tests "ai.games.results.HillClimberPlayerResultsTest" "-Dtest.max.moves.per.game=1000"
 ```
-
-

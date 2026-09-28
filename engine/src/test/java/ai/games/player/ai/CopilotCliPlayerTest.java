@@ -15,6 +15,8 @@ class CopilotCliPlayerTest {
     @AfterEach
     void clearProperties() {
         System.clearProperty("copilot.model");
+        System.clearProperty(GamePrompts.PROMPT_PROFILE_PROPERTY);
+        System.clearProperty(GamePrompts.LEGACY_PROMPT_PROFILE_PROPERTY);
     }
 
     @Test

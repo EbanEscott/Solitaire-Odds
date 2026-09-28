@@ -39,7 +39,9 @@ public class CodexCliPlayerResultsTest {
 
             String notes = "OpenAI " + modelName + " via Codex CLI (ChatGPT subscription, reasoning="
                     + reasoningEffort
-                    + ", persistent session, self-authored strategy, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CodexCliPlayer.java).";
+                    + ", prompt="
+                    + CodexCliPlayer.configuredPromptProfile()
+                    + ", persistent session, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CodexCliPlayer.java).";
             String summary = String.format(
                     "| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                     "Codex CLI " + modelName,

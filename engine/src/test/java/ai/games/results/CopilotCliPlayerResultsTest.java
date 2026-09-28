@@ -31,7 +31,9 @@ public class CopilotCliPlayerResultsTest {
         for (String modelName : configuredModels()) {
             Stats stats = runGames(modelName, gamesToPlay);
             String notes = "Anthropic " + modelName
-                    + " via GitHub Copilot CLI (subscription, default reasoning, persistent session, self-authored strategy, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CopilotCliPlayer.java).";
+                    + " via GitHub Copilot CLI (subscription, default reasoning, prompt="
+                    + CopilotCliPlayer.configuredPromptProfile()
+                    + ", persistent session, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CopilotCliPlayer.java).";
             String summary = String.format(
                     "| %s | LLM | %d | %d | %.2f%% ± %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
                     "Copilot CLI " + modelName,

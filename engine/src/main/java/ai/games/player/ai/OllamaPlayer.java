@@ -35,9 +35,9 @@ import org.springframework.stereotype.Component;
  * Stateful Ollama-backed Solitaire player using Spring AI.
  *
  * <p>Each instance represents one game. Before seeing the deal, the model states the Klondike
- * strategy it already knows. That model-authored strategy is pinned for the game while a bounded
- * window retains recent boards, commands, and feedback. The engine supplies the complete legal
- * move list but no rules, strategic guidance, or recommended move.
+ * strategy selected by the prompt profile. That strategy is pinned for the game while a bounded
+ * window retains recent boards, commands, and feedback. The engine always supplies the complete
+ * legal move list and never supplies a recommended move.
  */
 @Component
 @Profile("ai-ollama")
@@ -61,6 +61,7 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
     private final int contextTokens;
     private final int maxOutputTokens;
     private final String thinking;
+    private final GamePrompts.PromptSet promptSet;
 
     private boolean strategyInitialized;
     private String preGameStrategy;
@@ -96,7 +97,8 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
                 UUID.randomUUID().toString(),
                 contextTokens,
                 maxOutputTokens,
-                thinking);
+                thinking,
+                GamePrompts.configuredPromptSet());
     }
 
     /** Package-visible constructor used by focused tests with an in-process chat model. */
@@ -108,7 +110,26 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
                 conversationId,
                 DEFAULT_CONTEXT_TOKENS,
                 DEFAULT_MAX_OUTPUT_TOKENS,
-                DEFAULT_THINKING);
+                DEFAULT_THINKING,
+                GamePrompts.configuredPromptSet());
+    }
+
+    /** Package-visible constructor allowing tests to select a prompt profile explicitly. */
+    OllamaPlayer(
+            ChatModel chatModel,
+            String modelName,
+            int memoryTurns,
+            String conversationId,
+            GamePrompts.PromptSet promptSet) {
+        this(
+                chatModel,
+                modelName,
+                memoryTurns,
+                conversationId,
+                DEFAULT_CONTEXT_TOKENS,
+                DEFAULT_MAX_OUTPUT_TOKENS,
+                DEFAULT_THINKING,
+                promptSet);
     }
 
     /** Central constructor retaining the exact per-game experiment configuration. */
@@ -119,7 +140,8 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
             String conversationId,
             int contextTokens,
             int maxOutputTokens,
-            String thinking) {
+            String thinking,
+            GamePrompts.PromptSet promptSet) {
         if (memoryTurns < 1) {
             throw new IllegalArgumentException("Ollama memory turns must be at least 1");
         }
@@ -129,6 +151,7 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
         this.contextTokens = contextTokens;
         this.maxOutputTokens = maxOutputTokens;
         this.thinking = normalizeThinking(thinking);
+        this.promptSet = promptSet;
 
         // One pinned system message plus one user/assistant pair for each retained gameplay turn.
         this.chatMemory = MessageWindowChatMemory.builder()
@@ -164,7 +187,8 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
         }
 
         turnNumber++;
-        String prompt = LlmGamePrompts.buildTurnPrompt(solitaire, feedback, legalMoves, false);
+        String prompt = GamePrompts.buildTurnPrompt(
+                solitaire, feedback, legalMoves, promptSet, false);
         if (log.isTraceEnabled()) {
             log.trace("Ollama turn {} prompt for conversation {}:\n{}", turnNumber, conversationId, prompt);
         }
@@ -190,10 +214,10 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
         return selectedCommand;
     }
 
-    /** Asks for existing knowledge, then pins that answer above the rolling turn window. */
+    /** Establishes the selected strategy, then pins that answer above the rolling turn window. */
     private void initializeStrategy() {
         String strategy = chatClient.prompt()
-                .user(LlmGamePrompts.STRATEGY_PROMPT)
+                .user(promptSet.strategyPrompt())
                 .call()
                 .content();
         if (strategy == null || strategy.isBlank()) {
@@ -204,11 +228,13 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
         // MessageWindowChatMemory evicts old user/assistant turns but always retains this message.
         chatMemory.clear(conversationId);
         preGameStrategy = strategy.trim();
-        chatMemory.add(conversationId, new SystemMessage(persistentSystemPrompt(preGameStrategy)));
+        chatMemory.add(
+                conversationId,
+                new SystemMessage(persistentSystemPrompt(preGameStrategy, promptSet)));
         strategyInitialized = true;
 
-        log.info("Started Ollama game conversation {} using {} with {} retained turns",
-                conversationId, modelName, memoryTurns);
+        log.info("Started Ollama game conversation {} using {} with {} retained turns and prompt={}",
+                conversationId, modelName, memoryTurns, promptSet.profile());
         if (log.isDebugEnabled()) {
             log.debug("Ollama pre-game strategy for conversation {}:\n{}", conversationId, preGameStrategy);
         }
@@ -216,10 +242,16 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
 
     /** Combines model-authored strategy with the non-strategic game interface. */
     static String persistentSystemPrompt(String strategy) {
+        return persistentSystemPrompt(strategy, GamePrompts.configuredPromptSet());
+    }
+
+    /** Combines strategy with the interface from the same captured prompt profile. */
+    private static String persistentSystemPrompt(
+            String strategy, GamePrompts.PromptSet promptSet) {
         return "# Strategy you described before the game\n"
                 + strategy
                 + "\n\n"
-                + LlmGamePrompts.GAME_INTERFACE;
+                + promptSet.gameInterface();
     }
 
     /** Creates the JSON schema that restricts the model to this turn's legal commands. */
@@ -260,6 +292,11 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
         return conversationId;
     }
 
+    /** Returns the prompt profile that a newly constructed player will use. */
+    public static String configuredPromptProfile() {
+        return GamePrompts.configuredPromptSet().profile();
+    }
+
     /** Describes the exact model protocol used by this game for episode analysis. */
     @Override
     public synchronized Map<String, Object> getExperimentMetadata() {
@@ -268,7 +305,8 @@ public class OllamaPlayer extends AIPlayer implements Player, ExperimentMetadata
         metadata.put("model", modelName);
         metadata.put("thinking", thinking);
         metadata.put("conversation_id", conversationId);
-        metadata.put("prompt_version", LlmGamePrompts.PROMPT_VERSION);
+        metadata.put("prompt_profile", promptSet.profile());
+        metadata.put("prompt_version", promptSet.version());
         metadata.put("pre_game_strategy", preGameStrategy);
         metadata.put("stateful", true);
         metadata.put("memory_turns", memoryTurns);

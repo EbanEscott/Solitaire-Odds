@@ -79,7 +79,8 @@ public class EpisodeLogger {
             String solverId,
             int stepIndex,
             List<String> legalMoves,
-            String chosenCommand) {
+            String chosenCommand,
+            Map<String, Object> decisionMetadata) {
 
         try {
             // Log the state BEFORE the move, with legal moves and chosen command
@@ -230,6 +231,9 @@ public class EpisodeLogger {
             sb.append(",\"revealed_facedown\":").append(revealedFacedown);
             sb.append(",\"talon_move\":").append(talonMove);
             sb.append(",\"is_cascading_move\":").append(isCascadingMove);
+            if (decisionMetadata != null && !decisionMetadata.isEmpty()) {
+                sb.append(",\"decision\":").append(JSON.writeValueAsString(decisionMetadata));
+            }
             sb.append('}');
 
             if (log.isInfoEnabled()) {

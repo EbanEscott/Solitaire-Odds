@@ -6,6 +6,7 @@ import ai.games.game.Card;
 import ai.games.game.Deck;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.DecisionMetadataProvider;
 import ai.games.player.ExperimentMetadataProvider;
 import ai.games.player.GuidanceService;
 import ai.games.player.GuidanceService.TurnView;
@@ -253,7 +254,17 @@ public class Game implements CommandLineRunner {
             // Log this step for training after move execution (log the state BEFORE the move,
             // along with legal moves and the command that was chosen).
             if (EpisodeLogger.isEnabled() && stateBefore != null) {
-                EpisodeLogger.logStep(stateBefore, solitaire, solverId, iterations, legalMovesAtStart, input);
+                java.util.Map<String, Object> decisionMetadata = player instanceof DecisionMetadataProvider provider
+                        ? provider.getLastDecisionMetadata()
+                        : java.util.Map.of();
+                EpisodeLogger.logStep(
+                        stateBefore,
+                        solitaire,
+                        solverId,
+                        iterations,
+                        legalMovesAtStart,
+                        input,
+                        decisionMetadata);
             }
 
             illegalFeedback = commandResult.illegalFeedback;

@@ -13,7 +13,7 @@ The current best player is *A\* search* with a win rate of 36.87% ± 0.95% acros
 The latest test run completed on Sep 26, 2026 at 12:44 PM AEST.
 
 * **Player** Name of the decision or optimisation method or LLM-backed player being tested.
-* **AI** Whether the method is an `LLM` (e.g., Ollama) or a search-based algorithm (e.g., A*, beam search, greedy).
+* **AI** Whether the method is an `LLM`, typed `Decision` model, or search-based algorithm.
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
 * **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
@@ -52,7 +52,7 @@ The Codex CLI baselines used 100 independent random deals per model, completed a
 
 ## Players
 
-In this project, a **player** is any strategy that chooses moves given a Solitaire game state. We group them into three families:
+In this project, a **player** is any strategy that chooses moves given a Solitaire game state. We group them into four families:
 
 - **Search-based players (Engine)** — Run entirely inside the Java engine by exploring the game tree:
   - **Rule-based Heuristics**: Deterministic baseline using hand-crafted Solitaire rules; never calls an LLM.
@@ -70,6 +70,11 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
   - **Alibaba (Ollama)**: Uses the `qwen3-coder:30b` model via a local Ollama server; the engine prompts the model with a structured description of the board and legal moves and follows its recommendation.
 
 > The current LLM benchmark asks the model to state the strategy it already knows, then retains that strategy, earlier boards, commands, and feedback in one persistent session per game. Older stateless API and Ollama results remain available in Git history.
+>
+> Model-backed experiments can use `-Dgame.prompt.profile=p0|detailed`. The default `p0` preserves the self-authored-strategy baseline above; `detailed` supplies the engine's rules, decision priorities, progress requirements, and expanded interface as the shared P1.5 profile. The older `llm.prompt.profile` property remains accepted for reproducibility. Result logs record both profile and version.
+
+- **Typed decision players** — Choose from engine-defined actions without generating free-form text:
+  - **TypeSafe AI Jev**: Sends the current visible board, compact observations from every earlier turn, and legal commands to a System One Choice question. Jev returns a typed option with probabilities and confidence; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java).
 
 - **Neural MCTS player (AlphaSolitaire)** — Hybrid search + learned evaluation:
   - **AlphaSolitaire (MCTS + NN)**: Uses Monte Carlo Tree Search guided by a neural policy–value network trained in the `neural-network` module. The Java engine calls the Python service to evaluate states and choose statistically strong moves.

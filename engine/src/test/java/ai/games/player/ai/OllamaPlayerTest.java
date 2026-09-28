@@ -54,9 +54,29 @@ class OllamaPlayerTest {
         assertEquals("Ollama", metadata.get("provider"));
         assertEquals("test-model", metadata.get("model"));
         assertEquals("game-1", metadata.get("conversation_id"));
+        assertEquals("p0", metadata.get("prompt_profile"));
         assertEquals("P0", metadata.get("prompt_version"));
         assertEquals("Move useful cards to foundations and expose hidden tableau cards.",
                 metadata.get("pre_game_strategy"));
+    }
+
+    @Test
+    void usesMatchedDetailedStrategyAndInterfacePrompts() {
+        RecordingChatModel model = new RecordingChatModel(
+                "I will follow the supplied decision order.",
+                "{\"command\":\"turn\"}");
+        OllamaPlayer player = new OllamaPlayer(
+                model,
+                "test-model",
+                1,
+                "game-detailed",
+                GamePrompts.promptSet("detailed"));
+
+        assertEquals("turn", player.nextCommand(new Solitaire(new Deck()), "ignored", ""));
+        assertTrue(model.prompts.get(0).getContents().contains("unlimited passes"));
+        assertTrue(player.retainedMessages().get(0).getText().contains("engine-validated"));
+        assertEquals("detailed", player.getExperimentMetadata().get("prompt_profile"));
+        assertEquals("P1.5", player.getExperimentMetadata().get("prompt_version"));
     }
 
     @Test

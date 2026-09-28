@@ -33,10 +33,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>Each game uses one persistent Codex session. A pre-game turn asks the model to state the
  * Klondike strategy it already knows, and every gameplay turn resumes that conversation. This lets
- * the model retain its strategy, previous boards, commands, and feedback without receiving the
- * engine's hand-authored strategy. The CLI is required to report ChatGPT authentication before a
- * game can start; API-key environment variables are also removed from child processes to avoid
- * accidental API billing.
+ * the model retain its strategy, previous boards, commands, and feedback. P0 asks the model to
+ * supply its own knowledge; the optional detailed profile supplies rules and priorities. The CLI
+ * is required to report ChatGPT authentication before a game can start; API-key environment
+ * variables are also removed from child processes to avoid accidental API billing.
  */
 @Component
 @Profile("ai-codex")
@@ -59,7 +59,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
     private static final String NO_DIAGNOSTICS = "no diagnostics emitted";
 
     /** The only strategic prompt: the model must supply its own knowledge before seeing a board. */
-    static final String STRATEGY_PROMPT = LlmGamePrompts.STRATEGY_PROMPT;
+    static final String STRATEGY_PROMPT = GamePrompts.STRATEGY_PROMPT;
 
     // -----------------------------
     // Per-game session state
@@ -72,6 +72,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
     private final int timeoutSeconds;
     private final int maxAttempts;
     private final long initialRetryDelayMillis;
+    private final GamePrompts.PromptSet promptSet;
 
     // Game-scoped session state. A CodexCliPlayer instance must never be shared between games.
     private Path workDirectory;
@@ -135,6 +136,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
         this.initialRetryDelayMillis = Math.max(
                 0L,
                 Long.getLong("codex.retry.initial.delay.millis", DEFAULT_INITIAL_RETRY_DELAY_MILLIS));
+        this.promptSet = GamePrompts.configuredPromptSet();
         requireChatGptLogin();
     }
 
@@ -143,6 +145,11 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
      */
     public static String configuredModelName() {
         return System.getProperty("codex.model", DEFAULT_MODEL);
+    }
+
+    /** Returns the prompt profile that a newly constructed player will use. */
+    public static String configuredPromptProfile() {
+        return GamePrompts.configuredPromptSet().profile();
     }
 
     /**
@@ -222,7 +229,8 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
             List<String> command = resumeCommand(schemaPath, responsePath);
 
             // Interface instructions are needed once; later turns inherit them from session context.
-            String prompt = buildTurnPrompt(solitaire, feedback, legalMoves, turnNumber == 1);
+            String prompt = GamePrompts.buildTurnPrompt(
+                    solitaire, feedback, legalMoves, promptSet, turnNumber == 1);
             runProcess(command, prompt, stdoutPath, stderrPath);
 
             // Schema validation occurs in Codex, then this membership check defends our game boundary.
@@ -268,7 +276,8 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
         metadata.put("model", modelName);
         metadata.put("reasoning", reasoningEffort);
         metadata.put("session_id", sessionId);
-        metadata.put("prompt_version", LlmGamePrompts.PROMPT_VERSION);
+        metadata.put("prompt_profile", promptSet.profile());
+        metadata.put("prompt_version", promptSet.version());
         metadata.put("pre_game_strategy", preGameStrategy);
         metadata.put("stateful", true);
         return metadata;
@@ -285,7 +294,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
         Path strategyPath = workDirectory.resolve("strategy.txt");
         Path stdoutPath = workDirectory.resolve("strategy-events.jsonl");
         Path stderrPath = workDirectory.resolve("strategy-stderr.log");
-        runProcess(strategyCommand(strategyPath), STRATEGY_PROMPT, stdoutPath, stderrPath);
+        runProcess(strategyCommand(strategyPath), promptSet.strategyPrompt(), stdoutPath, stderrPath);
 
         // The thread.started event gives us a concurrency-safe ID; --last is intentionally avoided.
         sessionId = parseSessionId(Files.readString(stdoutPath, StandardCharsets.UTF_8));
@@ -294,8 +303,8 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
             throw new IllegalStateException("Codex CLI returned an empty pre-game strategy");
         }
         // The session ID is the durable link to Codex's stored transcript for later investigation.
-        log.info("Started Codex CLI game session {} using {} with reasoning={}",
-                sessionId, modelName, reasoningEffort);
+        log.info("Started Codex CLI game session {} using {} with reasoning={} and prompt={}",
+                sessionId, modelName, reasoningEffort, promptSet.profile());
         if (log.isDebugEnabled()) {
             log.debug("Codex CLI pre-game strategy for session {}:\n{}", sessionId, preGameStrategy);
         }
@@ -599,7 +608,7 @@ public class CodexCliPlayer extends AIPlayer implements Player, ExperimentMetada
      */
     static String buildTurnPrompt(
             Solitaire solitaire, String feedback, List<String> legalMoves, boolean firstTurn) {
-        return LlmGamePrompts.buildTurnPrompt(solitaire, feedback, legalMoves, firstTurn);
+        return GamePrompts.buildTurnPrompt(solitaire, feedback, legalMoves, firstTurn);
     }
 
     // -----------------------------

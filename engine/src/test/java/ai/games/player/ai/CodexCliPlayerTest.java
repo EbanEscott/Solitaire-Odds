@@ -17,6 +17,8 @@ class CodexCliPlayerTest {
     void clearProperties() {
         System.clearProperty("codex.model");
         System.clearProperty("codex.reasoning.effort");
+        System.clearProperty(GamePrompts.PROMPT_PROFILE_PROPERTY);
+        System.clearProperty(GamePrompts.LEGACY_PROMPT_PROFILE_PROPERTY);
     }
 
     @Test
