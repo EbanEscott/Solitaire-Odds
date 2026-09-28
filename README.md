@@ -17,8 +17,8 @@ The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
 * **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
-* **Avg Time/Game** Mean time taken to finish or fail a game.
-* **Total Time** Sum of all time spent playing the batch of games.
+* **Avg Time/Game** Mean time taken to finish or fail a game, shown with adaptive units for readability.
+* **Total Time** Sum of all time spent playing the batch, rounded to an appropriate combination of days, hours, minutes, or seconds.
 * **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
 * **Avg Score** Mean score based on whatever scoring system you’re using (e.g., Vegas, Microsoft, or custom).
 * **Best Win Streak** Longest run of consecutive wins within the batch.
@@ -30,12 +30,12 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
-| Rule-based Heuristics        | Search | 10000 | 418 | 4.18% ± 0.39% | 0.001s | 7.187s | 733.35 | 2 | Deterministic rule-based baseline; see [code](engine/src/main/java/ai/games/player/ai/RuleBasedHeuristicsPlayer.java). |
-| Greedy Search                | Search | 10000 | 651 | 6.51% ± 1.21% | 0.003s | 31.046s | 242.42 | 3 | Greedy one-step lookahead using heuristic scoring; see [code](engine/src/main/java/ai/games/player/ai/GreedySearchPlayer.java). |
-| Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 0.002s | 17.181s | 96.20 | 5 | Local hill-climbing with restarts over hashed game states; see [code](engine/src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
-| Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 0.037s | 372.615s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
-| Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](engine/src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
-| A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 40094.651s | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
+| Rule-based Heuristics        | Search | 10000 | 418 | 4.18% ± 0.39% | 1ms | 7.187s | 733.35 | 2 | Deterministic rule-based baseline; see [code](engine/src/main/java/ai/games/player/ai/RuleBasedHeuristicsPlayer.java). |
+| Greedy Search                | Search | 10000 | 651 | 6.51% ± 1.21% | 3ms | 31.046s | 242.42 | 3 | Greedy one-step lookahead using heuristic scoring; see [code](engine/src/main/java/ai/games/player/ai/GreedySearchPlayer.java). |
+| Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 2ms | 17.181s | 96.20 | 5 | Local hill-climbing with restarts over hashed game states; see [code](engine/src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
+| Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 37ms | 6m 13s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
+| Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 4h 57m | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](engine/src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
+| A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 11h 8m | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
 
 ### Model-backed players
 
@@ -43,10 +43,10 @@ These results use 100 independent random deals per model. The Codex CLI baseline
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
-| OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 474.557s | 47455.715s | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-| OpenAI Codex CLI (Luna)      | LLM    | 100 | 5 | 5.00% ± 4.27% | 890.632s | 89063.176s | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-| GitHub Copilot CLI (Haiku)   | LLM    | 100 | 2 | 2.00% ± 2.74% | 994.623s | 99462.347s | 80.59 | 1 | Anthropic `claude-haiku-4.5` via GitHub Copilot CLI with default reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CopilotCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-| TypeSafe AI (Jev)            | Decision | 100 | 10 | 10.00% ± 5.88% | 65.582s | 6558.203s | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with the shared P1.5 detailed policy, compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 7m 55s | 13h 11m | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| OpenAI Codex CLI (Luna)      | LLM    | 100 | 5 | 5.00% ± 4.27% | 14m 51s | 1d 44m | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| GitHub Copilot CLI (Haiku)   | LLM    | 100 | 2 | 2.00% ± 2.74% | 16m 35s | 1d 3h 38m | 80.59 | 1 | Anthropic `claude-haiku-4.5` via GitHub Copilot CLI with default reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CopilotCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| TypeSafe AI (Jev)            | Decision | 100 | 10 | 10.00% ± 5.88% | 1m 6s | 1h 49m | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with the shared P1.5 detailed policy, compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
 > Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
 >

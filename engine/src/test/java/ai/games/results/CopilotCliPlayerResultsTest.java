@@ -35,14 +35,14 @@ public class CopilotCliPlayerResultsTest {
                     + CopilotCliPlayer.configuredPromptProfile()
                     + ", persistent session, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CopilotCliPlayer.java).";
             String summary = String.format(
-                    "| %s | LLM | %d | %d | %.2f%% ± %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
+                    "| %s | LLM | %d | %d | %.2f%% ± %.2f%% | %s | %s | %.2f | %d | %s |",
                     "Copilot CLI " + modelName,
                     stats.games,
                     stats.wins,
                     stats.winPercent(),
                     stats.winPercentConfidenceInterval(),
-                    stats.avgTimeSeconds(),
-                    stats.totalTimeSeconds(),
+                    ResultsDurationFormatter.formatSeconds(stats.avgTimeSeconds()),
+                    ResultsDurationFormatter.formatSeconds(stats.totalTimeSeconds()),
                     stats.avgMoves(),
                     stats.bestWinStreak,
                     notes);

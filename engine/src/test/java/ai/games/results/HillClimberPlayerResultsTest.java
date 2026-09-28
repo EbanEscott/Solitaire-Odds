@@ -25,15 +25,15 @@ public class HillClimberPlayerResultsTest {
         int gamesToPlay = ResultsConfig.GAMES;
         System.setProperty("max.moves.per.game", String.valueOf(ResultsConfig.MAX_MOVES_PER_GAME));
         Stats stats = runGames("Hill-Climber", () -> new HillClimberPlayer(123L), gamesToPlay);
-        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
+        String summary = String.format("| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %s | %s | %.2f | %d | %s |",
                 "Hill-climbing Search",
                 "Search",
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
                 stats.winPercentConfidenceInterval(),
-                stats.avgTimeSeconds(),
-                stats.totalTimeSeconds(),
+                ResultsDurationFormatter.formatSeconds(stats.avgTimeSeconds()),
+                ResultsDurationFormatter.formatSeconds(stats.totalTimeSeconds()),
                 stats.avgMoves(),
                 stats.bestWinStreak,
                 "Local hill-climbing with restarts over hashed game states; see [code](src/main/java/ai/games/player/ai/HillClimberPlayer.java).");

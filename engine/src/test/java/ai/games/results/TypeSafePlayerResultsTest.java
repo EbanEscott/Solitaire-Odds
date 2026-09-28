@@ -72,14 +72,14 @@ public class TypeSafePlayerResultsTest {
                 + TypeSafePlayer.configuredPolicyVersion()
                 + ", compact observed-board history in structured state, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/TypeSafePlayer.java).";
         String summary = String.format(
-                "| %s | Decision | %d | %d | %.2f%% ± %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
+                "| %s | Decision | %d | %d | %.2f%% ± %.2f%% | %s | %s | %.2f | %d | %s |",
                 "TypeSafe " + TypeSafePlayer.configuredModelName(),
                 stats.games,
                 stats.wins,
                 stats.winPercent(),
                 stats.winPercentConfidenceInterval(),
-                stats.avgTimeSeconds(),
-                stats.totalTimeSeconds(),
+                ResultsDurationFormatter.formatSeconds(stats.avgTimeSeconds()),
+                ResultsDurationFormatter.formatSeconds(stats.totalTimeSeconds()),
                 stats.avgMoves(),
                 stats.bestWinStreak,
                 notes);

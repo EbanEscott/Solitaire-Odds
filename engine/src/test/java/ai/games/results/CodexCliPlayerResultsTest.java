@@ -43,15 +43,15 @@ public class CodexCliPlayerResultsTest {
                     + CodexCliPlayer.configuredPromptProfile()
                     + ", persistent session, engine guidance disabled); see [code](src/main/java/ai/games/player/ai/CodexCliPlayer.java).";
             String summary = String.format(
-                    "| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %.3fs | %.3fs | %.2f | %d | %s |",
+                    "| %s | %s | %d | %d | %.2f%% \u00b1 %.2f%% | %s | %s | %.2f | %d | %s |",
                     "Codex CLI " + modelName,
                     "LLM",
                     stats.games,
                     stats.wins,
                     stats.winPercent(),
                     stats.winPercentConfidenceInterval(),
-                    stats.avgTimeSeconds(),
-                    stats.totalTimeSeconds(),
+                    ResultsDurationFormatter.formatSeconds(stats.avgTimeSeconds()),
+                    ResultsDurationFormatter.formatSeconds(stats.totalTimeSeconds()),
                     stats.avgMoves(),
                     stats.bestWinStreak,
                     notes);
