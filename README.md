@@ -14,6 +14,7 @@ The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
 
 * **Player** Name of the decision or optimisation method or model-backed player being tested.
 * **AI** Whether the method is an `LLM`, typed `Decision` model, or search-based algorithm.
+* **Policy** Prompt and strategy condition used by a model-backed player; this is an experimental variable, not merely implementation detail.
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
 * **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
@@ -39,14 +40,15 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
 ### Model-backed players
 
-These results use 100 independent random deals per model. The Codex CLI baselines completed across Sep 24-26, 2026; Haiku and TypeSafe AI Jev completed across Sep 27-28, 2026.
+The main evaluations use 100 independent random deals per configuration. Jev's ten-game P0 row is included as a diagnostic control so its supplied-policy result is not mistaken for an unguided comparison. The Codex CLI baselines completed across Sep 24-26, 2026; Haiku and TypeSafe AI Jev completed across Sep 27-28, 2026.
 
-| Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
-|------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
-| OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 7m 55s | 13h 11m | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-| OpenAI Codex CLI (Luna)      | LLM    | 100 | 5 | 5.00% ± 4.27% | 14m 51s | 1d 44m | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-| GitHub Copilot CLI (Haiku)   | LLM    | 100 | 2 | 2.00% ± 2.74% | 16m 35s | 1d 3h 38m | 80.59 | 1 | Anthropic `claude-haiku-4.5` via GitHub Copilot CLI with default reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CopilotCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
-| TypeSafe AI (Jev)            | Decision | 100 | 10 | 10.00% ± 5.88% | 1m 6s | 1h 49m | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with the shared P1.5 detailed policy, compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| Player                        | AI       | Policy           | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
+|-------------------------------|----------|------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
+| OpenAI Codex CLI (Sol)        | LLM      | P0 self-authored | 100 | 18 | 18.00% ± 7.53% | 7m 55s | 13h 11m | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| OpenAI Codex CLI (Luna)       | LLM      | P0 self-authored | 100 | 5 | 5.00% ± 4.27% | 14m 51s | 1d 44m | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| GitHub Copilot CLI (Haiku)    | LLM      | P0 self-authored | 100 | 2 | 2.00% ± 2.74% | 16m 35s | 1d 3h 38m | 80.59 | 1 | Anthropic `claude-haiku-4.5` via GitHub Copilot CLI with default reasoning, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CopilotCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| TypeSafe AI (Jev control)     | Decision | P0 unguided      | 10 | 0 | 0.00% (95% CI 0.0%-27.8%) | 1m 9s | 11m 30s | 200.00 | 0 | Diagnostic control: all ten games reached the move cap and 1,971 of 2,000 choices were stock turns; see [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| TypeSafe AI (Jev detailed)    | Decision | P1.5 supplied    | 100 | 10 | 10.00% ± 5.88% | 1m 6s | 1h 49m | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
 > Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
 >
