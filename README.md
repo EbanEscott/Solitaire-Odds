@@ -10,9 +10,9 @@ The current best player is *A\* search* with a win rate of 36.87% ± 0.95% acros
 
 ## Test Results
 
-The latest test run completed on Sep 26, 2026 at 12:44 PM AEST.
+The latest test run completed on Sep 28, 2026 at 1:26 PM AEST.
 
-* **Player** Name of the decision or optimisation method or LLM-backed player being tested.
+* **Player** Name of the decision or optimisation method or model-backed player being tested.
 * **AI** Whether the method is an `LLM`, typed `Decision` model, or search-based algorithm.
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
@@ -37,22 +37,23 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 17817.718s | 846.24 | 4 | Monte Carlo search running random playouts per decision; see [code](engine/src/main/java/ai/games/player/ai/MonteCarloPlayer.java). |
 | A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 40094.651s | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
 
-### LLM-backed players
+### Model-backed players
 
-The Codex CLI baselines used 100 independent random deals per model, completed across Sep 24-26, 2026.
+These results use 100 independent random deals per model. The Codex CLI baselines completed across Sep 24-26, 2026; the TypeSafe AI Jev result completed on Sep 28, 2026.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
 | OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 474.557s | 47455.715s | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | OpenAI Codex CLI (Luna)      | LLM    | 100 | 5 | 5.00% ± 4.27% | 890.632s | 89063.176s | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| TypeSafe AI (Jev)            | Decision | 100 | 10 | 10.00% ± 5.88% | 65.582s | 6558.203s | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with the shared P1.5 detailed policy, compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
-> Why does A* search still outperform LLM-backed play at Solitaire? Search can explore and compare complete game states directly. The persistent-session LLM can now maintain enough context to win games using its own strategy, but it does not perform the same efficient tree search and is roughly two orders of magnitude slower per game.
+> Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
 >
-> Persistent context let both tested models turn their own strategic descriptions into wins: Sol reached 18%, while Luna reached 5%. Deliberate search remains stronger and much faster.
+> Persistent context let Sol and Luna turn their own strategic descriptions into wins at 18% and 5%. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
 
 ## Players
 
-In this project, a **player** is any strategy that chooses moves given a Solitaire game state. We group them into four families:
+In this project, a **player** is any strategy that chooses moves given a Solitaire game state. We group them into three families:
 
 - **Search-based players (Engine)** — Run entirely inside the Java engine by exploring the game tree:
   - **Rule-based Heuristics**: Deterministic baseline using hand-crafted Solitaire rules; never calls an LLM.
@@ -62,19 +63,17 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
   - **Monte Carlo Search**: Runs many random playouts from each state to estimate which moves lead to more wins.
   - **A\* Search**: Treats Solitaire as a shortest-path problem and uses an admissible-ish heuristic to guide exploration toward winning states.
 
-- **LLM-backed players** — Use language models to propose moves:
+- **Model-backed players** — Use conversational or typed models to choose moves:
   - **OpenAI Codex CLI (Sol)**: Asks the model to state its existing strategy before the deal, then keeps the strategy, every board, and every selected move in one persistent session for the game. The engine supplies legal moves but no strategic guidance.
   - **OpenAI Codex CLI (Luna)**: Uses the same persistent-session P0 protocol as Sol, with a separate session for each random deal and no engine-supplied strategy or guidance.
   - **Anthropic (GitHub Copilot CLI)**: Runs selectable Claude models through a Copilot subscription using the same P0 prompt and one persistent session per random deal. The engine supplies legal moves but no strategy or guidance.
   - **OpenAI**: Sends the current state and move options to an OpenAI chat model (e.g., `gpt-5-mini`) over HTTP and executes the model’s chosen move.
   - **Alibaba (Ollama)**: Uses the `qwen3-coder:30b` model via a local Ollama server; the engine prompts the model with a structured description of the board and legal moves and follows its recommendation.
+  - **TypeSafe AI Jev**: Sends the current visible board, compact observations from every earlier turn, and legal commands to a System One Choice question. Jev returns a typed option with probabilities and confidence; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java).
 
 > The current LLM benchmark asks the model to state the strategy it already knows, then retains that strategy, earlier boards, commands, and feedback in one persistent session per game. Older stateless API and Ollama results remain available in Git history.
 >
 > Model-backed experiments can use `-Dgame.prompt.profile=p0|detailed`. The default `p0` preserves the self-authored-strategy baseline above; `detailed` supplies the engine's rules, decision priorities, progress requirements, and expanded interface as the shared P1.5 profile. The older `llm.prompt.profile` property remains accepted for reproducibility. Result logs record both profile and version.
-
-- **Typed decision players** — Choose from engine-defined actions without generating free-form text:
-  - **TypeSafe AI Jev**: Sends the current visible board, compact observations from every earlier turn, and legal commands to a System One Choice question. Jev returns a typed option with probabilities and confidence; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java).
 
 - **Neural MCTS player (AlphaSolitaire)** — Hybrid search + learned evaluation:
   - **AlphaSolitaire (MCTS + NN)**: Uses Monte Carlo Tree Search guided by a neural policy–value network trained in the `neural-network` module. The Java engine calls the Python service to evaluate states and choose statistically strong moves.
