@@ -10,7 +10,7 @@ The current best player is *A\* search* with a win rate of 36.87% ± 0.95% acros
 
 ## Test Results
 
-The latest test run completed on Sep 28, 2026 at 1:26 PM AEST.
+The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
 
 * **Player** Name of the decision or optimisation method or model-backed player being tested.
 * **AI** Whether the method is an `LLM`, typed `Decision` model, or search-based algorithm.
@@ -39,17 +39,18 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
 ### Model-backed players
 
-These results use 100 independent random deals per model. The Codex CLI baselines completed across Sep 24-26, 2026; the TypeSafe AI Jev result completed on Sep 28, 2026.
+These results use 100 independent random deals per model. The Codex CLI baselines completed across Sep 24-26, 2026; Haiku and TypeSafe AI Jev completed across Sep 27-28, 2026.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
 | OpenAI Codex CLI (Sol)       | LLM    | 100 | 18 | 18.00% ± 7.53% | 474.557s | 47455.715s | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | OpenAI Codex CLI (Luna)      | LLM    | 100 | 5 | 5.00% ± 4.27% | 890.632s | 89063.176s | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
+| GitHub Copilot CLI (Haiku)   | LLM    | 100 | 2 | 2.00% ± 2.74% | 994.623s | 99462.347s | 80.59 | 1 | Anthropic `claude-haiku-4.5` via GitHub Copilot CLI with default reasoning, P0 self-authored strategy, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CopilotCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | TypeSafe AI (Jev)            | Decision | 100 | 10 | 10.00% ± 5.88% | 65.582s | 6558.203s | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with the shared P1.5 detailed policy, compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
 > Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
 >
-> Persistent context let Sol and Luna turn their own strategic descriptions into wins at 18% and 5%. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
+> Persistent context let Sol, Luna, and Haiku turn their own strategic descriptions into wins at 18%, 5%, and 2%. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
 
 ## Players
 
