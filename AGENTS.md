@@ -1,10 +1,12 @@
 # Agents
 
-This repo has three main pieces:
+This repo has four main folders and a top-level README:
 
 - `README.md` — top-level story, latest test results table, and an overview of all players.
 - `engine/` — Java/Spring Boot Solitaire engine, CLI, and search/LLM players.
 - `neural-network/` — Python modeling stack for AlphaSolitaire (policy–value net, training, and service).
+- `experiments/` — long-running experiments, orchestration, notebooks, and working notes.
+- `research/` — research questions, literature reviews, curated experiment write-ups, and paper drafts. Link to existing runs and notes in `experiments/` rather than duplicating them.
 
 ## General guidance
 

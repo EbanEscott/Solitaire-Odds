@@ -8,6 +8,13 @@ This means testing every deck permutation is impossible. Instead, we lean on AI 
 
 The current best player is *A\* search* with a win rate of 36.87% ± 0.95% across 10,000 games, with a performance at 4.009s per game and an 8-game win streak.
 
+## Repository Layout
+
+- [engine/](engine/README.md) — Solitaire engine, players, and tests.
+- [neural-network/](neural-network/README.md) — AlphaSolitaire models, training, and service.
+- [experiments/](experiments/README.md) — long-running experiments, orchestration, notebooks, and working notes.
+- [research/](research/README.md) — research questions, literature reviews, curated experiment write-ups, and paper drafts.
+
 ## Test Results
 
 The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
