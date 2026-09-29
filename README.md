@@ -47,10 +47,11 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
 ### Model-backed players
 
-The main evaluations target 100 independent random deals per configuration. Jev's ten-game P0 row is included as a diagnostic control so its supplied-policy result is not mistaken for an unguided comparison. Sonnet and Opus stopped short of 100 when the available GitHub Copilot AI credits were exhausted; their confidence intervals use the completed games only. These evaluations ran across Sep 24-28, 2026.
+The main evaluations target 100 independent random deals per configuration. Jev's ten-game P0 row is included as a diagnostic control so its supplied-policy result is not mistaken for an unguided comparison. Sonnet and Opus stopped short of 100 when the available GitHub Copilot AI credits were exhausted; their confidence intervals use the completed games only. These evaluations ran across Sep 24-30, 2026.
 
 | Player                        | AI       | Policy           | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |-------------------------------|----------|------------------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
+| OpenAI Codex CLI (Astra)      | LLM      | P0 self-authored | 100 | 22 | 22.00% ± 8.12% | 7m 30s | 12h 30m | 61.29 | 3 | OpenAI `gpt-6-astra` via Codex CLI with medium reasoning, one persistent session per game, engine guidance disabled, and a 200-move cap; one interrupted partial game was excluded; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | OpenAI Codex CLI (Sol)        | LLM      | P0 self-authored | 100 | 18 | 18.00% ± 7.53% | 7m 55s | 13h 11m | 59.68 | 2 | OpenAI `gpt-5.6-sol` via Codex CLI with medium reasoning, one persistent session per game, and engine guidance disabled; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | OpenAI Codex CLI (Luna)       | LLM      | P0 self-authored | 100 | 5 | 5.00% ± 4.27% | 14m 51s | 1d 44m | 130.78 | 1 | OpenAI `gpt-5.6-luna` via Codex CLI with medium reasoning, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CodexCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | GitHub Copilot CLI (Haiku)    | LLM      | P0 self-authored | 100 | 2 | 2.00% ± 2.74% | 16m 35s | 1d 3h 38m | 80.59 | 1 | Anthropic `claude-haiku-4.5` via GitHub Copilot CLI with default reasoning, one persistent session per game, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/CopilotCliPlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
@@ -61,7 +62,7 @@ The main evaluations target 100 independent random deals per configuration. Jev'
 
 > Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
 >
-> Persistent context let Sol, Luna, Haiku, Sonnet, and Opus turn their own strategic descriptions into wins. The credit-limited Sonnet and Opus estimates have wide confidence intervals and are recorded as partial samples rather than direct rankings. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
+> Persistent context let Astra, Sol, Luna, Haiku, Sonnet, and Opus turn their own strategic descriptions into wins. Astra produced the strongest completed P0 model-backed result at 22%, although its confidence interval overlaps Sol's 18%. The credit-limited Sonnet and Opus estimates are recorded as partial samples rather than direct rankings. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
 
 ## Players
 
@@ -76,6 +77,7 @@ In this project, a **player** is any strategy that chooses moves given a Solitai
   - **A\* Search**: Treats Solitaire as a shortest-path problem and uses an admissible-ish heuristic to guide exploration toward winning states.
 
 - **Model-backed players** — Use conversational or typed models to choose moves:
+  - **OpenAI Codex CLI (Astra)**: Uses the same persistent-session P0 protocol as Sol with `gpt-6-astra`, medium reasoning, independent random deals, and no engine-supplied strategy or guidance.
   - **OpenAI Codex CLI (Sol)**: Asks the model to state its existing strategy before the deal, then keeps the strategy, every board, and every selected move in one persistent session for the game. The engine supplies legal moves but no strategic guidance.
   - **OpenAI Codex CLI (Luna)**: Uses the same persistent-session P0 protocol as Sol, with a separate session for each random deal and no engine-supplied strategy or guidance.
   - **Anthropic (GitHub Copilot CLI)**: Runs selectable Claude models through a Copilot subscription using the same P0 prompt and one persistent session per random deal. The engine supplies legal moves but no strategy or guidance.
