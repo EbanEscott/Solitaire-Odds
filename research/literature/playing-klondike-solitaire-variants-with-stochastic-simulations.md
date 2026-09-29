@@ -25,6 +25,18 @@ Unlimited redeals and K+ stock macros; hidden tableau reveals are modeled throug
 
 Our interpretation: a recent student search baseline above 40% with hidden tableau cards. Match stock access and time budgets before comparing with our players.
 
+## Local reproduction — 29 September 2026
+
+The local Python archive runs under Python 3.14.0; the thesis used 3.10.6. No Git metadata is present, so our record identifies the copy with source hashes.
+
+Recounting the 50 archived job summaries for the headline draw-three experiment gives **444/1,000 wins (44.40%)**, matching the thesis. The recorded job times sum to approximately **997 hours**. This verifies archived arithmetic, not an independently reproduced win rate.
+
+A fresh one-game trial of the original **five-second** MCTS configuration completed with a win in **155 moves and 340.36 seconds**. This uses run 042's settings, not the headline 50-second configuration. One game establishes executability, not performance. The CLI does not expose or log its random base seed, and utilities reseed from system randomness, preventing exact deal/trajectory replay through the original command alone.
+
+A separate fresh HOP trial with the original 250-trajectory settings exited normally after **372.17 seconds and 56 moves**, reporting lost/terminated. It used a different unrecorded random deal; this is not a head-to-head policy comparison or proof of impossibility.
+
+The [reproduction record](../../../Solitaire-Repos/literature-reproduction/001-literature-reproduction/README.md#milas-stochastic-simulations) contains commands, both fresh trials, archived recounts and limitations.
+
 ## Extracted PDF text
 
 Apple PDFKit text extraction, extracted 2026-09-29. Page headings below use physical PDF page numbers, including covers and front matter; printed page numbers can differ. Automatic extraction can lose table layout, equations, card symbols, and figure labels; consult the PDF for exact notation. Unmapped control characters are shown as `�`. The text below is source material, separate from our summary and interpretation above.

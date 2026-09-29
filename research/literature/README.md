@@ -2,9 +2,9 @@
 
 Papers, theses, and source notes for Solitaire Odds. PDFs and Markdown sidecars share the kebab-case paper title as their filename. Each sidecar starts with a summary, findings, conditions, and our interpretation, followed by the extracted PDF text when a PDF is available.
 
-[references.bib](references.bib) is the shared bibliography for all 17 sources below. Citation keys stay short and appear in sidecar metadata; PDF entries also include a `file` field. Use these keys in paper drafts.
+[references.bib](references.bib) is the shared bibliography for all 19 sources below. Citation keys stay short and appear in sidecar metadata; PDF entries also include a `file` field. Use these keys in paper drafts.
 
-Sources checked and PDFs downloaded on 29 September 2026. This is an initial reading list, not an exhaustive systematic review. Reported results have not been independently replicated here.
+Sources checked and PDFs downloaded on 29 September 2026. This is an initial reading list, not an exhaustive systematic review. A [first reproduction pass](../../../Solitaire-Repos/literature-reproduction/001-literature-reproduction/README.md) covers four locally downloaded implementations; its bounded checks do not constitute full replications of the reported aggregate results.
 
 ## Papers and theses
 
@@ -35,6 +35,8 @@ These notes preserve summaries and original source links. No companion PDFs are 
 | [The Odds of Winning Solitaire, Backed with Data](the-odds-of-winning-solitaire-backed-with-data.md) | Neal Taparia, 2024 | Solitaired blog | [Source](https://solitaired.com/odds-of-winning-solitaire) |
 | [What's the Real Klondike Win Rate? Our Data Has an Answer](whats-the-real-klondike-win-rate-our-data-has-an-answer.md) | TrySolitaire, 2026 | TrySolitaire blog | [Source](https://trysolitaire.com/blog/klondike-win-rate-data) |
 | [Lonelybot: An Engine for Solving Thoughtful/Random Klondike Solitaire](lonelybot-an-engine-for-solving-thoughtful-random-klondike-solitaire.md) | vuonghy2442; accessed 2026 | Software repository | [Source](https://github.com/vuonghy2442/lonelybot) |
+| [Klondike-Solver](klondike-solver.md) | ShootMe; accessed 2026 | Software repository | [Source](https://github.com/ShootMe/Klondike-Solver) |
+| [Minimal Klondike Solver](minimal-klondike-solver.md) | ShootMe; accessed 2026 | Software repository | [Source](https://github.com/ShootMe/MinimalKlondike) |
 | [Learning to Play Solitaire with Monte Carlo Tree Search and Graph Neural Networks](learning-to-play-solitaire-with-monte-carlo-tree-search-and-graph-neural-networks.md) | Nathan Funckes, 2025 | MS project announcement; report not located | [Source](https://events.oregonstate.edu/event/ms-non-thesis-project-final-exam-nathan-funckes) |
 
 ## Comparing studies

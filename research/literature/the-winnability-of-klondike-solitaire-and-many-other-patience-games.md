@@ -25,6 +25,10 @@ Thoughtful play: all card locations are known, redeals are unlimited, and worryi
 
 Our interpretation: a reference for full-information solvability and a possible source of deal labels. Comparisons require matching rules; hidden-information agents should be evaluated separately.
 
+## Related implementation checks — 29 September 2026
+
+We exercised the locally available [Klondike-Solver](klondike-solver.md) and [Minimal Klondike Solver](minimal-klondike-solver.md). Their fixture and test results are recorded separately. These are related full-information implementations; **we did not run Solvitaire or reproduce this paper's solvability estimates** in this pass. See the [four-repository reproduction record](../../../Solitaire-Repos/literature-reproduction/001-literature-reproduction/README.md).
+
 ## Extracted PDF text
 
 Apple PDFKit text extraction, extracted 2026-09-29. Page headings below use physical PDF page numbers, including covers and front matter; printed page numbers can differ. Automatic extraction can lose table layout, equations, card symbols, and figure labels; consult the PDF for exact notation. Unmapped control characters are shown as `�`. The text below is source material, separate from our summary and interpretation above.

@@ -2,6 +2,8 @@
 
 Keep curated research records here. The root [experiments workspace](../../experiments/README.md) continues to hold long-running jobs, notebooks, and working notes.
 
+- [001: First reproduction pass on four upstream Klondike implementations](../../../Solitaire-Repos/literature-reproduction/001-literature-reproduction/README.md) — stored in the sibling `Solitaire-Repos` directory; 29 September 2026; builds, fixture checks, bounded fresh trials and archived result recounts.
+
 Create a folder for each study, such as `001-search-budget-vs-win-rate/`, containing a `README.md` and a `figures/` folder when needed. A study can reference multiple runs.
 
 Each study README should record:

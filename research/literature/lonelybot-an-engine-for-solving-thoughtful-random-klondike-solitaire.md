@@ -17,7 +17,7 @@ The README reports **7,148 wins in 15,024 games (47.58% ± 0.80%)**, taking roug
 
 ## Conditions and limitations
 
-These are unreplicated software results, not a peer-reviewed study; the author requests further verification. Before comparison, inspect information access, action compression, pruning, software version, and seeds. The confidence level for the quoted uncertainty is not recorded in the existing survey.
+These are software results, not a peer-reviewed study; the author requests further verification. Our small pilot below does not reproduce the full reported sample. Before comparison, inspect information access, action compression, pruning, software version, and seeds. The confidence level for the quoted uncertainty is not recorded in the existing survey.
 
 ## Relevance to Solitaire Odds
 
@@ -26,3 +26,13 @@ These are unreplicated software results, not a peer-reviewed study; the author r
 ## Source availability
 
 Repository and README only; no companion paper PDF is stored. No commit was recorded in the initial survey, so the source link may change over time. This note preserves the survey's claims without reproducing the full README.
+
+## Local reproduction — 29 September 2026
+
+Built commit `dc41b8e49c69a529816cafb7f49dc3a461c4fd7c` with Cargo 1.98.0. Tests: **16 passed, 2 ignored, 0 failed**. The checkout had no lockfile; the generated dependency lock is preserved with our results.
+
+`./target/release/lonecli hop-loop default 0 3 100` won **48/100** draw-three games, seeds 0–99, in **248.16 seconds** (2.48 seconds/game). Wilson 95% interval: **38.46%–57.68%**. This is compatible with 47.58%, but does not confirm the original estimate or precision. The current HOP code clears hidden tableau identities before planning and checks move legality; matching its stock access and action compression to our engine remains necessary.
+
+The encoded-deal README example matches. Default-seed examples differ, and Git history records an explicit breaking RNG change. Preserve encoded deals, not just seed numbers. The `random` command returned 1,210/10,000, but inspection shows it takes the first dominance-filtered move rather than sampling moves uniformly.
+
+See the [reproduction record](../../../Solitaire-Repos/literature-reproduction/001-literature-reproduction/README.md#lonelybot) for commands, environment, evidence and limitations.
