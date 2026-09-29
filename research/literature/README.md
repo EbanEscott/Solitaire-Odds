@@ -2,7 +2,7 @@
 
 Papers, theses, and source notes for Solitaire Odds. PDFs and Markdown sidecars share the kebab-case paper title as their filename. Each sidecar starts with a summary, findings, conditions, and our interpretation, followed by the extracted PDF text when a PDF is available.
 
-[references.bib](references.bib) is the shared bibliography for all 15 sources below. Citation keys stay short and appear in sidecar metadata; PDF entries also include a `file` field. Use these keys in paper drafts.
+[references.bib](references.bib) is the shared bibliography for all 17 sources below. Citation keys stay short and appear in sidecar metadata; PDF entries also include a `file` field. Use these keys in paper drafts.
 
 Sources checked and PDFs downloaded on 29 September 2026. This is an initial reading list, not an exhaustive systematic review. Reported results have not been independently replicated here.
 
@@ -21,6 +21,8 @@ Sources checked and PDFs downloaded on 29 September 2026. This is an initial rea
 | [Strategies for Klondike Solitaire](strategies-for-klondike-solitaire.md) | Kortsmit, 2014 | [PDF](strategies-for-klondike-solitaire.pdf) | 34 | [Leiden repository](https://theses.liacs.nl/pdf/2014-2015Marieke-Kortsmit.pdf); title page dated 18 December 2014, despite the repository's 2014–2015 filename. |
 | [Counting Classes of Klondike Solitaire Configurations](counting-classes-of-klondike-solitaire-configurations.md) | de Ruiter, 2012 | [PDF](counting-classes-of-klondike-solitaire-configurations.pdf) | 63 | [Leiden repository](https://theses.liacs.nl/pdf/2012-09JohandeRuiter.pdf); MSc thesis, August 2012. |
 | [Game-RL: Synthesizing Multimodal Verifiable Game Data to Boost VLMs’ General Reasoning](game-rl-synthesizing-multimodal-verifiable-game-data-to-boost-vlms-general-reasoning.md) | Tong et al., 2025 preprint | [PDF](game-rl-synthesizing-multimodal-verifiable-game-data-to-boost-vlms-general-reasoning.pdf) | 69 | [arXiv v8](https://arxiv.org/pdf/2505.13886v8), 11 December 2025. The [ICLR 2026 OpenReview](https://openreview.net/forum?id=e4FqU4SyHL) PDF download returned HTTP 403; this copy is the preprint. |
+| [Optimal Solitaire Game Solutions Using A* Search and Deadlock Analysis](optimal-solitaire-game-solutions-using-a-star-search-and-deadlock-analysis.md) | Paul and Helmert, 2016 | [PDF](optimal-solitaire-game-solutions-using-a-star-search-and-deadlock-analysis.pdf) | 2 | [Author-hosted SoCS paper](https://ai.dmi.unibas.ch/papers/paul-helmert-socs2016.pdf); Freecell experiments, not Klondike. |
+| [Have a Little Patience: Let Planners Play Cards](have-a-little-patience-let-planners-play-cards.md) | Jilani et al., 2017 | [PDF](have-a-little-patience-let-planners-play-cards.pdf) | 7 | [CEUR proceedings](https://ceur-ws.org/Vol-1782/paper_3.pdf); PlanSIG 2016 workshop, published January 2017. |
 
 Page counts include covers and front matter. Extracted text uses physical PDF page markers and may lose table layout, equations, symbols, or figure labels. The complexity paper uses OCR because its embedded text loses word spacing. Consult the original PDF when exact formatting or notation matters.
 
