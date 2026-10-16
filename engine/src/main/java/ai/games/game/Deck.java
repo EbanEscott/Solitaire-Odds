@@ -25,7 +25,7 @@ public class Deck {
     /**
      * Constructs a new Deck initialized with a specific card order.
      * <p>
-     * Used for deterministic replay during undo operations. The provided cards are copied
+     * Used for deterministic deals and seeded game positions. The provided cards are copied
      * into the deck without shuffling, preserving their exact order.
      *
      * @param cardOrder the specific order of cards to initialize the deck with; must not be null

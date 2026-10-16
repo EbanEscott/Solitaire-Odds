@@ -20,7 +20,7 @@ import java.util.Set;
  * </ul>
  * <p>
  * The tracker is created once per game and persists across stock cycles. It is reset
- * only when a new game begins.
+ * when a new game begins; undo removes knowledge introduced by the undone turn.
  * <p>
  * <strong>Usage:</strong>
  * <ul>
@@ -55,6 +55,11 @@ public class UnknownCardTracker {
         if (card != null) {
             revealedCards.add(card);
         }
+    }
+
+    /** Restores a card's unknown status when undoing the turn that first revealed it. */
+    void removeRevealedCard(Card card) {
+        revealedCards.remove(card);
     }
 
     /**

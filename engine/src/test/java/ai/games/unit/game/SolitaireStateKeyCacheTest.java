@@ -83,14 +83,12 @@ class SolitaireStateKeyCacheTest {
     }
 
     @Test
-    void undoRecomputesAfterResetAndAfterReplay() {
+    void undoRestoresKeysAfterMultipleTurns() {
         Solitaire state = orderedGame();
         long initial = state.getStateKey();
         state.turnThree();
-        state.recordAction(Solitaire.Action.turn());
         long afterFirstTurn = state.getStateKey();
         state.turnThree();
-        state.recordAction(Solitaire.Action.turn());
         state.getStateKey();
 
         assertTrue(state.undoLastMove());

@@ -189,7 +189,6 @@ public class GameTreeAnalysisTest {
             // Make move on the copy
             if (move.isTurn) {
                 gameCopy.turnThree();
-                gameCopy.recordAction(Solitaire.Action.turn());
             } else {
                 gameCopy.moveCard(move.from, move.cardCode, move.to);
             }

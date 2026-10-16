@@ -29,7 +29,7 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 
 ### Simulation state copies
 
-`Solitaire.copy()` allocates an empty state and copies the pile containers directly, sharing immutable cards. It avoids creating, shuffling, and dealing a throwaway deck on every search branch. Copies preserve the source's GAME or PLAN mode and the existing PLAN masking and guess-copying behavior. They start with fresh revealed-card tracking and omit replay history and the original deck order; they are simulation boards, not replay-based undo snapshots.
+`Solitaire.copy()` allocates an empty state and copies the pile containers directly, sharing immutable cards. It avoids creating, shuffling, and dealing a throwaway deck on every search branch. Copies preserve the source's GAME or PLAN mode and the existing PLAN masking and guess-copying behavior. They start with fresh revealed-card tracking and empty action history. Actions performed on a copy can be undone back to its starting position, independently of the source.
 
 Legal move generation in GAME and PLAN mode reads the visible tableau, face-up counts, foundations, and talon once per call and passes them to the move categories that need them. This avoids rebuilding identical snapshots and views while preserving move checks and ordering. These reads are local to the call; each subsequent call reads the current board again.
 
@@ -43,7 +43,9 @@ Tableau-to-tableau generation also computes each visible destination's required 
 
 The rollout root retains the preceding move so inverse pruning also applies to its first step. Only accepted children are attached to the rollout path. Inverse and symmetry pruning are newly enabled within Monte Carlo rollouts, so this changes their move distribution; the historical win-rate row in the root README has not been remeasured. Root move evaluation still uses 64 rollouts per candidate, with at most 128 accepted steps per rollout.
 
-`Solitaire.getStateKey()` computes the board hash lazily and reuses it until a successful card move, stock turn/recycle, or undo invalidates it. GAME copies inherit a valid cached key; PLAN copies calculate their own because hidden cards may be masked. Callers, including cycle checks, keep using `getStateKey()` with the existing hash calculation and API.
+`Solitaire.getStateKey()` computes the board hash lazily and reuses it until a successful card move or stock turn/recycle invalidates it. Undo restores the previous cached value and validity flag. GAME copies inherit a valid cached key; PLAN copies calculate their own because hidden cards may be masked. Callers, including cycle checks, keep using `getStateKey()` with the existing hash calculation and API.
+
+`Solitaire` owns a single action history for card moves and stock turns. Each successful action records the changes needed for `undoLastMove()` to restore pile order, face-up counts, revealed-card knowledge, and the hash cache directly, without re-dealing or replaying earlier moves. Failed moves and turns with both stock and talon empty add no history. Undo does not add actions. Save `getMoveHistorySize()` and call `rollbackTo(depth)` to undo a sequence using the same mechanism; depths refer to the current board and history branch. Training mode still controls access to the player-facing `undo` command. Search players retain their existing copying behaviour for now.
 
 ## Running (from `engine/`)
 
@@ -316,7 +318,7 @@ java -cp src/main/java ai.games.Game
 ## Gameplay commands (CLI)
 - `turn` — flip up to three cards from stock to talon.
 - `move FROM TO` — e.g., `move W T3`, `move T7 F1`, `move T6 T1`.
-- `undo` — revert the last move or turn (training mode only; replay from start without that action).
+- `undo` — revert the last move or turn directly from its recorded changes (training mode only).
 - `quit` — exit.
 
 Pile codes:

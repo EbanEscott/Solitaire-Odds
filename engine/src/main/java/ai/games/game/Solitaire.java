@@ -85,11 +85,8 @@ public class Solitaire {
     /** Talon: revealed cards from the stockpile during play. */
     private final List<Card> talon = new ArrayList<>();
     
-    /** Action history for replay and undo operations (training mode). */
+    /** Completed actions, including the changes needed to undo them in reverse order. */
     private final List<Action> moveHistory = new ArrayList<>();
-    
-    /** Original deck order captured at game start for deterministic replay during undo. */
-    private final List<Card> originalDeckOrder = new ArrayList<>();
     
     /** Tracks which cards have been revealed during play (via stock/talon cycling). */
     private final UnknownCardTracker unknownCardTracker = new UnknownCardTracker();
@@ -123,8 +120,6 @@ public class Solitaire {
      */
     public Solitaire(Deck deck) {
         Objects.requireNonNull(deck, "deck");
-        // Capture the original deck order for deterministic replay during undo.
-        originalDeckOrder.addAll(deck.asUnmodifiableList());
         initializeFoundation();
         dealTableau(deck);
         moveRemainingToStockpile(deck);
@@ -139,8 +134,8 @@ public class Solitaire {
      * In GAME mode, all card identities are preserved. In PLAN mode, unrevealed face-down
      * tableau cards are replaced with fresh UNKNOWN cards, and their guesses are copied.
      * <p>
-     * Simulation copies start with fresh revealed-card tracking and omit the original
-     * deck order and action history used for replay-based undo.
+     * Simulation copies start with fresh revealed-card tracking and empty action history.
+     * New actions on a copy can be undone back to the copied position.
      *
      * @return an independent simulation board in the source's mode
      */
@@ -363,15 +358,18 @@ public class Solitaire {
      * Cards moved to the talon are marked as revealed in the unknown card tracker, so that
      * if they later cycle back to the stockpile, the player is aware they have already been seen.
      * <p>
-     * This operation is central to Solitaire play and can be called repeatedly to cycle through
-     * the deck.
+     * Records one reversible action, including when recycling precedes the draw.
+     * If both stock and talon are empty, no action is recorded.
      */
     public void turnThree() {
         if (stockpile.isEmpty() && talon.isEmpty()) {
             return;
         }
+        long previousStateKey = cachedStateKey;
+        boolean previousStateKeyValid = stateKeyValid;
+        boolean recycled = stockpile.isEmpty();
         stateKeyValid = false;
-        if (stockpile.isEmpty() && !talon.isEmpty()) {
+        if (recycled) {
             // Recycle talon back to stockpile: top of talon becomes bottom of new stock.
             for (int i = talon.size() - 1; i >= 0; i--) {
                 stockpile.add(talon.get(i));
@@ -379,12 +377,19 @@ public class Solitaire {
             talon.clear();
         }
 
-        for (int i = 0; i < 3 && !stockpile.isEmpty(); i++) {
+        int movedCount = Math.min(3, stockpile.size());
+        int newlyRevealedMask = 0;
+        for (int i = 0; i < movedCount; i++) {
             Card card = stockpile.remove(stockpile.size() - 1);
             talon.add(card);
-            // Track that this card has been revealed to the player.
-            unknownCardTracker.addRevealedCard(card);
+            // Only newly revealed cards should become unknown again on undo.
+            if (!unknownCardTracker.isRevealed(card)) {
+                newlyRevealedMask |= 1 << i;
+                unknownCardTracker.addRevealedCard(card);
+            }
         }
+        moveHistory.add(new Action("turn", null, null, movedCount, -1, -1,
+                recycled, newlyRevealedMask, previousStateKey, previousStateKeyValid));
     }
 
     /**
@@ -505,6 +510,10 @@ public class Solitaire {
 
         int movedCount = fromPile.size() - movingIdx;
         List<Card> segment = new ArrayList<>(fromPile.subList(movingIdx, fromPile.size()));
+        Action action = new Action("move", fromNormalized, toNormalized, movedCount,
+                fromType == 'T' ? tableauFaceUp.get(fromIndex) : -1,
+                toType == 'T' ? tableauFaceUp.get(toIndex) : -1,
+                false, 0, cachedStateKey, stateKeyValid);
         stateKeyValid = false;
         for (int i = fromPile.size() - 1; i >= movingIdx; i--) {
             fromPile.remove(i);
@@ -523,8 +532,7 @@ public class Solitaire {
             tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + movedCount);
         }
         
-        // Record the move for undo functionality (training mode).
-        recordAction(Action.move(from, moving.shortName(), to));
+        moveHistory.add(action);
         
         return MoveResult.success("Moved " + moving.shortName() + " from " + fromNormalized + " to " + toNormalized + ".");
     }
@@ -592,8 +600,8 @@ public class Solitaire {
      * (tableau, foundation, stockpile, talon) including both visible and hidden cards.
      * The state key is intended for AI cycle detection and transposition tables, allowing
      * search algorithms to detect when they have returned to a previously-visited state.
-     * Repeated calls reuse the cached value until a move, stock turn, or undo changes
-     * the board. The next call after a change computes and caches a fresh value.
+     * Repeated calls reuse the cached value until a move or stock turn changes the board.
+     * The next call computes and caches a fresh value. Undo restores the previous cache.
      * <p>
      * <strong>Important:</strong> The state key does not expose hidden card identities directly;
      * it only contributes to a hash. Different hidden card arrangements may produce different keys.
@@ -906,140 +914,96 @@ public class Solitaire {
     }
 
     /**
-     * Records a single action (move or turn) for replay and undo operations (training mode).
-     * <p>
-     * Stores either a card move (with source, card code, and destination) or a turn action
-     * to enable move history replay. When undoing, the game is reconstructed from the start
-     * by replaying all actions except the last.
+     * Undoes the last completed card move or stock turn directly from its recorded changes.
+     * Restores pile order, face-up counts, revealed-card tracking, and the previous hash cache.
+     * No action is recorded by undo itself. Copies can undo only actions performed after copying.
      *
-     * @param type the action type: "move" for card moves, "turn" for stock turns
-     * @param from the source pile code for moves ('T1'–'T7', 'F1'–'F4', 'W', 'S'); null for turns
-     * @param cardCode the compact card code for moves ('R♠', 'A♥', etc.); null for turns
-     * @param to the destination pile code for moves; null for turns
-     * @since 1.1
-     */
-    public record Action(String type, String from, String cardCode, String to) {
-        /**
-         * Constructs an Action record.
-         * @param type action type ("move" or "turn")
-         * @param from source pile code (for moves) or null
-         * @param cardCode moving card code (for moves) or null
-         * @param to destination pile code (for moves) or null
-         */
-        public Action {
-            Objects.requireNonNull(type, "type");
-            if (!"move".equals(type) && !"turn".equals(type)) {
-                throw new IllegalArgumentException("Invalid action type: " + type);
-            }
-        }
-
-        /**
-         * Creates a move action.
-         * @param from source pile code
-         * @param cardCode moving card code
-         * @param to destination pile code
-         * @return a new move action
-         */
-        public static Action move(String from, String cardCode, String to) {
-            return new Action("move", from, cardCode, to);
-        }
-
-        /**
-         * Creates a turn action.
-         * @return a new turn action
-         */
-        public static Action turn() {
-            return new Action("turn", null, null, null);
-        }
-    }
-
-    /**
-     * Records an action for later replay (training mode).
-     * <p>
-     * Called after each successful move or turn. If undo is needed, the game replays from the start
-     * excluding the last action in the history.
-     *
-     * @param action the action to record
-     */
-    public void recordAction(Action action) {
-        moveHistory.add(action);
-    }
-
-
-    /**
-     * Undoes the last move or turn by replaying the entire game history minus the final action.
-     * <p>
-     * Implementation (Option B – Move History Replay):
-     * <ol>
-     *   <li>Clear all piles and reset to initial deal state.</li>
-     *   <li>Replay all actions in moveHistory except the last one.</li>
-     *   <li>Remove the last action from the history.</li>
-     * </ol>
-     * This approach trades memory efficiency for simplicity and correctness; a future
-     * hybrid approach (Option C) could add a limited state stack for recent moves.
-     *
-     * @return true if undo succeeded, false if no moves to undo
-     * @throws IllegalStateException if replay encounters an invalid move (should not occur
-     *         if moveHistory is correctly maintained)
+     * @return true if an action was undone, false if the history is empty
      */
     public boolean undoLastMove() {
         if (moveHistory.isEmpty()) {
             return false;
         }
-
-        // Create a deck with the exact same card order captured at game start.
-        Deck replayDeck = new Deck(originalDeckOrder);
-        
-        // Record all but the last action.
-        List<Action> replayActions = new ArrayList<>(moveHistory);
-        replayActions.remove(replayActions.size() - 1);
-
-        // Reset to initial state.
-        stateKeyValid = false;
-        tableau.clear();
-        tableauFaceUp.clear();
-        foundation.clear();
-        stockpile.clear();
-        talon.clear();
-
-        // Re-deal from scratch using the original deck order.
-        initializeFoundation();
-        dealTableau(replayDeck);
-        moveRemainingToStockpile(replayDeck);
-
-        // Replay all non-undone actions.
-        for (Action action : replayActions) {
-            if ("move".equals(action.type())) {
-                MoveResult result = attemptMove(action.from(), action.cardCode(), action.to());
-                if (!result.success) {
-                    throw new IllegalStateException("Action replay failed: " + result.message);
-                }
-            } else if ("turn".equals(action.type())) {
-                turnThree();
-            }
+        Action action = moveHistory.remove(moveHistory.size() - 1);
+        if ("turn".equals(action.type())) {
+            undoTurn(action);
+        } else {
+            undoCardMove(action);
         }
-
-        // Remove the last action from history.
-        moveHistory.remove(moveHistory.size() - 1);
+        cachedStateKey = action.previousStateKey();
+        stateKeyValid = action.previousStateKeyValid();
         return true;
     }
 
     /**
-     * Checks if undo is currently possible.
+     * Undoes actions until the history reaches a previously saved depth.
+     * Save the depth with {@link #getMoveHistorySize()}. A depth belongs to this board's
+     * current history; it does not identify an old branch after that branch has been undone.
      *
-     * @return true if there is at least one move to undo, false otherwise
+     * @throws IllegalArgumentException if historyDepth is negative or beyond the current history
      */
+    public void rollbackTo(int historyDepth) {
+        if (historyDepth < 0 || historyDepth > moveHistory.size()) {
+            throw new IllegalArgumentException("Invalid history depth: " + historyDepth);
+        }
+        while (moveHistory.size() > historyDepth) {
+            undoLastMove();
+        }
+    }
+
+    /** Returns whether an action can be undone on this board. */
     public boolean canUndo() {
         return !moveHistory.isEmpty();
     }
 
-    /**
-     * Returns the number of moves in the current history.
-     *
-     * @return the size of moveHistory
-     */
+    /** Returns the number of completed actions currently available for undo. */
     public int getMoveHistorySize() {
         return moveHistory.size();
     }
-}
 
+    private void undoCardMove(Action action) {
+        List<Card> fromPile = resolvePile(action.from());
+        List<Card> toPile = resolvePile(action.to());
+        // Restore the moved suffix in its original order without copying either pile.
+        if (fromPile != toPile) {
+            int start = toPile.size() - action.movedCount();
+            for (int i = start; i < toPile.size(); i++) {
+                fromPile.add(toPile.get(i));
+            }
+            toPile.subList(start, toPile.size()).clear();
+        }
+        if (action.fromFaceUp() >= 0) {
+            tableauFaceUp.set(parseIndex(action.from()), action.fromFaceUp());
+        }
+        if (action.toFaceUp() >= 0) {
+            tableauFaceUp.set(parseIndex(action.to()), action.toFaceUp());
+        }
+    }
+
+    private void undoTurn(Action action) {
+        // Reverse the draw first, then reverse the recycle if this turn included one.
+        for (int i = action.movedCount() - 1; i >= 0; i--) {
+            Card card = talon.remove(talon.size() - 1);
+            stockpile.add(card);
+            if ((action.newlyRevealedMask() & (1 << i)) != 0) {
+                unknownCardTracker.removeRevealedCard(card);
+            }
+        }
+        if (action.recycled()) {
+            for (int i = stockpile.size() - 1; i >= 0; i--) {
+                talon.add(stockpile.get(i));
+            }
+            stockpile.clear();
+        }
+    }
+
+    /**
+     * One completed action and its reversal data. Only Solitaire creates history entries,
+     * after validation, so every entry has the information needed for exact undo.
+     * Face-up counts are -1 for non-tableau piles. For turns, bit i of newlyRevealedMask
+     * records whether drawn card i was previously unknown (at most three bits).
+     */
+    private record Action(String type, String from, String to, int movedCount,
+                          int fromFaceUp, int toFaceUp, boolean recycled, int newlyRevealedMask,
+                          long previousStateKey, boolean previousStateKeyValid) {}
+}

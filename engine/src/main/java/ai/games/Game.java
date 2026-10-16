@@ -374,7 +374,6 @@ public class Game implements CommandLineRunner {
             }
         } else if (input.equalsIgnoreCase("turn")) {
             solitaire.turnThree();
-            solitaire.recordAction(Solitaire.Action.turn());
             newSuccessfulMoves++;
             illegalFeedback = "";
             newTurnsSinceLastMove++;
