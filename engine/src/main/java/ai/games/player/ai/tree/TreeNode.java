@@ -174,6 +174,11 @@ public abstract class TreeNode {
         return move;
     }   
 
+    /** Sets the move metadata for an already-positioned state, without applying the move. */
+    public void setMove(Move move) {
+        this.move = move;
+    }
+
     /**
      * Applies a move command to a Solitaire state.
      *
@@ -453,15 +458,24 @@ public abstract class TreeNode {
      * @return true if this move is the inverse of the parent's move, false otherwise
      */
     public boolean isInverseOfParentMove() {
-        if (parent == null || parent.move == null || move == null) {
+        return areInverseMoves(move, parent != null ? parent.move : null);
+    }
+
+    /** Checks an outgoing candidate against the move that led to this node. */
+    public boolean isInverseOfLastMove(Move candidate) {
+        return areInverseMoves(candidate, move);
+    }
+
+    private static boolean areInverseMoves(Move move, Move previousMove) {
+        if (previousMove == null || move == null) {
             return false;
         }
-        if (!parent.move.isMove() || !move.isMove()) {
+        if (!previousMove.isMove() || !move.isMove()) {
             return false;
         }
 
-        Move.PileRef parentFrom = parent.move.from();
-        Move.PileRef parentTo = parent.move.to();
+        Move.PileRef parentFrom = previousMove.from();
+        Move.PileRef parentTo = previousMove.to();
         Move.PileRef from = move.from();
         Move.PileRef to = move.to();
 
@@ -475,8 +489,8 @@ public abstract class TreeNode {
         }
 
         // If both moves specify a card, require an exact match.
-        if (parent.move.card() != null && move.card() != null) {
-            return parent.move.card().equals(move.card());
+        if (previousMove.card() != null && move.card() != null) {
+            return previousMove.card().equals(move.card());
         }
 
         return true;
@@ -514,7 +528,20 @@ public abstract class TreeNode {
      * @return true if the move is a useless king shuffle (should be pruned), false otherwise
      */
     public boolean isUselessKingMove() {
-        if (move == null || state == null) {
+        if (state == null) {
+            return false;
+        }
+        Solitaire referenceState = (parent != null && parent.state != null) ? parent.state : state;
+        return isUselessKingMove(move, referenceState);
+    }
+
+    /** Checks an outgoing king move against this node's board, before applying it. */
+    public boolean isUselessKingMove(Move candidate) {
+        return isUselessKingMove(candidate, state);
+    }
+
+    private static boolean isUselessKingMove(Move move, Solitaire referenceState) {
+        if (move == null || referenceState == null) {
             return false;
         }
 
@@ -534,12 +561,7 @@ public abstract class TreeNode {
             return false;
         }
 
-        // Classification must be based on the *pre-move* position.
-        // In search (MCTS/A*), nodes typically store the state *after* applying `move`.
-        // If we inspect `state` here, the source pile may already be empty, causing
-        // single-card king shuffles (the common case) to be missed.
-        Solitaire referenceState = (parent != null && parent.state != null) ? parent.state : state;
-
+        // Classify using the position before the candidate move.
         int pileIndex = from.index();
         List<List<Card>> visibleTableau = referenceState.getVisibleTableau();
         if (pileIndex < 0 || pileIndex >= visibleTableau.size()) {
@@ -718,6 +740,20 @@ public abstract class TreeNode {
             }
         }
 
+        return false;
+    }
+
+    /** Checks an outgoing candidate against already-retained moves using this node's board. */
+    public boolean isSimilarSibling(Move candidate, Iterable<Move> siblings) {
+        MoveSymmetryKey key = symmetryKeyForMove(candidate, state);
+        if (key == null) {
+            return false;
+        }
+        for (Move sibling : siblings) {
+            if (key.equals(symmetryKeyForMove(sibling, state))) {
+                return true;
+            }
+        }
         return false;
     }
 

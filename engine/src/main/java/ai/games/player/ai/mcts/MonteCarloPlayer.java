@@ -3,9 +3,12 @@ package ai.games.player.ai.mcts;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
+import ai.games.player.ai.tree.Move;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -204,11 +207,17 @@ public class MonteCarloPlayer extends AIPlayer {
      * @return reward in [-1.0, 1.0]
      */
     private double simulate(MonteCarloTreeNode node) {
+        return simulate(node, ThreadLocalRandom.current(), MAX_SIMULATION_STEPS);
+    }
+
+    // Explicit randomness and step budget also allow deterministic, bounded rollout tests.
+    private double simulate(MonteCarloTreeNode node, RandomGenerator random, int maxSteps) {
         if(log.isTraceEnabled()) {
             log.trace(
                 "Simulating move: {} from parent: {}",
                 node.getMove(),
-                node.getParent().getMove() != null ? node.getParent().getMove() : "ROOT");
+                node.getParent() != null && node.getParent().getMove() != null
+                        ? node.getParent().getMove() : "ROOT");
         }
 
         // Skip quitting
@@ -235,62 +244,55 @@ public class MonteCarloPlayer extends AIPlayer {
             return -1.0; // No rewards from undesirable nodes
         }
 
-        // Randmonly play out a game from this node
-        MonteCarloTreeNode leaf = new MonteCarloTreeNode();
-        leaf.setState(node.getState().copy());
+        // Start an independent path, preserving history and the preceding move for pruning.
+        MonteCarloTreeNode leaf = new MonteCarloTreeNode(node.getState().copy());
         leaf.setParent(node);
-        // The possible moves from current state
-        List<MonteCarloTreeNode> possibles = new ArrayList<>();
-        int steps = 0;
-        while (!leaf.isTerminal()) {
+        leaf.setMove(node.getMove());
+        for (int steps = 0; steps < maxSteps && !leaf.isWon(); steps++) {
+            // Generate moves once and prune using the current board, before copying anything.
             List<String> legalMoves = LegalMovesHelper.listLegalMoves(leaf.getState());
-            for(String move : legalMoves) {
-                MonteCarloTreeNode possible = new MonteCarloTreeNode();
-                possible.setParent(leaf);
-                possible.setState(leaf.getState().copy());
-                possible.applyMove(move);
-
-                // Filter out undesirable moves
-                if(!possible.isQuit() &&!possible.isCycleDetected() && !possible.isUselessKingMove()) {
-                    possibles.add(possible);
+            List<Move> candidates = new ArrayList<>(legalMoves.size());
+            for (String command : legalMoves) {
+                Move candidate = Move.tryParse(command);
+                if (candidate.isQuit()
+                        || leaf.isInverseOfLastMove(candidate)
+                        || leaf.isUselessKingMove(candidate)
+                        || leaf.isSimilarSibling(candidate, candidates)) {
+                    continue;
                 }
+                candidates.add(candidate);
             }
 
-            // Terminal state: no productive moves available (all filtered out).
-            // Treat this as the end of the rollout and evaluate from here.
-            if(possibles.isEmpty()) {
+            // Sample without replacement; stop as soon as a candidate passes the cycle check.
+            MonteCarloTreeNode selected = null;
+            while (!candidates.isEmpty()) {
+                int index = random.nextInt(candidates.size());
+                Move candidate = candidates.get(index);
+                Move last = candidates.remove(candidates.size() - 1);
+                if (index < candidates.size()) {
+                    candidates.set(index, last);
+                }
+
+                MonteCarloTreeNode child = new MonteCarloTreeNode(leaf.getState().copy());
+                child.setParent(leaf);
+                child.applyMove(candidate.toCommandString());
+                if (child.isCycleDetected()) {
+                    continue;
+                }
+                selected = child;
                 break;
             }
 
-            // Randomly select one of the possible moves
-            int idx = (int)(Math.random() * possibles.size());
-            MonteCarloTreeNode selected = possibles.get(idx);
-            if(log.isTraceEnabled()) {
-                List<String> moveStrings = possibles.stream()
-                        .map(n -> n.getMove() != null ? n.getMove().toCommandString() : null)
-                        .toList();
-                log.trace(
-                    "Move: {} [{}]",
-                    selected.getMove() != null ? selected.getMove().toCommandString() : null,
-                    moveStrings);
-            }
-            possibles.clear();
-            // Advance leaf but keep building the tree for cycle detection
-            String moveCmd = selected.getMove() != null ? selected.getMove().toCommandString() : null;
-            if (moveCmd == null) {
+            // End the rollout when every move is pruned; otherwise retain only the chosen path.
+            if (selected == null) {
                 break;
             }
-            leaf.addChild(moveCmd, selected);
+            leaf.addChild(selected.getMove().toCommandString(), selected);
+            if (log.isTraceEnabled()) {
+                log.trace("Rollout move: {}", selected.getMove());
+            }
             leaf = selected;
-            steps++;
-            if(steps >= MAX_SIMULATION_STEPS) {
-                if(log.isTraceEnabled()) {
-                    log.trace("Maximum simulation steps {} reached, terminating playout.", MAX_SIMULATION_STEPS);
-                }
-                break;
-            }   
         }
-
 
         // Get the score and normalise it
         double score = leaf.evaluate();

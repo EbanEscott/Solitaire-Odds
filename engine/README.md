@@ -31,6 +31,12 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 
 `Solitaire.copy()` allocates an empty state and copies the pile containers directly, sharing immutable cards. It avoids creating, shuffling, and dealing a throwaway deck on every search branch. Copies preserve the source's GAME or PLAN mode and the existing PLAN masking and guess-copying behavior. They start with fresh revealed-card tracking and omit replay history and the original deck order; they are simulation boards, not replay-based undo snapshots.
 
+### Monte Carlo rollouts
+
+`MonteCarloPlayer.simulate()` owns rollout initialization, pruning order, random selection, cycle retries, and child attachment. Each step generates legal moves once, then reuses `TreeNode`'s inverse-move, useless-king, and move-symmetry rules before copying any candidate boards. Quit is excluded, and symmetric moves retain the first destination in legal-move order. The rollout tries the remaining candidates uniformly without replacement, copies and applies only the candidate being tried, and rejects it if the resulting state repeats at least twice in its ancestor history. It stops at the first accepted child or ends the rollout when no candidates remain.
+
+The rollout root retains the preceding move so inverse pruning also applies to its first step. Only accepted children are attached to the rollout path. Inverse and symmetry pruning are newly enabled within Monte Carlo rollouts, so this changes their move distribution; the historical win-rate row in the root README has not been remeasured. Root move evaluation still uses 64 rollouts per candidate, with at most 128 accepted steps per rollout.
+
 ## Running (from `engine/`)
 
 Exactly one player profile must be active at a time. Run with `-Dspring.profiles.active=<profile>`.
