@@ -34,9 +34,9 @@ The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
 
 ### Search-based players
 
-These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
+Last completed search test run: Oct 16, 2026 at 2:56 PM AEST (Monte Carlo PLAN, 10 games, 1,000-move cap). The A* PLAN ten-game sample was run at 2:17 PM AEST that day. Historical search results were run on Jan 26, 2026 at 9:44 PM AEST.
 
-These historical search results used simulations of the actual deal, including hidden cards. A* and Monte Carlo now search masked planning copies with speculative reveals; their win rates and timings have not yet been remeasured. Other search players still use their existing copying behaviour. See [planning behaviour](engine/README.md#simulation-state-copies).
+The historical search results used simulations of the actual deal, including hidden cards. A* and Monte Carlo now search masked planning copies with speculative reveals. The PLAN rows record small ten-game samples of the current implementations on different random deals. Monte Carlo ran concurrently with the larger A* batch, so the timings are not controlled comparisons. These PLAN timings predate the unseen-card pool caching optimisation; full-game timing after that change has not yet been measured. Other search players still use their existing copying behaviour. See [planning behaviour](engine/README.md#simulation-state-copies).
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
@@ -44,8 +44,10 @@ These historical search results used simulations of the actual deal, including h
 | Greedy Search                | Search | 10000 | 651 | 6.51% ± 1.21% | 3ms | 31.046s | 242.42 | 3 | Greedy one-step lookahead using heuristic scoring; see [code](engine/src/main/java/ai/games/player/ai/GreedySearchPlayer.java). |
 | Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 2ms | 17.181s | 96.20 | 5 | Local hill-climbing with restarts over hashed game states; see [code](engine/src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 37ms | 6m 13s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
-| Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 4h 57m | 846.24 | 4 | Historical result before rollout inverse/symmetry pruning; current win rate not remeasured. See [code](engine/src/main/java/ai/games/player/ai/mcts/MonteCarloPlayer.java). |
-| A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 11h 8m | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
+| Monte Carlo Search (historical GAME) | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 4h 57m | 846.24 | 4 | Historical full-information result before rollout inverse/symmetry pruning. See [code](engine/src/main/java/ai/games/player/ai/mcts/MonteCarloPlayer.java). |
+| Monte Carlo Search (PLAN)    | Search | 10 | 2 | 20.00% | 29.472s | 4m 55s | 239.50 | 1 | Small random-deal sample on Oct 16, 2026; 1,000-move cap, 64 rollouts per candidate and 128 rollout steps. A* batch running concurrently. See [code](engine/src/main/java/ai/games/player/ai/mcts/MonteCarloPlayer.java). |
+| A* Search (historical GAME)  | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 11h 8m | 92.53 | 8 | Historical full-information search; see [code](engine/src/main/java/ai/games/player/ai/astar/AStarPlayer.java). |
+| A* Search (PLAN)             | Search | 10 | 1 | 10.00% | 1.781s | 17.808s | 169.70 | 1 | Small random-deal sample on Oct 16, 2026; known-card-first search with expected reveal costs; 1,000-move cap. See [code](engine/src/main/java/ai/games/player/ai/astar/AStarPlayer.java). |
 
 ### Model-backed players
 
@@ -62,9 +64,9 @@ The main evaluations target 100 independent random deals per configuration. Jev'
 | TypeSafe AI (Jev control)     | Decision | P0 unguided      | 10 | 0 | 0.00% (95% CI 0.0%-27.8%) | 1m 9s | 11m 30s | 200.00 | 0 | Diagnostic control: all ten games reached the move cap and 1,971 of 2,000 choices were stock turns; see [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | TypeSafe AI (Jev detailed)    | Decision | P1.5 supplied    | 100 | 10 | 10.00% ± 5.88% | 1m 6s | 1h 49m | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
-> Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
+> The historical A* result used complete game states, including hidden identities, so it is not directly comparable to model-backed play from observations. The current PLAN sample is too small to establish a ranking.
 >
-> Persistent context let Astra, Sol, Luna, Haiku, Sonnet, and Opus turn their own strategic descriptions into wins. Astra produced the strongest completed P0 model-backed result at 22%, although its confidence interval overlaps Sol's 18%. The credit-limited Sonnet and Opus estimates are recorded as partial samples rather than direct rankings. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
+> Persistent context let Astra, Sol, Luna, Haiku, Sonnet, and Opus turn their own strategic descriptions into wins. Astra produced the strongest completed P0 model-backed result at 22%, although its confidence interval overlaps Sol's 18%. The credit-limited Sonnet and Opus estimates are recorded as partial samples rather than direct rankings. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Comparisons with the current PLAN search require larger evaluations under matching information constraints.
 
 ## Players
 

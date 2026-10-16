@@ -1,437 +1,306 @@
 package ai.games.player.ai.astar;
 
-import ai.games.game.Solitaire;
 import ai.games.game.Card;
+import ai.games.game.Move;
+import ai.games.game.Rank;
+import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
-import ai.games.player.ai.tree.PruneReason;
 import ai.games.player.ai.tree.TreeNode;
-import java.util.HashMap;
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.PriorityQueue;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Random;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * A* search-based Solitaire AI player.
- *
- * <p>Uses a persistent game tree that survives across moves, enabling knowledge reuse
- * from previous turns. The tree tracks both game history and serves as the search space
- * for A* lookahead.
- *
- * <p><b>Key features:</b>
- * <ul>
- *   <li>Bounded best-first search with probability-weighted A* scoring</li>
- *   <li>Probability weighting for speculative reveal outcomes</li>
- *   <li>Comprehensive pruning: quit moves, ping-pong, useless king moves, duplicates</li>
- *   <li>Cycle detection with tree exhaustion as the quit condition</li>
- * </ul>
- *
- * <p><b>Tree persistence:</b> Instance fields retain the chosen path between turns.
- * The tree is reset when root is null (new game detected).
+ * Bounded A* lookahead over observed cards, with deferred chance outcomes for reveals.
+ * <p>
+ * Known positions are ordered by ordinary {@code g + h}. Decision values take the best
+ * continuation; reveal values average their outcomes. The chosen real path is retained for
+ * pruning, while speculative descendants are discarded after each actual observation.
  */
 @Component
 @Profile("ai-astar")
 public class AStarPlayer extends AIPlayer {
 
-    private static final Logger log = LoggerFactory.getLogger(AStarPlayer.class);
-
-    /** Maximum node expansions per nextCommand() call. Tunable for performance. */
+    /** Maximum expansions per decision, shared by known positions and reveals. */
     private static final int NODE_BUDGET = 1024;
 
-    /** Maximum size of the open set to prevent memory exhaustion. */
-    private static final int MAX_OPEN_SET_SIZE = 5000;
+    /** Initial allowance for exploring known cards before returning to reveals. */
+    private static final int KNOWN_FIRST_BUDGET = NODE_BUDGET / 2;
 
-    /** Root of the game tree, created at game start. */
-    private AStarTreeNode root = null;
+    /** Known-position expansions between deferred reveals after the initial phase. */
+    private static final int KNOWN_BATCH = 16;
 
-    /** Current position in the tree, advances after each move selection. */
-    private AStarTreeNode current = null;
+    /** Maximum retained nodes per decision, including complete outcome groups. */
+    private static final int MAX_SEARCH_NODES = 5000;
 
-    /** Priority queue for A* expansion, ordered by f-score (lowest first). */
-    private PriorityQueue<AStarTreeNode> openSet = null;
+    /** Enumerate small outcome sets exactly; otherwise draw this many joint samples. */
+    private static final int REVEAL_SAMPLES = 8;
 
-    /** Best probability-weighted score seen for each state key, for duplicate path pruning. */
-    private Map<Long, Double> bestScore = null;
+    /** Finite failure cost so one losing outcome does not veto an entire reveal. */
+    private static final double DEAD_END_COST = 1000.0;
+
+    /** Root of the actual game path. */
+    private AStarTreeNode root;
+
+    /** Current observed position, with prior actual positions retained as ancestors. */
+    private AStarTreeNode current;
 
     /**
-     * Resets the game tree state. Called automatically when root is null,
-     * but can be called explicitly to start a fresh game.
+     * Discards the retained game path before starting another game.
      */
     public void reset() {
         root = null;
         current = null;
-        openSet = null;
-        bestScore = null;
     }
 
     /**
-     * Provides the next command for the game loop.
+     * Searches known continuations first, then revisits deferred reveals within the budget.
+     * <p>
+     * Each root action is compared using its backed-up expected cost. Unknown outcomes are
+     * averaged rather than selecting a fortunate guess. Fresh observations replace all prior
+     * assumptions before searching again.
      *
-     * <p>This method contains the main A* search loop:
-     * <ol>
-     *   <li>Initialise tree if root is null (new game)</li>
-     *   <li>Refresh current node's state with fresh planning copy</li>
-     *   <li>Invalidate stale children (Option B: re-explore after card reveals)</li>
-     *   <li>Run A* expansion up to NODE_BUDGET</li>
-     *   <li>Extract best move or quit if tree exhausted</li>
-     *   <li>Advance current to chosen child</li>
-     * </ol>
-     *
-     * @param solitaire current game state
-     * @param moves     recommended legal moves (unused, we compute our own)
-     * @param feedback  guidance/error feedback (unused)
-     * @return command string ("move ...", "turn", or "quit")
+     * @param solitaire the real observed board, which is never mutated by the search
+     * @param moves unused; legal moves are generated from each planning position
+     * @param feedback unused; the selected commands come from legal move generation
+     * @return the selected game command, or {@code quit} when won or exhausted
      */
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
         Solitaire planning = solitaire.planningCopy();
-        // ===== Step 1: Initialise tree if this is a new game =====
         if (root == null) {
-            if (log.isDebugEnabled()) {
-                log.debug("Initialising new A* game tree");
-            }
             root = new AStarTreeNode(planning);
             current = root;
-            openSet = new PriorityQueue<>();
-            bestScore = new HashMap<>();
-            bestScore.put(current.getStateKey(), current.getF());
         }
-
-        // ===== Step 2: Refresh current state with fresh planning copy =====
-        // The real game may have revealed cards that were UNKNOWN in our tree
-        Solitaire freshState = planning;
-        current.setState(freshState);
+        current.setState(planning);
         current.setG(0.0);
+        current.setH(AStarTreeNode.computeHeuristic(planning));
         current.setProbability(1.0);
-        current.setH(AStarTreeNode.computeHeuristic(freshState));
+        current.setExpanded(false);
+        current.setChanceNode(false);
+        current.getChildren().clear();
         current.recalculateF();
+        if (current.isWon()) return "quit";
 
-        // ===== Step 3: Invalidate stale children =====
-        // Children were computed with old UNKNOWN cards; re-explore with fresh state
-        // Also clear openSet since all nodes in it are now stale
-        if (!current.getChildren().isEmpty()) {
-            if (log.isDebugEnabled()) {
-                log.debug("Invalidating {} stale children of current node", current.getChildren().size());
-            }
-            invalidateDescendants(current);
-            current.getChildren().clear();
-        }
-        // Always reset openSet and bestScore to start fresh from current on each turn
-        // Previous search results are stale after real game state changes
-        openSet.clear();
-        bestScore.clear();
-        openSet.add(current);
-        bestScore.put(current.getStateKey(), current.getF());
-
-        // ===== Step 4: Check for terminal state =====
-        if (current.isWon()) {
-            if (log.isDebugEnabled()) {
-                log.debug("Game won! Returning quit.");
-            }
-            return "quit";
-        }
-
-        // ===== Step 5: A* Search Loop =====
-        AStarTreeNode bestWinNode = null;
+        Search search = new Search();
+        enqueue(current, search);
         int expansions = 0;
-
-        while (!openSet.isEmpty() && expansions < NODE_BUDGET) {
-            AStarTreeNode node = openSet.poll();
+        while (!search.known.isEmpty() && expansions < KNOWN_FIRST_BUDGET) {
+            expandKnown(search.known.poll(), search);
             expansions++;
-
-            // Skip pruned nodes
-            if (node.isPruned()) {
-                continue;
-            }
-
-            // Chance branches assign one newly revealed slot at a time, without consuming a move.
-            if (node.getState().nextUnresolvedCard() != null) {
-                expandReveal(node);
-                continue;
-            }
-
-            // Check for win
-            if (node.isWon()) {
-                bestWinNode = node;
-                if (log.isDebugEnabled()) {
-                    log.debug("Found winning path after {} expansions", expansions);
-                }
-                break;
-            }
-
-            // Skip terminal non-win states (stuck)
-            if (node.isTerminal()) {
-                if (log.isTraceEnabled()) {
-                    log.trace("Skipping terminal node (stuck state)");
-                }
-                continue;
-            }
-
-            // Generate legal moves from this node's state
-            Solitaire nodeState = node.getState();
-            List<String> legalMoves = LegalMovesHelper.listLegalMoves(nodeState);
-            
-            if (log.isTraceEnabled()) {
-                log.trace("Expanding node with {} legal moves: {}", legalMoves.size(), legalMoves);
-            }
-
-            // Expand children
-            for (String moveCmd : legalMoves) {
-                // ----- Pruning: Skip quit moves -----
-                if (moveCmd.trim().equalsIgnoreCase("quit")) {
-                    if (log.isTraceEnabled()) {
-                        log.trace("Skipping quit move");
-                    }
-                    continue;
-                }
-
-                // Check if child already exists
-                TreeNode existingChild = node.getChildren().get(moveCmd);
-                if (existingChild != null) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("Skipping existing child for move: {}", moveCmd);
-                    }
-                    continue;
-                }
-
-                // Create child state by copying and applying move
-                Solitaire childState = node.copyState();
- 
-                // Create child node and apply move
-                AStarTreeNode child = new AStarTreeNode();
-                child.setState(childState);
-                child.applyMove(moveCmd);
-                child.setParent(node);
-                node.addChild(moveCmd, child);
-
-                // ----- Pruning: unified detectors -----
-                if (child.doPruning()) {
-                    if (log.isTraceEnabled()) {
-                        PruneReason reason = child.getPruneReason();
-                        log.trace("Pruned move: {} (reason={})", moveCmd, reason);
-                    }
-                    continue;
-                }
-
-                // Compute A* scores
-                child.setG(node.getG() + 1.0);
-                child.setH(AStarTreeNode.computeHeuristic(childState));
-                child.setProbability(node.getProbability());
-                child.recalculateF();
-
-                // ----- Pruning: Duplicate paths (better score already exists) -----
-                long childKey = child.getStateKey();
-                Double previousScore = bestScore.get(childKey);
-                if (previousScore != null && previousScore <= child.getF()) {
-                    // We've reached this state with a better or equal score
-                    if (log.isTraceEnabled()) {
-                        log.trace("Skipping duplicate path for move: {} (previousScore={}, newScore={})",
-                                moveCmd, previousScore, child.getF());
-                    }
-                    continue;
-                }
-                bestScore.put(childKey, child.getF());
-
-                // Add to open set for expansion (with size limit to prevent OOM)
-                if (openSet.size() < MAX_OPEN_SET_SIZE) {
-                    if (log.isTraceEnabled()) {
-                        log.trace("Adding child to openSet: {} (f={})", moveCmd, child.getF());
-                    }
-                    openSet.add(child);
-                }
-            }
         }
-
-        if (log.isDebugEnabled()) {
-            log.debug("A* search completed: {} expansions, openSet size: {}", expansions, openSet.size());
-        }
-
-        // ===== Step 6: Extract best move =====
-        String selectedMove;
-
-        if (bestWinNode != null) {
-            // Found a winning path — trace back to find first move from current
-            selectedMove = traceFirstMove(bestWinNode, current);
-            if (log.isDebugEnabled()) {
-                log.debug("Selected winning move: {}", selectedMove);
-            }
-        } else if (openSet.isEmpty()) {
-            // Tree exhausted — no viable paths remain
-            if (log.isDebugEnabled()) {
-                log.debug("Tree exhausted, no winning path found. Quitting.");
-            }
-            return "quit";
-        } else {
-            // No win found within budget — pick the best node's path
-            AStarTreeNode best = findBestNodeFromCurrent();
-            if (best == null || best == current) {
-                if (log.isDebugEnabled()) {
-                    log.debug("No progress possible. Quitting.");
-                }
-                return "quit";
-            }
-            selectedMove = traceFirstMove(best, current);
-            if (log.isDebugEnabled()) {
-                log.debug("Selected best heuristic move: {}", selectedMove);
-            }
-        }
-
-        // ===== Step 7: Advance current to chosen child =====
-        if (selectedMove != null) {
-            TreeNode nextNode = current.getChildren().get(selectedMove);
-            if (nextNode instanceof AStarTreeNode) {
-                AStarTreeNode chosenChild = (AStarTreeNode) nextNode;
-                // Prune siblings to free memory - only keep the chosen path
-                pruneSiblings(current, selectedMove);
-                current = chosenChild;
-                // Clean openSet: remove nodes not descendant of new current
-                cleanOpenSet();
-            }
-        }
-
-        return selectedMove != null ? selectedMove : "quit";
-    }
-
-    /**
-     * Expands the next revealed UNKNOWN slot into independent assignment branches.
-     * <p>
-     * Each child owns a planning copy and assigns one remaining unseen identity through
-     * {@link Solitaire#assumeCard(Card, Card)}. Its probability is the parent's cumulative
-     * probability multiplied by the assignment's conditional probability. Assignments do not
-     * increase the game-move count and carry no command for actual play.
-     * <p>
-     * Children enter the open set when their score improves on a previously reached position.
-     * Expansion stops when the open-set size limit is reached; other revealed UNKNOWN slots
-     * are resolved on subsequent expansions.
-     *
-     * @param node the planning node with a revealed UNKNOWN slot awaiting assignment
-     */
-    private void expandReveal(AStarTreeNode node) {
-        Solitaire state = node.getState();
-        Card unknown = state.nextUnresolvedCard();
-        for (Card identity : state.getUnknownCards()) {
-            if (openSet.size() >= MAX_OPEN_SET_SIZE) break;
-            Solitaire branch = state.copy();
-            double conditionalProbability = branch.assumeCard(unknown, identity);
-            AStarTreeNode child = new AStarTreeNode(branch);
-            child.setG(node.getG());
-            child.setProbability(node.getProbability() * conditionalProbability);
-            child.recalculateF();
-            node.addChild("assume " + identity.shortName(), child);
-            // Chance nodes have no game command; traceFirstMove walks back to the real action.
-            Double previous = bestScore.get(child.getStateKey());
-            if (previous == null || child.getF() < previous) {
-                bestScore.put(child.getStateKey(), child.getF());
-                openSet.add(child);
-            }
-        }
-    }
-
-    /**
-     * Traces back from a node to find the first move from the search root.
-     *
-     * @param node       the target node (e.g., winning node or best heuristic)
-     * @param searchRoot the root of the current search (usually 'current')
-     * @return the first move from searchRoot toward node, or null if not reachable
-     */
-    private String traceFirstMove(AStarTreeNode node, AStarTreeNode searchRoot) {
-        if (node == null || node == searchRoot) {
-            return null;
-        }
-        // Walk back until we find a node whose parent is searchRoot
-        AStarTreeNode child = node;
-        while (child.getParent() != null && child.getParent() != searchRoot) {
-            if (child.getParent() instanceof AStarTreeNode) {
-                child = (AStarTreeNode) child.getParent();
+        search.nodeLimit = MAX_SEARCH_NODES;
+        int knownSinceReveal = KNOWN_BATCH;
+        while (expansions < NODE_BUDGET && (!search.known.isEmpty() || !search.reveals.isEmpty())) {
+            if (!search.reveals.isEmpty()
+                    && (search.known.isEmpty() || knownSinceReveal >= KNOWN_BATCH)) {
+                expandReveal(search.reveals.poll(), search);
+                knownSinceReveal = 0;
             } else {
-                break;
+                expandKnown(search.known.poll(), search);
+                knownSinceReveal++;
             }
+            expansions++;
         }
-        return child.getMove() != null ? child.getMove().toCommandString() : null;
-    }
 
-    /**
-     * Finds the best (lowest f-score) node that is a descendant of current.
-     *
-     * @return the best node from the open set, or null if none valid
-     */
-    private AStarTreeNode findBestNodeFromCurrent() {
         AStarTreeNode best = null;
-        for (AStarTreeNode node : openSet) {
-            if (!node.isPruned() && isDescendantOf(node, current)
-                    && (best == null || node.getF() < best.getF())) best = node;
-        }
-        return best;
-    }
-
-    /**
-     * Checks if a node is a descendant of an ancestor (or equal to it).
-     *
-     * @param node     the potential descendant
-     * @param ancestor the potential ancestor
-     * @return true if node is ancestor or descends from it
-     */
-    private boolean isDescendantOf(TreeNode node, TreeNode ancestor) {
-        TreeNode n = node;
-        while (n != null) {
-            if (n == ancestor) {
-                return true;
-            }
-            n = n.getParent();
-        }
-        return false;
-    }
-
-    /**
-     * Prunes sibling branches when advancing to a chosen child.
-     * This is critical for memory management - when we commit to a move,
-     * all alternative branches become irrelevant.
-     *
-     * @param parent     the parent node (current before advancing)
-     * @param chosenMove the move leading to the child we're advancing to
-     */
-    private void pruneSiblings(AStarTreeNode parent, String chosenMove) {
-        TreeNode chosenChild = parent.getChildren().get(chosenMove);
-        parent.getChildren().clear();
-        if (chosenChild != null) {
-            parent.getChildren().put(chosenMove, chosenChild);
-        }
-    }
-
-    /**
-     * Removes nodes from openSet that are not descendants of current.
-     * Also cleans up bestScore entries for orphaned nodes.
-     */
-    private void cleanOpenSet() {
-        Iterator<AStarTreeNode> it = openSet.iterator();
-        while (it.hasNext()) {
-            AStarTreeNode node = it.next();
-            if (!isDescendantOf(node, current)) {
-                it.remove();
-                // Optionally remove from bestScore, but leave it for now as it might help pruning
+        double bestValue = Double.POSITIVE_INFINITY;
+        for (TreeNode entry : current.getChildren().values()) {
+            AStarTreeNode child = (AStarTreeNode) entry;
+            if (child.isPruned()) continue;
+            double value = evaluate(child);
+            if (value < bestValue || (value == bestValue && best != null && child.getH() < best.getH())) {
+                best = child;
+                bestValue = value;
             }
         }
+        if (best == null || bestValue >= DEAD_END_COST) return "quit";
+        String command = best.getMove().toCommandString();
+        current.getChildren().clear();
+        current.addChild(command, best);
+        current = best;
+        return command;
     }
 
     /**
-     * Removes all descendants of a node from the openSet and bestScore map.
-     * Called when invalidating stale children after card reveals.
+     * Expands legal actions from a position whose revealed cards are known.
+     * <p>
+     * Shared move pruning applies within each path. Transpositions are not discarded across
+     * chance outcomes: each outcome must retain its own contribution to the expected value.
+     * If the retained-node limit prevents a complete expansion, the node keeps its heuristic
+     * estimate instead of treating omitted actions as impossible.
      *
-     * @param parent the parent whose descendants should be removed
+     * @param node the known position to expand
+     * @param search queues and retained-node count for this decision
      */
-    private void invalidateDescendants(AStarTreeNode parent) {
-        Iterator<AStarTreeNode> it = openSet.iterator();
-        while (it.hasNext()) {
-            AStarTreeNode node = it.next();
-            if (isDescendantOf(node, parent) && node != parent) {
-                it.remove();
-                bestScore.remove(node.getStateKey());
+    private void expandKnown(AStarTreeNode node, Search search) {
+        if (node.isPruned() || node.isWon()) return;
+        List<Move> moves = LegalMovesHelper.listMoves(node.getState()).stream()
+                .filter(move -> !move.isQuit()).toList();
+        if (search.nodes + moves.size() > search.nodeLimit) return;
+        node.setExpanded(true);
+        for (Move move : moves) {
+            AStarTreeNode child = new AStarTreeNode(node.copyState());
+            child.applyMove(move);
+            node.addChild(move.toCommandString(), child);
+            child.setG(node.getG() + 1.0);
+            child.setH(AStarTreeNode.computeHeuristic(child.getState()));
+            child.setProbability(node.getProbability());
+            child.recalculateF();
+            search.nodes++;
+            if (!child.doPruning()) enqueue(child, search);
+        }
+    }
+
+    /**
+     * Defers unknown positions while making known positions available for ordinary lookahead.
+     *
+     * @param node the new search position
+     * @param search queues for this decision
+     */
+    private void enqueue(AStarTreeNode node, Search search) {
+        if (node.getState().nextUnresolvedCard() == null) search.known.add(node);
+        else search.reveals.add(node);
+    }
+
+    /**
+     * Resolves all currently exposed slots as one chance event before exploring further moves.
+     * <p>
+     * Small joint outcome sets are enumerated exactly. Larger sets use uniform joint samples:
+     * identities are drawn without replacement within each sample, while independent samples
+     * may repeat. Their equal weights estimate the complete probability distribution, rather
+     * than retaining the first few identities in enumeration order. True path probabilities
+     * remain on the children separately from these averaging weights.
+     *
+     * @param node the deferred position containing revealed UNKNOWN slots
+     * @param search queues and retained-node count for this decision
+     */
+    private void expandReveal(AStarTreeNode node, Search search) {
+        Solitaire state = node.getState();
+        int slots = 0;
+        for (List<Card> pile : state.getVisibleTableau()) {
+            for (Card card : pile) if (card.getRank() == Rank.UNKNOWN) slots++;
+        }
+        for (Card card : state.getTalon()) if (card.getRank() == Rank.UNKNOWN) slots++;
+        int remaining = state.getUnknownCards().size();
+        int outcomes = 1;
+        for (int i = 0; i < slots && outcomes <= REVEAL_SAMPLES; i++) outcomes *= remaining - i;
+        int count = Math.min(outcomes, REVEAL_SAMPLES);
+        if (count < 1) throw new IllegalStateException("No identities available for a revealed slot");
+        if (search.nodes + count > MAX_SEARCH_NODES) return;
+
+        List<AStarTreeNode> children = new ArrayList<>();
+        if (outcomes <= REVEAL_SAMPLES) {
+            enumerateOutcomes(node, state, 1.0, children);
+        } else {
+            // Reproducible samples for the same planning position; never use hidden identities.
+            Random random = new Random(node.getStateKey());
+            for (int i = 0; i < REVEAL_SAMPLES; i++) {
+                Solitaire branch = state.copy();
+                double probability = 1.0;
+                Card unknown;
+                while ((unknown = branch.nextUnresolvedCard()) != null) {
+                    List<Card> unseen = branch.getUnknownCards();
+                    probability *= branch.assumeCard(unknown, unseen.get(random.nextInt(unseen.size())));
+                }
+                children.add(outcome(node, branch, probability, 1.0 / REVEAL_SAMPLES));
             }
         }
+        node.setExpanded(true);
+        node.setChanceNode(true);
+        for (int i = 0; i < children.size(); i++) {
+            AStarTreeNode child = children.get(i);
+            node.addChild("outcome " + i, child);
+            search.nodes++;
+            enqueue(child, search);
+        }
+    }
+
+    /**
+     * Enumerates a small reveal event, retaining its full conditional probability mass.
+     *
+     * @param parent the reveal position
+     * @param state the partially assigned independent board
+     * @param probability probability of assignments since the parent
+     * @param outcomes destination for fully assigned outcome nodes
+     */
+    private void enumerateOutcomes(AStarTreeNode parent, Solitaire state, double probability,
+                                   List<AStarTreeNode> outcomes) {
+        Card unknown = state.nextUnresolvedCard();
+        if (unknown == null) {
+            outcomes.add(outcome(parent, state, probability, probability));
+            return;
+        }
+        for (Card identity : state.getUnknownCards()) {
+            Solitaire branch = state.copy();
+            double conditional = branch.assumeCard(unknown, identity);
+            enumerateOutcomes(parent, branch, probability * conditional, outcomes);
+        }
+    }
+
+    /**
+     * Creates an outcome with separate path probability and expectation weight.
+     *
+     * @param parent the reveal position
+     * @param state the fully assigned board
+     * @param probability conditional probability of this exact assignment sequence
+     * @param weight exact probability or empirical sampling weight used for averaging
+     * @return a node with no game command and no additional move cost
+     */
+    private AStarTreeNode outcome(AStarTreeNode parent, Solitaire state, double probability, double weight) {
+        AStarTreeNode child = new AStarTreeNode(state);
+        child.setG(parent.getG());
+        child.setProbability(parent.getProbability() * probability);
+        child.setOutcomeWeight(weight);
+        child.recalculateF();
+        return child;
+    }
+
+    /**
+     * Backs up costs by choosing actions and averaging chance outcomes.
+     * <p>
+     * Unexpanded leaves retain their full {@code g + h} estimate. Exhausted decision nodes
+     * receive a finite failure cost, so a losing outcome influences rather than automatically
+     * vetoes its parent action. These are heuristic costs, not calibrated win probabilities.
+     *
+     * @param node the subtree to evaluate
+     * @return estimated total cost from the current observation; lower is better
+     */
+    private double evaluate(AStarTreeNode node) {
+        if (node.isWon()) return node.getG();
+        if (!node.isExpanded()) return node.getF();
+        if (node.isChanceNode()) {
+            double expected = 0.0;
+            for (TreeNode entry : node.getChildren().values()) {
+                AStarTreeNode child = (AStarTreeNode) entry;
+                expected += child.getOutcomeWeight() * evaluate(child);
+            }
+            return expected;
+        }
+        double best = Double.POSITIVE_INFINITY;
+        for (TreeNode entry : node.getChildren().values()) {
+            AStarTreeNode child = (AStarTreeNode) entry;
+            if (!child.isPruned()) best = Math.min(best, evaluate(child));
+        }
+        return Double.isInfinite(best) ? DEAD_END_COST + node.getG() : best;
+    }
+
+    /**
+     * Queues and allocation bounds belonging to one decision, never shared across observations.
+     */
+    private static final class Search {
+        private static final Comparator<AStarTreeNode> ORDER = Comparator
+                .comparingDouble(AStarTreeNode::getF)
+                .thenComparingDouble(AStarTreeNode::getH)
+                .thenComparingLong(AStarTreeNode::getStateKey);
+        private final PriorityQueue<AStarTreeNode> known = new PriorityQueue<>(ORDER);
+        private final PriorityQueue<AStarTreeNode> reveals = new PriorityQueue<>(ORDER);
+        private int nodes = 1;
+        private int nodeLimit = MAX_SEARCH_NODES / 2;
     }
 }

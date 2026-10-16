@@ -12,7 +12,7 @@ import java.util.List;
  * <ul>
  *   <li><b>g</b>: Path cost from the search root (number of moves taken)</li>
  *   <li><b>h</b>: Heuristic estimate of remaining cost to win (lower = closer to goal)</li>
- *   <li><b>f</b>: Ranking score {@code (g + h + 1) / probability - 1} (used for queue ordering)</li>
+ *   <li><b>f</b>: Ranking score {@code g + h} (used for queue ordering)</li>
  *   <li><b>probability</b>: Cumulative probability of speculative reveal outcomes</li>
  * </ul>
  *
@@ -26,11 +26,20 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
     /** Heuristic estimate of remaining cost to win. */
     private double h;
 
-    /** Total estimated cost: f = (g + h + 1)/probability - 1. */
+    /** Known-position ordering cost: f = g + h. */
     private double f;
 
     /** Cumulative probability of all speculative card assignments on this search path. */
     private double probability;
+
+    /** Whether all retained successors for this expansion have been generated. */
+    private boolean expanded;
+
+    /** Whether successors are alternative reveal outcomes rather than chosen actions. */
+    private boolean chanceNode;
+
+    /** Conditional exact probability or empirical weight within the parent reveal event. */
+    private double outcomeWeight = 1.0;
 
     /**
      * Creates a new A* tree node with default scores.
@@ -91,6 +100,30 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
         this.probability = probability;
     }
 
+    public boolean isExpanded() {
+        return expanded;
+    }
+
+    public void setExpanded(boolean expanded) {
+        this.expanded = expanded;
+    }
+
+    public boolean isChanceNode() {
+        return chanceNode;
+    }
+
+    public void setChanceNode(boolean chanceNode) {
+        this.chanceNode = chanceNode;
+    }
+
+    public double getOutcomeWeight() {
+        return outcomeWeight;
+    }
+
+    public void setOutcomeWeight(double outcomeWeight) {
+        this.outcomeWeight = outcomeWeight;
+    }
+
     // ========== A* Scoring Methods ==========
 
     /**
@@ -146,13 +179,12 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
     }
 
     /**
-     * Recalculates the f-score based on current g, h, and probability.
+     * Recalculates the known-position ordering score from move cost and heuristic.
+     * Probability contributes to reveal expectations in the player, not this ordering score.
      * Call this after updating any of the component values.
      */
     public void recalculateF() {
-        // The +1 keeps uncertainty penalised even at a goal or a zero-heuristic position.
-        // This is a search ranking heuristic, not an expected win probability.
-        this.f = probability > 0.0 ? (g + h + 1.0) / probability - 1.0 : Double.POSITIVE_INFINITY;
+        this.f = g + h;
     }
 
     // ========== Comparable Implementation ==========

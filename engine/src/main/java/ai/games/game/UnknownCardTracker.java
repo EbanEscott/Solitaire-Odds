@@ -30,6 +30,9 @@ import java.util.Set;
  * </ul>
  */
 public class UnknownCardTracker {
+    /** Standard identities in stable suit/rank order; immutable cards can be shared by boards. */
+    private static final List<Card> STANDARD_CARDS = standardCards();
+
     /** Set of cards that have been revealed during play (cycled through talon). */
     private final Set<Card> revealedCards = new HashSet<>();
 
@@ -157,15 +160,27 @@ public class UnknownCardTracker {
         known.addAll(solitaire.getStockpile());
         known.addAll(solitaire.getTalon());
         List<Card> unseen = new ArrayList<>();
+        for (Card card : STANDARD_CARDS) {
+            if (!known.contains(card)) unseen.add(card);
+        }
+        return Collections.unmodifiableList(unseen);
+    }
+
+    /**
+     * Creates the immutable standard identities once, without allocating a shuffled deck.
+     *
+     * @return all 52 concrete cards in the enumeration order used for planning pools
+     */
+    private static List<Card> standardCards() {
+        List<Card> cards = new ArrayList<>(52);
         for (Suit suit : Suit.values()) {
             if (suit == Suit.UNKNOWN) continue;
             for (Rank rank : Rank.values()) {
                 if (rank != Rank.UNKNOWN) {
-                    Card card = new Card(rank, suit);
-                    if (!known.contains(card)) unseen.add(card);
+                    cards.add(new Card(rank, suit));
                 }
             }
         }
-        return Collections.unmodifiableList(unseen);
+        return List.copyOf(cards);
     }
 }

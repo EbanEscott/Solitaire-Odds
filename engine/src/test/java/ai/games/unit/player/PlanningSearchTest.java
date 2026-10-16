@@ -15,7 +15,6 @@ import ai.games.unit.helpers.SolitaireFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Random;
@@ -26,45 +25,145 @@ import static org.mockito.Mockito.*;
 
 class PlanningSearchTest {
     @Test
-    void aStarBranchesWithoutReplacementAndAccumulatesProbability() throws Exception {
+    void aStarEnumeratesSmallJointRevealsWithoutReplacement() throws Exception {
         Solitaire state = threeUnseenCards().planningCopy();
         state.turnThree();
+        long key = state.getStateKey();
         AStarPlayer player = new AStarPlayer();
-        setField(player, "openSet", new PriorityQueue<AStarTreeNode>());
-        setField(player, "bestScore", new HashMap<Long, Double>());
-        Method expand = AStarPlayer.class.getDeclaredMethod("expandReveal", AStarTreeNode.class);
-        expand.setAccessible(true);
         AStarTreeNode node = new AStarTreeNode(state);
-        node.setG(1);
-        for (int remaining = 3; remaining >= 1; remaining--) {
-            expand.invoke(player, node);
-            assertEquals(remaining, node.getChildren().size());
-            for (TreeNode branch : node.getChildren().values()) {
-                AStarTreeNode child = (AStarTreeNode) branch;
-                assertEquals(node.getProbability() / remaining, child.getProbability());
-                assertEquals(remaining - 1, child.getState().getUnknownCards().size());
-                assertEquals(node.getG(), child.getG());
-                assertNull(child.getMove());
-            }
-            node = (AStarTreeNode) node.getChildren().values().iterator().next();
+        node.setG(2);
+        node.setProbability(0.25);
+        expandReveal(player, node, newSearch());
+        assertTrue(node.isChanceNode());
+        assertEquals(6, node.getChildren().size());
+        java.util.Set<List<Card>> permutations = new java.util.HashSet<>();
+        double weight = 0;
+        for (TreeNode branch : node.getChildren().values()) {
+            AStarTreeNode child = (AStarTreeNode) branch;
+            assertEquals(0.25 / 6, child.getProbability(), 1e-12);
+            assertEquals(1.0 / 6, child.getOutcomeWeight(), 1e-12);
+            assertEquals(2, child.getG());
+            assertNull(child.getMove());
+            assertNull(child.getState().nextUnresolvedCard());
+            assertTrue(child.getState().getUnknownCards().isEmpty());
+            assertEquals(3, child.getState().getTalon().stream().distinct().count());
+            permutations.add(List.copyOf(child.getState().getTalon()));
+            weight += child.getOutcomeWeight();
         }
-        assertEquals(1.0 / 6, node.getProbability());
-        assertNull(node.getState().nextUnresolvedCard());
+        assertEquals(6, permutations.size());
+        assertEquals(1, weight, 1e-12);
+        assertEquals(key, state.getStateKey());
         assertEquals(3, state.getUnknownCards().size());
         assertTrue(state.getUnknownCardGuesses().isEmpty());
     }
 
     @Test
-    void aStarStillPenalisesSpeculativePathsWhenTheHeuristicIsZero() {
-        AStarTreeNode node = new AStarTreeNode();
+    void aStarSamplesCompleteStockOutcomesAndRetainsAllWeight() throws Exception {
+        Solitaire state = SolitaireFactory.stockOnly().planningCopy();
+        state.turnThree();
+        AStarTreeNode node = new AStarTreeNode(state);
+        expandReveal(new AStarPlayer(), node, newSearch());
+        assertEquals(8, node.getChildren().size());
+        double weight = 0;
+        for (TreeNode branch : node.getChildren().values()) {
+            AStarTreeNode child = (AStarTreeNode) branch;
+            assertNull(child.getState().nextUnresolvedCard());
+            assertEquals(3, child.getState().getTalon().stream().distinct().count());
+            assertEquals(49, child.getState().getUnknownCards().size());
+            assertEquals(1.0 / (52 * 51 * 50), child.getProbability(), 1e-12);
+            assertEquals(1.0 / 8, child.getOutcomeWeight());
+            weight += child.getOutcomeWeight();
+        }
+        assertEquals(1, weight);
+        assertNotNull(state.nextUnresolvedCard());
+    }
+
+    @Test
+    void aStarAveragesOutcomesBeforeChoosingAnAction() throws Exception {
+        AStarTreeNode decision = costNode(100);
+        decision.setExpanded(true);
+        AStarTreeNode known = costNode(6);
+        AStarTreeNode reveal = costNode(100);
+        reveal.setExpanded(true);
+        reveal.setChanceNode(true);
+        AStarTreeNode lucky = costNode(0);
+        lucky.setOutcomeWeight(1.0 / 3);
+        lucky.setProbability(0.01); // Cumulative probability must not be applied a second time.
+        AStarTreeNode other = costNode(12);
+        other.setOutcomeWeight(2.0 / 3);
+        reveal.addChild("lucky", lucky);
+        reveal.addChild("other", other);
+        decision.addChild("known", known);
+        decision.addChild("reveal", reveal);
+        assertEquals(8, evaluate(reveal), 1e-12);
+        assertEquals(6, evaluate(decision), 1e-12);
+        other.setH(3);
+        other.recalculateF();
+        assertEquals(2, evaluate(decision), 1e-12);
+    }
+
+    @Test
+    void aStarKeepsHeuristicMassWhenAnOutcomeGroupDoesNotFit() throws Exception {
+        Solitaire state = threeUnseenCards().planningCopy();
+        state.turnThree();
+        AStarTreeNode node = new AStarTreeNode(state);
+        Object search = newSearch();
+        setField(search, "nodes", 4996); // Six exact outcomes must fit together.
+        expandReveal(new AStarPlayer(), node, search);
+        assertFalse(node.isExpanded());
+        assertTrue(node.getChildren().isEmpty());
+        assertEquals(node.getF(), evaluate(node));
+    }
+
+    @Test
+    void aStarDefersRevealsUntilAfterKnownExpansion() throws Exception {
+        AStarPlayer player = new AStarPlayer();
+        AStarTreeNode node = new AStarTreeNode(SolitaireFactory.stockOnly().planningCopy());
+        Object search = newSearch();
+        Method expand = AStarPlayer.class.getDeclaredMethod("expandKnown", AStarTreeNode.class, search.getClass());
+        expand.setAccessible(true);
+        expand.invoke(player, node, search);
+        assertTrue(((PriorityQueue<?>) field(search, "known")).isEmpty());
+        PriorityQueue<?> reveals = (PriorityQueue<?>) field(search, "reveals");
+        assertEquals(1, reveals.size());
+        AStarTreeNode turn = (AStarTreeNode) reveals.peek();
+        assertNotNull(turn.getState().nextUnresolvedCard());
+        assertTrue(turn.getChildren().isEmpty());
+        assertTrue(turn.getState().getUnknownCardGuesses().isEmpty());
+    }
+
+    @Test
+    void aStarOrdersKnownPositionsWithoutDividingByProbability() {
+        AStarTreeNode node = costNode(7);
         node.setG(3);
-        node.setH(0);
-        node.setProbability(1.0 / 6);
+        node.setProbability(1.0 / 1000);
         node.recalculateF();
-        double speculative = node.getF();
-        node.setProbability(1);
+        assertEquals(10, node.getF());
+    }
+
+    private static AStarTreeNode costNode(double cost) {
+        AStarTreeNode node = new AStarTreeNode(threeUnseenCards().planningCopy());
+        node.setH(cost);
         node.recalculateF();
-        assertTrue(speculative > node.getF());
+        return node;
+    }
+
+    private static Object newSearch() throws Exception {
+        var constructor = Class.forName(AStarPlayer.class.getName() + "$Search").getDeclaredConstructor();
+        constructor.setAccessible(true);
+        return constructor.newInstance();
+    }
+
+    private static void expandReveal(AStarPlayer player, AStarTreeNode node, Object search) throws Exception {
+        Method expand = AStarPlayer.class.getDeclaredMethod("expandReveal", AStarTreeNode.class, search.getClass());
+        expand.setAccessible(true);
+        expand.invoke(player, node, search);
+    }
+
+    private static double evaluate(AStarTreeNode node) throws Exception {
+        Method evaluate = AStarPlayer.class.getDeclaredMethod("evaluate", AStarTreeNode.class);
+        evaluate.setAccessible(true);
+        return (double) evaluate.invoke(new AStarPlayer(), node);
     }
 
     @Test

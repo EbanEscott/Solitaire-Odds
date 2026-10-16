@@ -95,6 +95,9 @@ public class Solitaire {
     /** Assumptions belong to individual UNKNOWN positions, whose cards compare equal by value. */
     private final Map<Card, UnknownCardGuess> unknownCardGuesses = new IdentityHashMap<>();
     
+    /** Immutable PLAN identity pool; copies share snapshots until an assignment changes one. */
+    private List<Card> remainingUnknownCards;
+
     /** Current operational mode (GAME or PLAN). */
     private final GameMode mode;
 
@@ -137,7 +140,8 @@ public class Solitaire {
      * <p>
      * The copy has independent pile and guess containers and shares immutable cards and
      * assumptions. It starts with empty action history, preserves a valid cached state key,
-     * and does not mask cards again.
+     * and does not mask cards again. PLAN copies share the immutable unseen-identity snapshot;
+     * assigning or undoing a card replaces only that board's reference.
      *
      * @return an independent position in the same mode as this instance
      */
@@ -193,7 +197,11 @@ public class Solitaire {
         clone.talon.addAll(talon);
         clone.unknownCardTracker.copyFrom(unknownCardTracker);
         clone.unknownCardGuesses.putAll(unknownCardGuesses);
-        if (!maskHiddenCards) {
+        if (maskHiddenCards) {
+            // Build from the masked board, never from the real hidden identities.
+            clone.remainingUnknownCards = clone.unknownCardTracker.getUnknownCards(clone);
+        } else {
+            clone.remainingUnknownCards = remainingUnknownCards;
             clone.cachedStateKey = cachedStateKey;
             clone.stateKeyValid = stateKeyValid;
         }
@@ -242,7 +250,8 @@ public class Solitaire {
             throw new IllegalArgumentException("Assumptions require an UNKNOWN in a PLAN board");
         }
         List<Card> unseen = getUnknownCards();
-        if (!unseen.contains(identity)) {
+        int identityIndex = unseen.indexOf(identity);
+        if (identityIndex < 0) {
             throw new IllegalArgumentException("Card is already known or assigned: " + identity);
         }
         String pileCode = null;
@@ -257,9 +266,12 @@ public class Solitaire {
             if (talon.get(i) == unknown) { pileCode = "W"; slot = i; }
         }
         if (slot < 0) throw new IllegalArgumentException("UNKNOWN must be a revealed slot on this board");
-        Assignment assignment = new Assignment(slot, unknown, unknownCardGuesses.get(unknown));
+        List<Card> remaining = new ArrayList<>(unseen);
+        remaining.remove(identityIndex);
+        Assignment assignment = new Assignment(slot, unknown, unknownCardGuesses.get(unknown), unseen);
         moveHistory.add(new Action("assume", pileCode, null, 0, -1, -1, false, 0,
                 cachedStateKey, stateKeyValid, assignment));
+        remainingUnknownCards = Collections.unmodifiableList(remaining);
         resolvePile(pileCode).set(slot, identity);
         unknownCardGuesses.put(unknown, new UnknownCardGuess(unknown, identity));
         stateKeyValid = false;
@@ -401,13 +413,19 @@ public class Solitaire {
      * Returns identities that remain unknown or unassigned in the current state.
      * <p>
      * In GAME mode, returns the actual unseen cards in face-down tableau and stock slots.
-     * In PLAN mode, derives possible identities from the standard deck minus known and assigned
-     * cards, without access to the real hidden deal.
+     * In PLAN mode, returns the retained pool derived from the standard deck minus known cards.
+     * Assignments remove identities and undo restores the preceding snapshot. Ordinary moves
+     * and stock turns only relocate known cards or UNKNOWN slots, so they do not change this
+     * pool. Returned snapshots remain unchanged after subsequent actions or undo.
      *
      * @return an unmodifiable list of remaining identities; never null, possibly empty
      */
     public List<Card> getUnknownCards() {
-        return unknownCardTracker.getUnknownCards(this);
+        if (!isInPlanMode()) return unknownCardTracker.getUnknownCards(this);
+        if (remainingUnknownCards == null) {
+            remainingUnknownCards = unknownCardTracker.getUnknownCards(this);
+        }
+        return remainingUnknownCards;
     }
 
     /**
@@ -1041,6 +1059,7 @@ public class Solitaire {
         Action action = moveHistory.remove(moveHistory.size() - 1);
         if ("assume".equals(action.type())) {
             Assignment assignment = action.assignment();
+            remainingUnknownCards = assignment.previousUnknownCards();
             resolvePile(action.from()).set(assignment.slot(), assignment.unknown());
             if (assignment.previousGuess() == null) unknownCardGuesses.remove(assignment.unknown());
             else unknownCardGuesses.put(assignment.unknown(), assignment.previousGuess());
@@ -1133,7 +1152,7 @@ public class Solitaire {
      * Face-up counts are -1 for non-tableau piles. For turns, bit i of newlyRevealedMask
      * records whether drawn card i was previously unknown (at most three bits).
      * For assignments, {@code from} identifies the affected pile and {@code assignment}
-     * stores its slot, placeholder, and prior guess; other action types leave it null.
+     * stores its slot, placeholder, prior guess, and previous identity pool; other action types leave it null.
      */
     private record Action(String type, String from, String to, int movedCount,
                           int fromFaceUp, int toFaceUp, boolean recycled, int newlyRevealedMask,
@@ -1145,6 +1164,8 @@ public class Solitaire {
      * @param slot the original zero-based position in the action's source pile
      * @param unknown the UNKNOWN placeholder replaced by the assignment
      * @param previousGuess the prior map entry for this placeholder, or {@code null} if absent
+     * @param previousUnknownCards the immutable identity pool before assignment, in its original order
      */
-    private record Assignment(int slot, Card unknown, UnknownCardGuess previousGuess) {}
+    private record Assignment(int slot, Card unknown, UnknownCardGuess previousGuess,
+                              List<Card> previousUnknownCards) {}
 }
