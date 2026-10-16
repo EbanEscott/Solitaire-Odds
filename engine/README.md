@@ -33,6 +33,8 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 
 Legal move generation in GAME and PLAN mode reads the visible tableau, face-up counts, foundations, and talon once per call and passes them to the move categories that need them. This avoids rebuilding identical snapshots and views while preserving move checks and ordering. These reads are local to the call; each subsequent call reads the current board again.
 
+Tableau-to-tableau generation also computes each visible destination's required rank and colour once per call, then reads each source card's rank and colour once before checking destinations. Empty destinations accept either colour of king. PLAN mode still checks UNKNOWN destinations separately using its existing guess rules. Move ordering and pruning policies are unchanged.
+
 ### Monte Carlo rollouts
 
 `MonteCarloPlayer.simulate()` owns rollout initialization, pruning order, random selection, cycle retries, and child attachment. Each step generates legal moves once, then reuses `TreeNode`'s inverse-move, useless-king, and move-symmetry rules before copying any candidate boards. Quit is excluded, and symmetric moves retain the first destination in legal-move order. The rollout tries the remaining candidates uniformly without replacement, copies and applies only the candidate being tried, and rejects it if the resulting state repeats at least twice in its ancestor history. It stops at the first accepted child or ends the rollout when no candidates remain.

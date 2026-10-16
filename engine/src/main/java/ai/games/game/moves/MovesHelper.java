@@ -153,4 +153,38 @@ public abstract class MovesHelper {
         boolean oneHigher = moving.getRank().getValue() == target.getRank().getValue() + 1;
         return sameSuit && oneHigher;
     }
+
+    /**
+     * Placement requirements for one generation call. Computing these once avoids
+     * reading the same destination pile and top card for every visible source card.
+     * UNKNOWN destinations are rejected here; PLAN mode checks their guesses separately.
+     */
+    protected static final class TableauDestinations {
+        private final int[] requiredRanks;
+        private final boolean[] requiredRed;
+        private final boolean[] empty;
+
+        TableauDestinations(List<List<Card>> tableau) {
+            requiredRanks = new int[tableau.size()];
+            requiredRed = new boolean[tableau.size()];
+            empty = new boolean[tableau.size()];
+            for (int to = 0; to < tableau.size(); to++) {
+                List<Card> pile = tableau.get(to);
+                if (pile.isEmpty()) {
+                    requiredRanks[to] = Rank.KING.getValue();
+                    empty[to] = true;
+                } else {
+                    Card top = pile.get(pile.size() - 1);
+                    requiredRanks[to] = top.getRank() == Rank.UNKNOWN
+                            ? -1 : top.getRank().getValue() - 1;
+                    requiredRed[to] = !top.getSuit().isRed();
+                }
+            }
+        }
+
+        boolean accepts(int destination, int movingRank, boolean movingIsRed) {
+            return movingRank == requiredRanks[destination]
+                    && (empty[destination] || movingIsRed == requiredRed[destination]);
+        }
+    }
 }

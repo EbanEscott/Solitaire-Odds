@@ -72,6 +72,7 @@ public class GameMovesHelper extends MovesHelper {
 
     @Override
     protected void addTableauToTableau(List<String> out, List<List<Card>> tableau, List<Integer> faceUps) {
+        TableauDestinations destinations = new TableauDestinations(tableau);
         // Any visible card can move as the start of a stack to another tableau pile.
         for (int from = 0; from < tableau.size(); from++) {
             List<Card> fromPile = tableau.get(from);
@@ -82,11 +83,16 @@ public class GameMovesHelper extends MovesHelper {
             int start = Math.max(0, fromPile.size() - faceUp);
             for (int idx = start; idx < fromPile.size(); idx++) {
                 Card moving = fromPile.get(idx);
+                if (moving == null) {
+                    continue;
+                }
+                int movingRank = moving.getRank().getValue();
+                boolean movingIsRed = moving.getSuit().isRed();
                 for (int to = 0; to < tableau.size(); to++) {
                     if (to == from) {
                         continue;
                     }
-                    if (canPlaceOnTableau(moving, tableau.get(to))) {
+                    if (destinations.accepts(to, movingRank, movingIsRed)) {
                         out.add("move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1));
                     }
                 }
