@@ -43,6 +43,8 @@ Tableau-to-tableau generation also computes each visible destination's required 
 
 The rollout root retains the preceding move so inverse pruning also applies to its first step. Only accepted children are attached to the rollout path. Inverse and symmetry pruning are newly enabled within Monte Carlo rollouts, so this changes their move distribution; the historical win-rate row in the root README has not been remeasured. Root move evaluation still uses 64 rollouts per candidate, with at most 128 accepted steps per rollout.
 
+`Solitaire.getStateKey()` computes the board hash lazily and reuses it until a successful card move, stock turn/recycle, or undo invalidates it. GAME copies inherit a valid cached key; PLAN copies calculate their own because hidden cards may be masked. Callers, including cycle checks, keep using `getStateKey()` with the existing hash calculation and API.
+
 ## Running (from `engine/`)
 
 Exactly one player profile must be active at a time. Run with `-Dspring.profiles.active=<profile>`.

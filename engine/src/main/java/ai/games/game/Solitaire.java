@@ -100,6 +100,10 @@ public class Solitaire {
     /** Current operational mode (GAME or PLAN). */
     private GameMode mode = GameMode.GAME;
 
+    /** Lazily computed board hash; zero is a valid key, so validity is tracked separately. */
+    private long cachedStateKey;
+    private boolean stateKeyValid;
+
     /** Creates empty containers for copying an existing state without dealing a new game. */
     private Solitaire() {
     }
@@ -192,6 +196,12 @@ public class Solitaire {
         // This ensures copies of PLAN mode states stay in PLAN mode,
         // and copies of GAME mode states start in GAME mode.
         clone.mode = this.mode;
+
+        // GAME copies preserve every hashed card. PLAN copies may mask hidden cards.
+        if (mode == GameMode.GAME) {
+            clone.cachedStateKey = cachedStateKey;
+            clone.stateKeyValid = stateKeyValid;
+        }
 
         return clone;
     }
@@ -357,6 +367,10 @@ public class Solitaire {
      * the deck.
      */
     public void turnThree() {
+        if (stockpile.isEmpty() && talon.isEmpty()) {
+            return;
+        }
+        stateKeyValid = false;
         if (stockpile.isEmpty() && !talon.isEmpty()) {
             // Recycle talon back to stockpile: top of talon becomes bottom of new stock.
             for (int i = talon.size() - 1; i >= 0; i--) {
@@ -491,6 +505,7 @@ public class Solitaire {
 
         int movedCount = fromPile.size() - movingIdx;
         List<Card> segment = new ArrayList<>(fromPile.subList(movingIdx, fromPile.size()));
+        stateKeyValid = false;
         for (int i = fromPile.size() - 1; i >= movingIdx; i--) {
             fromPile.remove(i);
         }
@@ -577,6 +592,8 @@ public class Solitaire {
      * (tableau, foundation, stockpile, talon) including both visible and hidden cards.
      * The state key is intended for AI cycle detection and transposition tables, allowing
      * search algorithms to detect when they have returned to a previously-visited state.
+     * Repeated calls reuse the cached value until a move, stock turn, or undo changes
+     * the board. The next call after a change computes and caches a fresh value.
      * <p>
      * <strong>Important:</strong> The state key does not expose hidden card identities directly;
      * it only contributes to a hash. Different hidden card arrangements may produce different keys.
@@ -584,6 +601,14 @@ public class Solitaire {
      * @return a 64-bit Zobrist hash of the entire game state
      */
     public long getStateKey() {
+        if (!stateKeyValid) {
+            cachedStateKey = computeStateKey();
+            stateKeyValid = true;
+        }
+        return cachedStateKey;
+    }
+
+    private long computeStateKey() {
         long h = 0L;
         int idx = 0;
 
@@ -970,6 +995,7 @@ public class Solitaire {
         replayActions.remove(replayActions.size() - 1);
 
         // Reset to initial state.
+        stateKeyValid = false;
         tableau.clear();
         tableauFaceUp.clear();
         foundation.clear();
