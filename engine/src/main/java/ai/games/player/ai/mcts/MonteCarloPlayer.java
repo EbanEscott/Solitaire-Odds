@@ -1,12 +1,16 @@
 package ai.games.player.ai.mcts;
 
+import ai.games.game.Card;
 import ai.games.game.Move;
+import ai.games.game.UnknownCardGuess;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
@@ -124,7 +128,7 @@ public class MonteCarloPlayer extends AIPlayer {
             child.setState(solitaire.copy());
             child.applyMove(move);
 
-            // In pure MCTS, all children have the same number of simulations
+            // Reuse this candidate board for every rollout; simulate restores it before returning.
             for (int i = 0; i < MCTS_ITERATIONS; i++) {
                 double reward = simulate(child);
                 if (log.isTraceEnabled()) {
@@ -200,6 +204,7 @@ public class MonteCarloPlayer extends AIPlayer {
      *
      * <p>Runs a random playout from the given node to a terminal state.
      * Returns a reward based on the heuristic evaluation of the final state.
+     * The candidate board is reused and rolled back before returning; no rollout copies are made.
      *
      * <p>The reward is normalised: -1.0 for loss (no progress), 1.0 for win (all foundation cards).
      *
@@ -244,64 +249,82 @@ public class MonteCarloPlayer extends AIPlayer {
             return -1.0; // No rewards from undesirable nodes
         }
 
-        // Start an independent path, preserving history and the preceding move for pruning.
-        MonteCarloTreeNode leaf = new MonteCarloTreeNode(node.getState().copy());
-        leaf.setParent(node);
-        leaf.setMove(node.getMove());
-        for (int steps = 0; steps < maxSteps && !leaf.isWon(); steps++) {
-            // Generate moves once and prune using the current board, before copying anything.
-            List<Move> legalMoves = LegalMovesHelper.listMoves(leaf.getState());
-            List<Move> candidates = new ArrayList<>(legalMoves.size());
-            for (Move candidate : legalMoves) {
-                if (candidate.isQuit()
-                        || leaf.isInverseOfLastMove(candidate)
-                        || leaf.isUselessKingMove(candidate)
-                        || leaf.isSimilarSibling(candidate, candidates)) {
-                    continue;
+        Solitaire board = node.getState();
+        int rolloutStart = board.getMoveHistorySize();
+        // PLAN move generation adds guesses outside the action history. Values are immutable.
+        Map<Card, UnknownCardGuess> initialGuesses = board.isInPlanMode()
+                ? new HashMap<>(board.getUnknownCardGuesses()) : null;
+
+        // This temporary node operates on the candidate's board. Its path stores keys only;
+        // the retained candidate node keeps its original move, key, parent, and statistics.
+        MonteCarloTreeNode position = new MonteCarloTreeNode(board);
+        position.setParent(node);
+        position.setMove(node.getMove());
+        List<Long> pathKeys = new ArrayList<>();
+        // Preserve the old rollout-root occurrence as well as the retained candidate ancestor.
+        pathKeys.add(board.getStateKey());
+        try {
+            for (int steps = 0; steps < maxSteps && !position.isWon(); steps++) {
+                // Generate and prune against the current board before applying candidates.
+                List<Move> legalMoves = LegalMovesHelper.listMoves(board);
+                List<Move> candidates = new ArrayList<>(legalMoves.size());
+                for (Move candidate : legalMoves) {
+                    if (candidate.isQuit()
+                            || position.isInverseOfLastMove(candidate)
+                            || position.isUselessKingMove(candidate)
+                            || position.isSimilarSibling(candidate, candidates)) {
+                        continue;
+                    }
+                    candidates.add(candidate);
                 }
-                candidates.add(candidate);
+
+                // Try candidates without replacement, reversing a rejected move before retrying.
+                int stepStart = board.getMoveHistorySize();
+                Move previousMove = position.getMove();
+                Move selected = null;
+                while (!candidates.isEmpty()) {
+                    int index = random.nextInt(candidates.size());
+                    Move candidate = candidates.get(index);
+                    Move last = candidates.remove(candidates.size() - 1);
+                    if (index < candidates.size()) {
+                        candidates.set(index, last);
+                    }
+
+                    position.applyMove(candidate);
+                    if (position.isCycleDetected(pathKeys)) {
+                        board.rollbackTo(stepStart);
+                        position.setState(board);
+                        position.setMove(previousMove);
+                        continue;
+                    }
+                    selected = candidate;
+                    break;
+                }
+
+                if (selected == null) {
+                    break;
+                }
+                pathKeys.add(board.getStateKey());
+                if (log.isTraceEnabled()) {
+                    log.trace("Rollout move: {}", selected);
+                }
             }
 
-            // Sample without replacement; stop as soon as a candidate passes the cycle check.
-            MonteCarloTreeNode selected = null;
-            while (!candidates.isEmpty()) {
-                int index = random.nextInt(candidates.size());
-                Move candidate = candidates.get(index);
-                Move last = candidates.remove(candidates.size() - 1);
-                if (index < candidates.size()) {
-                    candidates.set(index, last);
-                }
-
-                MonteCarloTreeNode child = new MonteCarloTreeNode(leaf.getState().copy());
-                child.setParent(leaf);
-                child.applyMove(candidate);
-                if (child.isCycleDetected()) {
-                    continue;
-                }
-                selected = child;
-                break;
-            }
-
-            // End the rollout when every move is pruned; otherwise retain only the chosen path.
-            if (selected == null) {
-                break;
-            }
-            leaf.addChild(selected.getMove().toCommandString(), selected);
+            double score = position.evaluate();
+            double clamped = Math.max(-MonteCarloTreeNode.MAX_SCORE,
+                    Math.min(MonteCarloTreeNode.MAX_SCORE, score));
+            double normalised = clamped / MonteCarloTreeNode.MAX_SCORE;
             if (log.isTraceEnabled()) {
-                log.trace("Rollout move: {}", selected.getMove());
+                log.trace("Normalised reward: {}", String.format("%.4f", normalised));
             }
-            leaf = selected;
+            return normalised;
+        } finally {
+            // Also restore after a terminal position, exhausted candidates, or an exception.
+            board.rollbackTo(rolloutStart);
+            if (initialGuesses != null) {
+                board.getUnknownCardGuesses().clear();
+                board.getUnknownCardGuesses().putAll(initialGuesses);
+            }
         }
-
-        // Get the score and normalise it
-        double score = leaf.evaluate();
-        double clamped = Math.max(-MonteCarloTreeNode.MAX_SCORE, Math.min(MonteCarloTreeNode.MAX_SCORE, score));
-        double normalised = clamped / MonteCarloTreeNode.MAX_SCORE;
-        
-        if(log.isTraceEnabled()) {
-            log.trace("Normalised reward: {}", String.format("%.4f", normalised));
-        }
-        
-        return normalised;
     }
 }

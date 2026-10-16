@@ -659,29 +659,34 @@ public abstract class TreeNode {
      * @return true if this move would cause a repeating cycle (2+ occurrences), false otherwise
      */
     public boolean isCycleDetected() {
+        return isCycleDetected(List.of());
+    }
+
+    /**
+     * Checks the current result against both a temporary rollout path and this node's ancestors.
+     * The path contains keys of preceding positions, never the candidate result itself.
+     * This lets a rollout keep its history without allocating a board for each position.
+     */
+    public boolean isCycleDetected(Iterable<Long> rolloutStateKeys) {
         if (state == null || move == null) {
             return false;
         }
-        
-        // Get the state key for the current tree node
         long resultKey = state.getStateKey();
-        
-        // Count how many ancestors have this state key
         int occurrences = 0;
+        for (long key : rolloutStateKeys) {
+            if (key == resultKey) {
+                occurrences++;
+            }
+        }
         TreeNode current = parent;
-        while (current != null) {
+        while (occurrences < 2 && current != null) {
             if (current.stateKey == resultKey) {
                 occurrences++;
-                // If we've found this state 2+ times, the cycle repeats (ping-pong)
-                if (occurrences >= 2) {
-                    return true;
-                }
             }
             current = current.parent;
         }
-        
-        // State appears 0 or 1 time in ancestors—no repeating cycle
-        return false;
+        // A single return is allowed; two prior occurrences indicate a repeated cycle.
+        return occurrences >= 2;
     }
 
     /**
