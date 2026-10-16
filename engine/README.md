@@ -31,6 +31,8 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 
 `Solitaire.copy()` allocates an empty state and copies the pile containers directly, sharing immutable cards. It avoids creating, shuffling, and dealing a throwaway deck on every search branch. Copies preserve the source's GAME or PLAN mode and the existing PLAN masking and guess-copying behavior. They start with fresh revealed-card tracking and omit replay history and the original deck order; they are simulation boards, not replay-based undo snapshots.
 
+Legal move generation in GAME and PLAN mode reads the visible tableau, face-up counts, foundations, and talon once per call and passes them to the move categories that need them. This avoids rebuilding identical snapshots and views while preserving move checks and ordering. These reads are local to the call; each subsequent call reads the current board again.
+
 ### Monte Carlo rollouts
 
 `MonteCarloPlayer.simulate()` owns rollout initialization, pruning order, random selection, cycle retries, and child attachment. Each step generates legal moves once, then reuses `TreeNode`'s inverse-move, useless-king, and move-symmetry rules before copying any candidate boards. Quit is excluded, and symmetric moves retain the first destination in legal-move order. The rollout tries the remaining candidates uniformly without replacement, copies and applies only the candidate being tried, and rejects it if the resulting state repeats at least twice in its ancestor history. It stops at the first accepted child or ends the rollout when no candidates remain.

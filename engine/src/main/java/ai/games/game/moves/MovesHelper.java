@@ -24,7 +24,9 @@ public abstract class MovesHelper {
     /**
      * Computes all legal moves for the given Solitaire state.
      * <p>
-     * Delegates to mode-specific implementations via abstract methods.
+     * Delegates to mode-specific implementations via abstract methods. The visible
+     * tableau, face-up counts, foundations, and talon are read once per call and
+     * passed to the move categories that use them.
      *
      * @param solitaire the game state; must not be null
      * @return a list of legal move commands (including "turn" and "quit")
@@ -40,7 +42,8 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTableauToFoundation(List<String> out);
+    protected abstract void addTableauToFoundation(List<String> out, List<List<Card>> tableau,
+            List<Integer> faceUps, List<List<Card>> foundations);
 
     /**
      * Generates all legal moves between tableau piles (including moves to UNKNOWN positions).
@@ -51,7 +54,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTableauToTableau(List<String> out);
+    protected abstract void addTableauToTableau(List<String> out, List<List<Card>> tableau, List<Integer> faceUps);
 
     /**
      * Generates all legal moves from talon (waste pile) to foundation piles.
@@ -61,7 +64,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTalonToFoundation(List<String> out);
+    protected abstract void addTalonToFoundation(List<String> out, List<Card> talon, List<List<Card>> foundations);
 
     /**
      * Generates all legal moves from talon (waste pile) to tableau piles.
@@ -71,7 +74,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTalonToTableau(List<String> out);
+    protected abstract void addTalonToTableau(List<String> out, List<Card> talon);
 
     /**
      * Generates all legal moves from foundation piles back to tableau piles.
@@ -82,7 +85,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addFoundationToTableau(List<String> out);
+    protected abstract void addFoundationToTableau(List<String> out, List<List<Card>> tableau, List<List<Card>> foundations);
 
     /**
      * Validates whether a card can be placed on a tableau pile.
