@@ -2,7 +2,7 @@ package ai.games.game;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,12 +34,13 @@ import java.util.Objects;
  *       Per Klondike Turn-3 rules: three cards are drawn and placed face-up into the talon.
  *       All three cards are strategically visible to the player, but only the top card is legally
  *       playable to the foundations or tableau at any given time. Use {@link #getTalon()} to inspect
- *       all cards in the talon (important for AI planning), and {@link LegalMovesHelper} enforces
+ *       all cards in the talon (important for AI planning), and {@link ai.games.player.LegalMovesHelper} enforces
  *       that only the top card can actually be moved.</li>
  * </ul>
  * <p>
  * <strong>Card Visibility:</strong>
- * Hidden cards in the tableau are not exposed to AI players or move validation checks.
+ * GAME states retain the actual hidden identities. Use {@link #planningCopy()} before
+ * exploring positions using only player knowledge.
  * Use {@link #getVisibleTableau()} for AI decision-making and {@link #getTableauFaceDownCounts()}
  * to know how many cards are hidden in each pile. The talon, by contrast, is fully visible (all
  * cards dealt face-up per Klondike rules), and AI players have full access to all three cards via
@@ -91,18 +92,23 @@ public class Solitaire {
     /** Tracks which cards have been revealed during play (via stock/talon cycling). */
     private final UnknownCardTracker unknownCardTracker = new UnknownCardTracker();
 
-    /** Tracks the Unkown card guesses for unknwon cards inserted into the game suring planning  */
-    private final Map<Card, UnknownCardGuess> unknownCardGuesses = new HashMap<>();
+    /** Assumptions belong to individual UNKNOWN positions, whose cards compare equal by value. */
+    private final Map<Card, UnknownCardGuess> unknownCardGuesses = new IdentityHashMap<>();
     
     /** Current operational mode (GAME or PLAN). */
-    private GameMode mode = GameMode.GAME;
+    private final GameMode mode;
 
     /** Lazily computed board hash; zero is a valid key, so validity is tracked separately. */
     private long cachedStateKey;
     private boolean stateKeyValid;
 
-    /** Creates empty containers for copying an existing state without dealing a new game. */
-    private Solitaire() {
+    /**
+     * Creates empty containers for a copy without shuffling or dealing a deck.
+     *
+     * @param mode the fixed operational mode for the new instance
+     */
+    private Solitaire(GameMode mode) {
+        this.mode = mode;
     }
 
     /**
@@ -119,6 +125,7 @@ public class Solitaire {
      * @throws NullPointerException if deck is null
      */
     public Solitaire(Deck deck) {
+        this(GameMode.GAME);
         Objects.requireNonNull(deck, "deck");
         initializeFoundation();
         dealTableau(deck);
@@ -126,79 +133,185 @@ public class Solitaire {
     }
 
     /**
-     * Copies the board for simulation, preserving the source's GAME or PLAN mode.
+     * Copies the current position, mode, revealed-card knowledge, and guesses.
      * <p>
-     * Pile and count containers are independent; immutable card instances are reused.
-     * The copy is populated directly, without constructing, shuffling, or dealing a deck.
-     * <p>
-     * In GAME mode, all card identities are preserved. In PLAN mode, unrevealed face-down
-     * tableau cards are replaced with fresh UNKNOWN cards, and their guesses are copied.
-     * <p>
-     * Simulation copies start with fresh revealed-card tracking and empty action history.
-     * New actions on a copy can be undone back to the copied position.
+     * The copy has independent pile and guess containers and shares immutable cards and
+     * assumptions. It starts with empty action history, preserves a valid cached state key,
+     * and does not mask cards again.
      *
-     * @return an independent simulation board in the source's mode
+     * @return an independent position in the same mode as this instance
      */
     public Solitaire copy() {
-        Solitaire clone = new Solitaire();
+        return copy(mode);
+    }
 
-        // Track mapping from original UNKNOWN cards to cloned UNKNOWN cards for deep copying guesses.
-        Map<Card, Card> unknownMapping = new HashMap<>();
+    /**
+     * Creates a PLAN copy containing only visible or previously observed card identities.
+     * <p>
+     * Unseen tableau and stock cards become UNKNOWN placeholders; the source is unchanged.
+     * On an existing PLAN state, this is equivalent to {@link #copy()} and preserves committed
+     * assumptions. Players resolve revealed UNKNOWN slots through {@link #assumeCard(Card, Card)}.
+     *
+     * @return an independent planning position with empty action history
+     */
+    public Solitaire planningCopy() {
+        return copy(GameMode.PLAN);
+    }
 
-        // Copy tableau and face-up counts.
-        // In GAME mode: preserve face-down cards as-is (with actual card values).
-        // In PLAN mode: replace unrevealed face-down cards with UNKNOWN placeholders.
+    /**
+     * Copies board containers and knowledge into the requested mode.
+     * <p>
+     * Only the transition from GAME to PLAN masks hidden identities and discards the cached
+     * state key. Copies within the same mode retain both identities and a valid cached key.
+     *
+     * @param targetMode the mode for the copy; callers preserve the current mode or request PLAN
+     * @return an independent board with no copied action history
+     */
+    private Solitaire copy(GameMode targetMode) {
+        Solitaire clone = new Solitaire(targetMode);
+        boolean maskHiddenCards = mode == GameMode.GAME && targetMode == GameMode.PLAN;
         for (int i = 0; i < tableau.size(); i++) {
             List<Card> pile = tableau.get(i);
             List<Card> clonePile = new ArrayList<>(pile);
-            if (mode == GameMode.PLAN) {
-                int faceUp = i < tableauFaceUp.size() ? tableauFaceUp.get(i) : 0;
-                int faceDownCount = Math.max(0, pile.size() - faceUp);
-                for (int j = 0; j < faceDownCount; j++) {
-                    Card original = pile.get(j);
-                    if (!unknownCardTracker.isRevealed(original)) {
-                        Card newUnknown = new Card(Rank.UNKNOWN, Suit.UNKNOWN);
-                        unknownMapping.put(original, newUnknown);
-                        clonePile.set(j, newUnknown);
-                    }
+            if (maskHiddenCards) {
+                int hiddenCount = pile.size() - tableauFaceUp.get(i);
+                for (int j = 0; j < hiddenCount; j++) {
+                    clonePile.set(j, observedCard(pile.get(j)));
                 }
             }
             clone.tableau.add(clonePile);
         }
         clone.tableauFaceUp.addAll(tableauFaceUp);
-
-        // Copy foundation.
         for (List<Card> pile : foundation) {
             clone.foundation.add(new ArrayList<>(pile));
         }
-
-        // Copy stock and talon.
-        clone.stockpile.addAll(stockpile);
-        clone.talon.addAll(talon);
-
-        // Deep copy unknownCardGuesses using the unknown card mapping.
-        for (Card oldUnknown : this.unknownCardGuesses.keySet()) {
-            UnknownCardGuess oldGuess = this.unknownCardGuesses.get(oldUnknown);
-            Card newUnknown = unknownMapping.get(oldUnknown);
-            if (newUnknown != null) {
-                UnknownCardGuess newGuess = new UnknownCardGuess(
-                    newUnknown, new ArrayList<>(oldGuess.getPossibilities()));
-                clone.unknownCardGuesses.put(newUnknown, newGuess);
-            }
+        if (maskHiddenCards) {
+            for (Card card : stockpile) clone.stockpile.add(observedCard(card));
+        } else {
+            clone.stockpile.addAll(stockpile);
         }
-
-        // Set the copy to PLAN mode if the original is in PLAN mode.
-        // This ensures copies of PLAN mode states stay in PLAN mode,
-        // and copies of GAME mode states start in GAME mode.
-        clone.mode = this.mode;
-
-        // GAME copies preserve every hashed card. PLAN copies may mask hidden cards.
-        if (mode == GameMode.GAME) {
+        clone.talon.addAll(talon);
+        clone.unknownCardTracker.copyFrom(unknownCardTracker);
+        clone.unknownCardGuesses.putAll(unknownCardGuesses);
+        if (!maskHiddenCards) {
             clone.cachedStateKey = cachedStateKey;
             clone.stateKeyValid = stateKeyValid;
         }
-
         return clone;
+    }
+
+    /**
+     * Finds the first revealed UNKNOWN slot that still needs an identity.
+     * <p>
+     * Searches visible tableau cards in pile order, then waste cards from bottom to top.
+     * Face-down tableau and stock slots remain unresolved until revealed.
+     *
+     * @return the UNKNOWN card instance identifying the slot, or {@code null} when no revealed
+     *         slot needs an assignment or this instance is in GAME mode
+     */
+    public Card nextUnresolvedCard() {
+        if (!isInPlanMode()) return null;
+        for (int t = 0; t < tableau.size(); t++) {
+            List<Card> pile = tableau.get(t);
+            for (int i = pile.size() - tableauFaceUp.get(t); i < pile.size(); i++) {
+                if (pile.get(i).getRank() == Rank.UNKNOWN) return pile.get(i);
+            }
+        }
+        for (Card card : talon) {
+            if (card.getRank() == Rank.UNKNOWN) return card;
+        }
+        return null;
+    }
+
+    /**
+     * Assigns a concrete unseen identity to one revealed UNKNOWN slot on this planning branch.
+     * <p>
+     * The identity becomes unavailable to subsequent assignments. The assignment records the
+     * original slot, prior guess, and cached key in the same history used for moves and turns,
+     * so {@link #undoLastMove()} and {@link #rollbackTo(int)} restore the previous state.
+     *
+     * @param unknown the exact UNKNOWN instance in a visible tableau or waste slot on this board
+     * @param identity a concrete card still present in the branch's unseen pool
+     * @return the conditional probability {@code 1.0 / remainingCards} before this assignment,
+     *         assuming uniformly distributed identities without replacement
+     * @throws IllegalArgumentException if this is not a PLAN board, the slot is not a revealed
+     *         UNKNOWN on this board, or the requested identity is not in the unseen pool
+     */
+    public double assumeCard(Card unknown, Card identity) {
+        if (!isInPlanMode() || unknown == null || unknown.getRank() != Rank.UNKNOWN) {
+            throw new IllegalArgumentException("Assumptions require an UNKNOWN in a PLAN board");
+        }
+        List<Card> unseen = getUnknownCards();
+        if (!unseen.contains(identity)) {
+            throw new IllegalArgumentException("Card is already known or assigned: " + identity);
+        }
+        String pileCode = null;
+        int slot = -1;
+        for (int t = 0; t < tableau.size() && slot < 0; t++) {
+            List<Card> pile = tableau.get(t);
+            for (int i = pile.size() - tableauFaceUp.get(t); i < pile.size(); i++) {
+                if (pile.get(i) == unknown) { pileCode = "T" + (t + 1); slot = i; break; }
+            }
+        }
+        for (int i = 0; i < talon.size() && slot < 0; i++) {
+            if (talon.get(i) == unknown) { pileCode = "W"; slot = i; }
+        }
+        if (slot < 0) throw new IllegalArgumentException("UNKNOWN must be a revealed slot on this board");
+        Assignment assignment = new Assignment(slot, unknown, unknownCardGuesses.get(unknown));
+        moveHistory.add(new Action("assume", pileCode, null, 0, -1, -1, false, 0,
+                cachedStateKey, stateKeyValid, assignment));
+        resolvePile(pileCode).set(slot, identity);
+        unknownCardGuesses.put(unknown, new UnknownCardGuess(unknown, identity));
+        stateKeyValid = false;
+        return 1.0 / unseen.size();
+    }
+
+    /**
+     * Checks whether an observed board agrees with this predicted position.
+     * <p>
+     * Pile sizes, face-up counts, and known identities must match. An UNKNOWN in the predicted
+     * position accepts any identity in the same observed slot, allowing actual play to reveal
+     * cards that were unknown when the move was selected. This comparison is directional and
+     * does not compare guess maps or action histories.
+     *
+     * @param observed the newly observed position; must not be null
+     * @return {@code true} if the observed piles match all known constraints in this prediction
+     */
+    public boolean matchesObservation(Solitaire observed) {
+        if (!tableauFaceUp.equals(observed.tableauFaceUp)) return false;
+        for (int i = 0; i < tableau.size(); i++) {
+            if (!matchesPile(tableau.get(i), observed.tableau.get(i))) return false;
+        }
+        for (int i = 0; i < foundation.size(); i++) {
+            if (!matchesPile(foundation.get(i), observed.foundation.get(i))) return false;
+        }
+        return matchesPile(stockpile, observed.stockpile) && matchesPile(talon, observed.talon);
+    }
+
+    /**
+     * Compares one observed pile against the known identities in a predicted pile.
+     *
+     * @param expected the predicted cards, with UNKNOWN slots accepting any observed identity
+     * @param observed the cards in the corresponding observed pile
+     * @return {@code true} if pile lengths and all predicted known identities match
+     */
+    private static boolean matchesPile(List<Card> expected, List<Card> observed) {
+        if (expected.size() != observed.size()) return false;
+        for (int i = 0; i < expected.size(); i++) {
+            Card card = expected.get(i);
+            if (card.getRank() != Rank.UNKNOWN && !card.equals(observed.get(i))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Retains a previously seen hidden card or masks it with a fresh UNKNOWN placeholder.
+     *
+     * @param card the card in a hidden tableau or stock slot
+     * @return the original card if recorded as revealed, otherwise a new UNKNOWN instance
+     */
+    private Card observedCard(Card card) {
+        return unknownCardTracker.isRevealed(card) ? card : new Card(Rank.UNKNOWN, Suit.UNKNOWN);
     }
 
     /**
@@ -276,17 +389,6 @@ public class Solitaire {
     }
 
     /**
-     * Sets the operational mode of this instance.
-     * <p>
-     * Called when creating a lookahead copy via {@link #copy()} to mark it as PLAN mode.
-     *
-     * @param mode the new mode (must not be null)
-     */
-    public void setMode(GameMode mode) {
-        this.mode = Objects.requireNonNull(mode, "mode");
-    }
-
-    /**
      * Convenience method to check if this instance is in PLAN mode.
      *
      * @return {@code true} if this is a lookahead copy; {@code false} if this is a real game
@@ -296,30 +398,26 @@ public class Solitaire {
     }
 
     /**
-     * Returns a list of all cards that are unknown (not yet revealed) in the current game state.
+     * Returns identities that remain unknown or unassigned in the current state.
      * <p>
-     * Unknown cards include:
-     * <ul>
-     *   <li>Face-down cards in the tableau (cards not yet visible in their piles).</li>
-     *   <li>Cards in the stockpile that have not been cycled through the talon.</li>
-     * </ul>
-     * <p>
-     * This list is useful for AI planning in PLAN mode: it identifies which cards remain
-     * hidden from the player and may affect future move options.
+     * In GAME mode, returns the actual unseen cards in face-down tableau and stock slots.
+     * In PLAN mode, derives possible identities from the standard deck minus known and assigned
+     * cards, without access to the real hidden deal.
      *
-     * @return an unmodifiable list of unknown cards; never null, may be empty
+     * @return an unmodifiable list of remaining identities; never null, possibly empty
      */
     public List<Card> getUnknownCards() {
         return unknownCardTracker.getUnknownCards(this);
     }
 
     /**
-     * Returns an unmodifiable view of the unknown card guesses for PLAN mode.
+     * Returns the planning branch's mutable map of UNKNOWN slots to assumptions.
      * <p>
-     * Maps each UNKNOWN card instance to its UnknownCardGuess, which tracks
-     * the possible cards it could be during lookahead search.
+     * Keys use object identity so distinct UNKNOWN positions remain separate. Assignments made
+     * through {@link #assumeCard(Card, Card)} contain one concrete identity. Copies have independent
+     * maps; undo restores the entry that preceded an assignment.
      *
-     * @return an unmodifiable map of UNKNOWN cards to their guesses; never null
+     * @return a mutable identity map of UNKNOWN card instances to their guesses; never null
      */
     public Map<Card, UnknownCardGuess> getUnknownCardGuesses() {
         return unknownCardGuesses;
@@ -389,7 +487,7 @@ public class Solitaire {
             }
         }
         moveHistory.add(new Action("turn", null, null, movedCount, -1, -1,
-                recycled, newlyRevealedMask, previousStateKey, previousStateKeyValid));
+                recycled, newlyRevealedMask, previousStateKey, previousStateKeyValid, null));
     }
 
     /**
@@ -487,16 +585,10 @@ public class Solitaire {
 
         Card moving = fromPile.get(movingIdx);
         
-        // In PLAN mode, UNKNOWN cards are wildcards and can move to any valid target.
-        // In GAME mode, UNKNOWN cards should never appear (all cards are known).
         if (moving.getRank() == Rank.UNKNOWN) {
-            if (!isInPlanMode()) {
-                // GAME mode: this shouldn't happen, but reject it.
-                return MoveResult.failure("Cannot move unknown card in GAME mode.");
-            }
-            // PLAN mode: allow the move. UNKNOWN acts as a wildcard.
-            // Skip the normal legal move check and allow any destination.
-        } else if (!isLegalMove(moving, toNormalized, toPile)) {
+            return MoveResult.failure("Resolve the UNKNOWN card before moving it.");
+        }
+        if (!isLegalMove(moving, toNormalized, toPile)) {
             String reason = toType == 'T'
                     ? "Tableau requires alternating color and one rank lower."
                     : "Foundation requires same suit and one rank higher starting with Ace.";
@@ -513,7 +605,7 @@ public class Solitaire {
         Action action = new Action("move", fromNormalized, toNormalized, movedCount,
                 fromType == 'T' ? tableauFaceUp.get(fromIndex) : -1,
                 toType == 'T' ? tableauFaceUp.get(toIndex) : -1,
-                false, 0, cachedStateKey, stateKeyValid);
+                false, 0, cachedStateKey, stateKeyValid, null);
         stateKeyValid = false;
         for (int i = fromPile.size() - 1; i >= movingIdx; i--) {
             fromPile.remove(i);
@@ -619,21 +711,28 @@ public class Solitaire {
     private long computeStateKey() {
         long h = 0L;
         int idx = 0;
+        int pileIndex = 0;
 
         // Tableau piles (include hidden + visible).
         for (List<Card> pile : tableau) {
-            for (Card c : pile) {
-                h ^= cardSlotKey(idx++, c);
-            }
+            h ^= pileSizeKey(pileIndex, pile.size());
+            int faceUpBase = 2048 + pileIndex * 64;
+            h ^= STATE_ZOBRIST[faceUpBase + tableauFaceUp.get(pileIndex)] ^ STATE_ZOBRIST[faceUpBase];
+            pileIndex++;
+            for (Card c : pile) h ^= cardSlotKey(idx++, c);
         }
 
         // Foundation piles.
         for (List<Card> pile : foundation) {
+            h ^= pileSizeKey(pileIndex++, pile.size());
             for (Card c : pile) {
                 h ^= cardSlotKey(idx++, c);
             }
         }
 
+        // Pile lengths distinguish moving identical UNKNOWN placeholders between stock and waste.
+        h ^= pileSizeKey(pileIndex++, stockpile.size());
+        h ^= pileSizeKey(pileIndex, talon.size());
         // Stockpile.
         for (Card c : stockpile) {
             h ^= cardSlotKey(idx++, c);
@@ -650,6 +749,21 @@ public class Solitaire {
         }
 
         return h;
+    }
+
+    /**
+     * Computes the hash contribution of a pile's length independently of its card identities.
+     * <p>
+     * This distinguishes transfers of identical UNKNOWN placeholders between piles. Empty piles
+     * contribute zero so an entirely empty board retains its zero state key.
+     *
+     * @param pileIndex the stable index of the tableau, foundation, stock, or waste pile
+     * @param size the number of cards in that pile
+     * @return the pile-length contribution to the board hash
+     */
+    private long pileSizeKey(int pileIndex, int size) {
+        int base = 1024 + pileIndex * 64;
+        return STATE_ZOBRIST[base + size] ^ STATE_ZOBRIST[base];
     }
 
     /**
@@ -915,7 +1029,7 @@ public class Solitaire {
 
     /**
      * Undoes the last completed card move or stock turn directly from its recorded changes.
-     * Restores pile order, face-up counts, revealed-card tracking, and the previous hash cache.
+     * Restores pile order, face-up counts, revealed-card tracking, assumptions, and the hash cache.
      * No action is recorded by undo itself. Copies can undo only actions performed after copying.
      *
      * @return true if an action was undone, false if the history is empty
@@ -925,7 +1039,12 @@ public class Solitaire {
             return false;
         }
         Action action = moveHistory.remove(moveHistory.size() - 1);
-        if ("turn".equals(action.type())) {
+        if ("assume".equals(action.type())) {
+            Assignment assignment = action.assignment();
+            resolvePile(action.from()).set(assignment.slot(), assignment.unknown());
+            if (assignment.previousGuess() == null) unknownCardGuesses.remove(assignment.unknown());
+            else unknownCardGuesses.put(assignment.unknown(), assignment.previousGuess());
+        } else if ("turn".equals(action.type())) {
             undoTurn(action);
         } else {
             undoCardMove(action);
@@ -951,12 +1070,23 @@ public class Solitaire {
         }
     }
 
-    /** Returns whether an action can be undone on this board. */
+    /**
+     * Reports whether this board has a recorded action available for undo.
+     *
+     * @return {@code true} if at least one move, turn, or planning assignment can be undone
+     */
     public boolean canUndo() {
         return !moveHistory.isEmpty();
     }
 
-    /** Returns the number of completed actions currently available for undo. */
+    /**
+     * Returns the current depth of the reversible action history.
+     * <p>
+     * Planning assignments count as actions alongside moves and turns. Save this value before
+     * simulation and pass it to {@link #rollbackTo(int)} to restore that branch's starting state.
+     *
+     * @return the number of recorded actions currently available for undo
+     */
     public int getMoveHistorySize() {
         return moveHistory.size();
     }
@@ -1002,8 +1132,19 @@ public class Solitaire {
      * after validation, so every entry has the information needed for exact undo.
      * Face-up counts are -1 for non-tableau piles. For turns, bit i of newlyRevealedMask
      * records whether drawn card i was previously unknown (at most three bits).
+     * For assignments, {@code from} identifies the affected pile and {@code assignment}
+     * stores its slot, placeholder, and prior guess; other action types leave it null.
      */
     private record Action(String type, String from, String to, int movedCount,
                           int fromFaceUp, int toFaceUp, boolean recycled, int newlyRevealedMask,
-                          long previousStateKey, boolean previousStateKeyValid) {}
+                          long previousStateKey, boolean previousStateKeyValid, Assignment assignment) {}
+
+    /**
+     * Stores the information needed to undo one speculative card assignment.
+     *
+     * @param slot the original zero-based position in the action's source pile
+     * @param unknown the UNKNOWN placeholder replaced by the assignment
+     * @param previousGuess the prior map entry for this placeholder, or {@code null} if absent
+     */
+    private record Assignment(int slot, Card unknown, UnknownCardGuess previousGuess) {}
 }

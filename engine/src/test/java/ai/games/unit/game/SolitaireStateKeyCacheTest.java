@@ -139,11 +139,7 @@ class SolitaireStateKeyCacheTest {
     void planCopyRehashesMaskedCardsRatherThanInheritingTheSourceKey() throws Exception {
         Solitaire state = position();
         long originalKey = state.getStateKey();
-        state.setMode(Solitaire.GameMode.PLAN);
-        // Mode alone does not change the hashed cards; masking happens in copy().
-        assertEquals(originalKey, state.getStateKey());
-
-        Solitaire copy = state.copy();
+        Solitaire copy = state.planningCopy();
         assertEquals(Rank.UNKNOWN, copy.getTableau().get(0).get(0).getRank());
         long expected = fullHash(copy);
         assertNotEquals(originalKey, expected);
@@ -167,6 +163,22 @@ class SolitaireStateKeyCacheTest {
         // Mutate via Solitaire rather than TreeNode.applyMove(). Its own cache must refresh.
         state.turnThree();
         assertTrue(node.isCycleDetected());
+    }
+
+    @Test
+    void partialStockTurnsDistinguishIdenticalUnknownPlaceholders() {
+        Solitaire plan = new Solitaire(new Deck()).planningCopy();
+        long before = plan.getStateKey();
+        plan.turnThree();
+        long firstTurn = plan.getStateKey();
+        assertFalse(plan.getStockpile().isEmpty());
+        assertNotEquals(before, firstTurn);
+        plan.turnThree();
+        assertNotEquals(firstTurn, plan.getStateKey());
+        plan.undoLastMove();
+        assertEquals(firstTurn, plan.getStateKey());
+        plan.undoLastMove();
+        assertEquals(before, plan.getStateKey());
     }
 
     @Test

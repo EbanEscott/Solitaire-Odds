@@ -150,22 +150,10 @@ class AStarPlayerTest {
         assertFalse(node.isWon(), "Nearly-won game should not be marked as won yet");
     }
 
-    /**
-     * Tests that probability is 1.0 for moves to known destinations.
-     */
     @Test
-    void probabilityIsOneForKnownDestinations() {
-        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
-        List<String> moves = LegalMovesHelper.listLegalMoves(solitaire);
-
-        for (String move : moves) {
-            if (move.startsWith("move")) {
-                double p = AStarTreeNode.computeProbability(move, solitaire);
-                // For a nearly-won game with known cards, probability should be 1.0
-                assertEquals(1.0, p, 0.01, 
-                        "Known destination should have probability 1.0 for move: " + move);
-            }
-        }
+    void observedRootStartsWithoutSpeculativeProbability() {
+        AStarTreeNode root = new AStarTreeNode(SolitaireFactory.oneMoveFromWin().planningCopy());
+        assertEquals(1.0, root.getProbability());
     }
 
     /**

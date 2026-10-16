@@ -178,7 +178,6 @@ public final class SolitaireBuilder {
     public Solitaire build() {
         // Start from a real instance so all internal lists exist and have correct shapes.
         Solitaire s = new Solitaire(new Deck());
-        s.setMode(Solitaire.GameMode.GAME);
 
         // Auto-fill remaining cards into stock (bottom-to-top), preserving any explicit stock order.
         List<Card> fullDeck = fullDeckInStableOrder();

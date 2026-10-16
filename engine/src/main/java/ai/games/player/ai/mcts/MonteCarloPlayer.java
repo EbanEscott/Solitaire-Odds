@@ -2,15 +2,12 @@ package ai.games.player.ai.mcts;
 
 import ai.games.game.Card;
 import ai.games.game.Move;
-import ai.games.game.UnknownCardGuess;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
@@ -23,7 +20,7 @@ import org.springframework.stereotype.Component;
  *
  * <h2>Algorithm Overview</h2>
  * <p>This player uses <b>Pure Monte Carlo search</b> (flat bandit evaluation): for each legal move,
- * it runs {@value #MCTS_ITERATIONS} random playouts to terminal states and selects the move with
+ * it runs up to {@value #MCTS_ITERATIONS} bounded random playouts and selects the move with
  * the highest average reward. Unlike full MCTS with UCB-guided tree expansion, this approach
  * evaluates all moves equally without adaptive exploration—making it simpler but less efficient
  * for deep game trees.
@@ -31,13 +28,14 @@ import org.springframework.stereotype.Component;
  * <h2>How it Works</h2>
  * <ol>
  *   <li><b>Enumerate moves:</b> Get all legal moves from the current position
- *   <li><b>Simulate:</b> For each move, play k random games to completion
+ *   <li><b>Simulate:</b> For each move, run bounded random playouts on a planning board
  *   <li><b>Score:</b> Record the average heuristic evaluation from those playouts
  *   <li><b>Select:</b> Choose the move with the best average score
  * </ol>
  *
- * <p>This converges to optimal play as iterations → ∞, but requires many more samples than
- * UCB-based MCTS for the same decision quality.
+ * <p>Revealed UNKNOWN identities are sampled without replacement in each rollout. Rewards
+ * estimate the performance of the rollout policy; increasing the sample count does not
+ * guarantee optimal play.
  *
  * <h2>Configuration</h2>
  * <p>Key parameters can be tuned for different playing strengths:
@@ -73,28 +71,19 @@ public class MonteCarloPlayer extends AIPlayer {
     private MonteCarloTreeNode current;
 
     /**
-     * Expected state key after the previously selected move is applied.
+     * Expected planning position after the previously selected move is applied.
      * Used to detect state drift when callers forget to apply the AI's chosen move.
      */
-    private Long expectedNextStateKey;
+    private Solitaire expectedNextState;
 
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
-        // Validate that the caller applied the previously selected move.
-        // In PLAN mode, card identities may be masked/guessed, so the state key is not stable;
-        // we skip validation and clear the expectation.
-        if (expectedNextStateKey != null) {
-            if (solitaire.getMode() == Solitaire.GameMode.PLAN) {
-                expectedNextStateKey = null;
-            } else {
-                long actualKey = solitaire.getStateKey();
-                if (actualKey != expectedNextStateKey) {
-                    throw new IllegalStateException(
-                            "State drift detected: expected stateKey=" + expectedNextStateKey + " but was " + actualKey);
-                }
-                expectedNextStateKey = null;
-            }
+        Solitaire planning = solitaire.planningCopy();
+        // Predicted UNKNOWN slots may now have real identities, but known cards and pile shapes must match.
+        if (expectedNextState != null && !expectedNextState.matchesObservation(planning)) {
+            throw new IllegalStateException("State drift detected: the selected move was not applied");
         }
+        expectedNextState = null;
 
         if (log.isTraceEnabled()) {
             log.trace(LegalMovesHelper.listLegalMoves(solitaire).toString());
@@ -103,12 +92,12 @@ public class MonteCarloPlayer extends AIPlayer {
         // Initialise or update MCTS tree
         if (root == null || current == null) {
             MonteCarloTreeNode node = new MonteCarloTreeNode();
-            node.setState(solitaire.copy());
+            node.setState(planning);
             node.setParent(null);
             this.root = node;
             this.current = node;
         } else {
-            current.setState(solitaire.copy());
+            current.setState(planning);
             current.getChildren().clear();
             current.resetStats();
         }
@@ -125,7 +114,7 @@ public class MonteCarloPlayer extends AIPlayer {
             MonteCarloTreeNode child = new MonteCarloTreeNode();
             child.setParent(current);
             current.addChild(move.toCommandString(), child);
-            child.setState(solitaire.copy());
+            child.setState(planning.copy());
             child.applyMove(move);
 
             // Reuse this candidate board for every rollout; simulate restores it before returning.
@@ -181,7 +170,7 @@ public class MonteCarloPlayer extends AIPlayer {
         current = bestChild;
 
         // Record the state we expect to see on the next call (after the move is applied).
-        expectedNextStateKey = current.getState() != null ? current.getState().getStateKey() : null;
+        expectedNextState = current.getState();
 
         if(log.isDebugEnabled()) {
             log.debug("MCTS selected '{}' with {} visits (highest mean reward)", bestMove, bestMeanReward);
@@ -216,6 +205,18 @@ public class MonteCarloPlayer extends AIPlayer {
     }
 
     // Explicit randomness and step budget also allow deterministic, bounded rollout tests.
+    /**
+     * Runs a bounded rollout using explicit randomness for move and reveal selection.
+     * <p>
+     * Samples revealed identities without replacement, then generates and prunes ordinary
+     * legal moves. The candidate's board is reused and restored to its starting history depth
+     * in a {@code finally} block, including when sampling or move selection throws.
+     *
+     * @param node the candidate node whose board is temporarily explored
+     * @param random the generator used for move selection and speculative reveals
+     * @param maxSteps the maximum number of accepted game moves, excluding assignments
+     * @return the normalised heuristic reward, or {@code -1.0} for a pruned candidate
+     */
     private double simulate(MonteCarloTreeNode node, RandomGenerator random, int maxSteps) {
         if(log.isTraceEnabled()) {
             log.trace(
@@ -251,10 +252,6 @@ public class MonteCarloPlayer extends AIPlayer {
 
         Solitaire board = node.getState();
         int rolloutStart = board.getMoveHistorySize();
-        // PLAN move generation adds guesses outside the action history. Values are immutable.
-        Map<Card, UnknownCardGuess> initialGuesses = board.isInPlanMode()
-                ? new HashMap<>(board.getUnknownCardGuesses()) : null;
-
         // This temporary node operates on the candidate's board. Its path stores keys only;
         // the retained candidate node keeps its original move, key, parent, and statistics.
         MonteCarloTreeNode position = new MonteCarloTreeNode(board);
@@ -264,6 +261,8 @@ public class MonteCarloPlayer extends AIPlayer {
         // Preserve the old rollout-root occurrence as well as the retained candidate ancestor.
         pathKeys.add(board.getStateKey());
         try {
+            resolveRevealedCards(board, random);
+            position.setState(board);
             for (int steps = 0; steps < maxSteps && !position.isWon(); steps++) {
                 // Generate and prune against the current board before applying candidates.
                 List<Move> legalMoves = LegalMovesHelper.listMoves(board);
@@ -291,6 +290,8 @@ public class MonteCarloPlayer extends AIPlayer {
                     }
 
                     position.applyMove(candidate);
+                    resolveRevealedCards(board, random);
+                    position.setState(board);
                     if (position.isCycleDetected(pathKeys)) {
                         board.rollbackTo(stepStart);
                         position.setState(board);
@@ -321,10 +322,27 @@ public class MonteCarloPlayer extends AIPlayer {
         } finally {
             // Also restore after a terminal position, exhausted candidates, or an exception.
             board.rollbackTo(rolloutStart);
-            if (initialGuesses != null) {
-                board.getUnknownCardGuesses().clear();
-                board.getUnknownCardGuesses().putAll(initialGuesses);
-            }
         }
     }
+
+    /**
+     * Samples identities for all currently revealed UNKNOWN slots on the rollout board.
+     * <p>
+     * Each identity is chosen uniformly from the remaining unseen pool and committed through
+     * {@link Solitaire#assumeCard(Card, Card)}. Later assignments cannot reuse that identity.
+     * The enclosing rollout restores these assignments through the board's action history.
+     *
+     * @param board the board being simulated; GAME boards have no unresolved planning slots
+     * @param random the generator used to sample identities without replacement
+     * @throws IllegalStateException if an UNKNOWN slot remains but no unseen identity is available
+     */
+    private void resolveRevealedCards(Solitaire board, RandomGenerator random) {
+        Card unknown;
+        while ((unknown = board.nextUnresolvedCard()) != null) {
+            List<Card> unseen = board.getUnknownCards();
+            if (unseen.isEmpty()) throw new IllegalStateException("No unseen identity for a revealed slot");
+            board.assumeCard(unknown, unseen.get(random.nextInt(unseen.size())));
+        }
+    }
+
 }

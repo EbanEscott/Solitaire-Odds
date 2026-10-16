@@ -120,8 +120,7 @@ class MonteCarloPlayerTest {
 
     @Test
     void acceptsPlanModeAndClearsExpectedKeyOnValidation() {
-        Solitaire solitaire = SolitaireFactory.twoMovesFromWin();
-        solitaire.setMode(Solitaire.GameMode.PLAN);
+        Solitaire solitaire = SolitaireFactory.twoMovesFromWin().planningCopy();
         MonteCarloPlayer ai = new MonteCarloPlayer();
 
         String firstMove = assertDoesNotThrow(() -> ai.nextCommand(solitaire, "", ""));

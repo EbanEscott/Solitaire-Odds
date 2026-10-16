@@ -27,7 +27,7 @@ class TableauMoveGenerationTest {
                 .tableau("T1", 3, "3♣", "8♥", "7♣", "6♦")
                 .tableau("T2", "9♠").tableau("T3", "9♣")
                 .tableau("T4", "8♦").tableau("T5", "7♠").build();
-        state.setMode(mode);
+        if (mode == Solitaire.GameMode.PLAN) state = state.planningCopy();
 
         assertEquals(List.of(
                 "move T1 8♥ T2", "move T1 8♥ T3",
@@ -40,7 +40,7 @@ class TableauMoveGenerationTest {
     @EnumSource(Solitaire.GameMode.class)
     void emptyDestinationsAcceptBothKingColoursOnly(Solitaire.GameMode mode) {
         Solitaire state = kingsAndQueen();
-        state.setMode(mode);
+        if (mode == Solitaire.GameMode.PLAN) state = state.planningCopy();
 
         assertEquals(List.of(
                 "move T1 K♥ T5", "move T1 K♥ T6", "move T1 K♥ T7",
@@ -53,7 +53,7 @@ class TableauMoveGenerationTest {
     @EnumSource(Solitaire.GameMode.class)
     void reusedHelperReadsChangedDestinationsOnNextCall(Solitaire.GameMode mode) {
         Solitaire state = kingsAndQueen();
-        state.setMode(mode);
+        if (mode == Solitaire.GameMode.PLAN) state = state.planningCopy();
         MovesHelper helper = mode == Solitaire.GameMode.PLAN
                 ? new PlanningMovesHelper() : new GameMovesHelper();
         assertTrue(helper.listLegalMoves(state).contains("move T4 J♣ T3"));
@@ -67,10 +67,10 @@ class TableauMoveGenerationTest {
     }
 
     @Test
-    void planModeKeepsUnknownGuessesSeparateAndAfterVisibleDestinations() {
+    void listingMovesDoesNotUseOrMutateUncommittedGuesses() {
         Solitaire state = spy(SolitaireBuilder.newGame()
                 .tableau("T1", "4♥").tableau("T2", "8♣").tableau("T3", "5♠").build());
-        state.setMode(Solitaire.GameMode.PLAN);
+        state = spy(state.planningCopy());
         Card unknown = new Card(Rank.UNKNOWN, Suit.UNKNOWN);
         // Expose an UNKNOWN top without changing the normal piles used by the builder.
         List<List<Card>> tableau = new ArrayList<>(state.getVisibleTableau());
@@ -80,7 +80,7 @@ class TableauMoveGenerationTest {
         UnknownCardGuess guess = new UnknownCardGuess(unknown, List.of(new Card(Rank.FIVE, Suit.CLUBS)));
         state.getUnknownCardGuesses().put(unknown, guess);
 
-        assertEquals(List.of("move T1 4♥ T3", "move T1 4♥ T2", "turn", "quit"),
+        assertEquals(List.of("move T1 4♥ T3", "turn", "quit"),
                 LegalMovesHelper.listLegalMoves(state));
         assertSame(guess, state.getUnknownCardGuesses().get(unknown));
     }

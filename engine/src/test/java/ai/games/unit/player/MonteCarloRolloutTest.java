@@ -43,17 +43,22 @@ class MonteCarloRolloutTest {
     @EnumSource(Solitaire.GameMode.class)
     void aceSymmetryRetainsEachSourceAndTriesOnlyTheSelectedRepresentative(Solitaire.GameMode mode) {
         Solitaire position = twoAces();
-        position.setMode(mode);
+        if (mode == Solitaire.GameMode.PLAN) position = position.planningCopy();
         List<String> representatives = List.of("move T1 A♣ F1", "move W F1", "turn");
         assertEquals(10, LegalMovesHelper.listLegalMoves(position).size());
 
         for (int index = 0; index < representatives.size(); index++) {
             MonteCarloTreeNode node = new MonteCarloTreeNode(position.copy());
-            IndexRandom random = new IndexRandom(index);
+            IndexRandom random = mode == Solitaire.GameMode.PLAN && index == 2
+                    ? new IndexRandom(index, 0, 0, 0) : new IndexRandom(index);
 
             Simulation result = simulateOneStep(node, random);
 
-            assertEquals(List.of(3), random.bounds);
+            if (mode == Solitaire.GameMode.PLAN && index == 2) {
+                assertEquals(List.of(3, 49, 48, 47), random.bounds);
+            } else {
+                assertEquals(List.of(3), random.bounds);
+            }
             assertEquals(1, result.attemptedPositions().size());
             assertPositionAfterMove(position, representatives.get(index), result.attemptedPositions().get(0));
         }
@@ -200,7 +205,7 @@ class MonteCarloRolloutTest {
     void planGuessesDoNotLeakBetweenRolloutsOrAfterExceptions() {
         Solitaire source = SolitaireBuilder.newGame()
                 .tableau("T1", 1, "K♦", "A♣").tableau("T2", "5♠").build();
-        source.setMode(Solitaire.GameMode.PLAN);
+        source = source.planningCopy();
         Solitaire board = spy(source.copy());
         assertTrue(board.moveCard("T1", "F1")); // Expose an UNKNOWN destination.
         assertTrue(board.getUnknownCardGuesses().isEmpty());
@@ -209,8 +214,6 @@ class MonteCarloRolloutTest {
         int history = board.getMoveHistorySize();
         Random inspectGuesses = new Random() {
             @Override public int nextInt(int bound) {
-                assertFalse(board.getUnknownCardGuesses().isEmpty(),
-                        "PLAN generation should exercise its guess side effect");
                 return bound - 1;
             }
         };
@@ -220,7 +223,7 @@ class MonteCarloRolloutTest {
         RuntimeException failure = new IllegalStateException("Interrupted after guessing");
         Random throwing = new Random() {
             @Override public int nextInt(int bound) {
-                assertFalse(board.getUnknownCardGuesses().isEmpty());
+                if (board.getUnknownCardGuesses().isEmpty()) return 0;
                 throw failure;
             }
         };
@@ -230,6 +233,25 @@ class MonteCarloRolloutTest {
         assertEquals(before, snapshot(board));
         assertEquals(history, board.getMoveHistorySize());
         verify(board, never()).copy();
+    }
+
+    @Test
+    void rollbackRetainsGuessesForSeparateUnknownPositions() {
+        Solitaire board = SolitaireBuilder.newGame()
+                .tableau("T1", 1, "K♦", "A♣").tableau("T2", 1, "Q♣", "5♠")
+                .build().planningCopy();
+        Card first = board.getTableau().get(0).get(0);
+        Card second = board.getTableau().get(1).get(0);
+        UnknownCardGuess a = new UnknownCardGuess(first, new Card(Rank.KING, Suit.DIAMONDS));
+        UnknownCardGuess b = new UnknownCardGuess(second, new Card(Rank.QUEEN, Suit.CLUBS));
+        board.getUnknownCardGuesses().put(first, a);
+        board.getUnknownCardGuesses().put(second, b);
+
+        simulate(new MonteCarloTreeNode(board), new Random(42), 1);
+
+        assertEquals(2, board.getUnknownCardGuesses().size());
+        assertSame(a, board.getUnknownCardGuesses().get(first));
+        assertSame(b, board.getUnknownCardGuesses().get(second));
     }
 
     @Test
@@ -254,14 +276,19 @@ class MonteCarloRolloutTest {
         int rootMoves = (int) LegalMovesHelper.listMoves(initial).stream()
                 .filter(move -> !move.isQuit()).count();
         List<Solitaire> boards = new ArrayList<>();
+        Solitaire planning = spy(initial.planningCopy());
+        boards.add(planning);
+        doReturn(planning).when(source).planningCopy();
         doAnswer(invocation -> {
             Solitaire copy = (Solitaire) invocation.callRealMethod();
             boards.add(copy);
             return copy;
-        }).when(source).copy();
+        }).when(planning).copy();
         MonteCarloPlayer player = new MonteCarloPlayer();
         assertNotNull(player.nextCommand(source, "", ""));
-        verify(source, times(rootMoves + 1)).copy();
+        verify(source).planningCopy();
+        verify(source, never()).copy();
+        verify(planning, times(rootMoves)).copy();
         assertEquals(rootMoves + 1, boards.size());
         assertEquals(before, snapshot(source));
         assertEquals(0, source.getMoveHistorySize());
@@ -272,7 +299,7 @@ class MonteCarloRolloutTest {
         assertEquals(rootMoves, root.getChildren().size());
         for (var entry : root.getChildren().entrySet()) {
             MonteCarloTreeNode candidate = (MonteCarloTreeNode) entry.getValue();
-            assertPositionAfterMove(initial, entry.getKey(), snapshot(candidate.getState()));
+            assertPositionAfterMove(planning, entry.getKey(), snapshot(candidate.getState()));
             assertEquals(1, candidate.getState().getMoveHistorySize());
             assertTrue(candidate.getChildren().isEmpty());
             assertTrue(candidate.getVisits() == 64 || candidate.getVisits() == 1);

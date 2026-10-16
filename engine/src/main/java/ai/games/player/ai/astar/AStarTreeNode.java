@@ -1,7 +1,6 @@
 package ai.games.player.ai.astar;
 
 import ai.games.game.Card;
-import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.player.ai.tree.TreeNode;
 import java.util.List;
@@ -13,8 +12,8 @@ import java.util.List;
  * <ul>
  *   <li><b>g</b>: Path cost from the search root (number of moves taken)</li>
  *   <li><b>h</b>: Heuristic estimate of remaining cost to win (lower = closer to goal)</li>
- *   <li><b>f</b>: Total estimated cost = g + h (used for priority queue ordering)</li>
- *   <li><b>probability</b>: Estimated probability of success when moving to UNKNOWN cards</li>
+ *   <li><b>f</b>: Ranking score {@code (g + h + 1) / probability - 1} (used for queue ordering)</li>
+ *   <li><b>probability</b>: Cumulative probability of speculative reveal outcomes</li>
  * </ul>
  *
  * <p>Nodes are compared by f-score for use in a priority queue, enabling A* expansion order.
@@ -27,10 +26,10 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
     /** Heuristic estimate of remaining cost to win. */
     private double h;
 
-    /** Total estimated cost: f = g + h/probability. */
+    /** Total estimated cost: f = (g + h + 1)/probability - 1. */
     private double f;
 
-    /** Probability of success for moves targeting UNKNOWN cards (1.0 for known destinations). */
+    /** Cumulative probability of all speculative card assignments on this search path. */
     private double probability;
 
     /**
@@ -147,96 +146,20 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
     }
 
     /**
-     * Computes the probability of a move succeeding when targeting UNKNOWN cards.
-     *
-     * <p>When moving to a tableau pile topped by an UNKNOWN card, we estimate the probability
-     * that the hidden card is compatible (allows the move). This is calculated as:
-     * <pre>
-     *   P(success) = (compatible cards in unknown pool) / (total unknowns)
-     * </pre>
-     *
-     * <p>The probability is used to penalise risky moves: f = g + h/p.
-     * Lower probability results in higher f-score, discouraging uncertain moves.
-     *
-     * @param move  the move command string to evaluate
-     * @param state the current game state
-     * @return probability between 0.0 and 1.0 (1.0 if destination is known)
-     */
-    public static double computeProbability(String move, Solitaire state) {
-        if (move == null || state == null) {
-            return 1.0;
-        }
-
-        // Parse the move to extract destination
-        String[] parts = move.trim().split("\\s+");
-        if (parts.length < 3 || !parts[0].equalsIgnoreCase("move")) {
-            return 1.0; // Turn or other non-move commands
-        }
-
-        String dest = parts[parts.length - 1].toUpperCase();
-        if (!dest.startsWith("T")) {
-            return 1.0; // Foundation moves don't depend on unknown cards
-        }
-
-        // Get the destination tableau pile
-        int pileIndex;
-        try {
-            pileIndex = Integer.parseInt(dest.substring(1)) - 1;
-        } catch (NumberFormatException e) {
-            return 1.0;
-        }
-
-        List<List<Card>> visibleTableau = state.getVisibleTableau();
-        if (pileIndex < 0 || pileIndex >= visibleTableau.size()) {
-            return 1.0;
-        }
-
-        List<Card> destPile = visibleTableau.get(pileIndex);
-        if (destPile.isEmpty()) {
-            return 1.0; // Empty column: only kings can move, no unknown dependency
-        }
-
-        Card topCard = destPile.get(destPile.size() - 1);
-        if (topCard.getRank() != Rank.UNKNOWN) {
-            return 1.0; // Known card at destination
-        }
-
-        // Destination is UNKNOWN — estimate probability based on compatible cards
-        List<Card> unknowns = state.getUnknownCards();
-        if (unknowns.isEmpty()) {
-            return 1.0;
-        }
-
-        // Parse the card being moved to determine compatibility requirements
-        String cardToken = (parts.length == 4) ? parts[2].toUpperCase() : null;
-        if (cardToken == null) {
-            return 0.5; // Unknown what we're moving, assume 50% chance
-        }
-
-        // When destination is UNKNOWN, we can't know if the move will succeed.
-        // Rough estimate: about half of unknowns will be compatible colour
-        // and 1/13 will be the right rank. So ~1/26 chance per unknown.
-        // Simplified: use a fixed probability to penalise uncertain moves.
-        double p = 0.5; // Base probability for unknown destination
-        return clamp01(p);
-    }
-
-    /**
      * Recalculates the f-score based on current g, h, and probability.
      * Call this after updating any of the component values.
      */
     public void recalculateF() {
-        // Adjust f-score: lower probability penalises the move
-        // f = g + h/p (when p is low, h/p is high, making f higher)
-        double adjustedH = (probability > 0.0) ? h / probability : Double.MAX_VALUE;
-        this.f = g + adjustedH;
+        // The +1 keeps uncertainty penalised even at a goal or a zero-heuristic position.
+        // This is a search ranking heuristic, not an expected win probability.
+        this.f = probability > 0.0 ? (g + h + 1.0) / probability - 1.0 : Double.POSITIVE_INFINITY;
     }
 
     // ========== Comparable Implementation ==========
 
     /**
      * Compares nodes by f-score for priority queue ordering.
-     * Lower f-score = higher priority (closer to optimal path).
+     * Lower f-scores receive higher priority under the search ranking heuristic.
      *
      * @param other the other node to compare against
      * @return negative if this node has lower f, positive if higher, 0 if equal

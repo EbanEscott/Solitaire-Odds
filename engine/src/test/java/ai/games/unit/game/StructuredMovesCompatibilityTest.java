@@ -82,7 +82,7 @@ class StructuredMovesCompatibilityTest {
     }
 
     @Test
-    void unknownSourceKeepsLegacySpellingInTextAdapter() {
+    void unresolvedUnknownSourcesAreNotOfferedAsPlayableCards() {
         Solitaire state = spy(position(Solitaire.GameMode.PLAN));
         List<List<Card>> tableau = new ArrayList<>(state.getVisibleTableau());
         tableau.set(0, List.of(new Card(Rank.UNKNOWN, Suit.UNKNOWN)));
@@ -90,12 +90,9 @@ class StructuredMovesCompatibilityTest {
         doReturn(tableau).when(state).getVisibleTableau();
         doReturn(tableau).when(state).getTableau();
 
-        assertTrue(LegalMovesHelper.listLegalMoves(state).contains("move T1 ?? T2"));
-        Move unknownMove = LegalMovesHelper.listMoves(state).stream()
-                .filter(move -> move.card() != null && move.card().rank() == Rank.UNKNOWN)
-                .findFirst().orElseThrow();
-        assertEquals(Suit.UNKNOWN, unknownMove.card().suit());
-        assertEquals("move T1 ? T2", unknownMove.toCommandString());
+        assertFalse(LegalMovesHelper.listLegalMoves(state).contains("move T1 ?? T2"));
+        assertTrue(LegalMovesHelper.listMoves(state).stream()
+                .noneMatch(move -> move.card() != null && move.card().rank() == Rank.UNKNOWN));
     }
 
     @Test
@@ -117,7 +114,7 @@ class StructuredMovesCompatibilityTest {
                 .foundation("F1", "A♦", "2♦")
                 .foundation("F2", "A♥", "2♥", "3♥")
                 .foundation("F3", "A♠").waste("2♠").build();
-        state.setMode(mode);
+        if (mode == Solitaire.GameMode.PLAN) state = state.planningCopy();
         return state;
     }
 }

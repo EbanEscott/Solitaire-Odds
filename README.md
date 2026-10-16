@@ -36,6 +36,8 @@ The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
 
 These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 
+These historical search results used simulations of the actual deal, including hidden cards. A* and Monte Carlo now search masked planning copies with speculative reveals; their win rates and timings have not yet been remeasured. Other search players still use their existing copying behaviour. See [planning behaviour](engine/README.md#simulation-state-copies).
+
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
 | Rule-based Heuristics        | Search | 10000 | 418 | 4.18% ± 0.39% | 1ms | 7.187s | 733.35 | 2 | Deterministic rule-based baseline; see [code](engine/src/main/java/ai/games/player/ai/RuleBasedHeuristicsPlayer.java). |

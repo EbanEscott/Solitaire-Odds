@@ -52,11 +52,11 @@ public abstract class MovesHelper {
             List<Integer> faceUps, List<List<Card>> foundations);
 
     /**
-     * Generates all legal moves between tableau piles (including moves to UNKNOWN positions).
+     * Generates legal moves between tableau piles with concrete card identities.
      * <p>
      * Tableau-to-tableau moves are complex: any visible card can be the start of a stack,
      * and the destination must follow tableau rules (alternating colors, descending ranks).
-     * In PLAN mode, this also includes moves to UNKNOWN positions.
+     * PLAN boards use the same rules after revealed UNKNOWN positions have been assigned.
      *
      * @param out the list to append generated moves to
      */
@@ -65,8 +65,8 @@ public abstract class MovesHelper {
     /**
      * Generates all legal moves from talon (waste pile) to foundation piles.
      * <p>
-     * Only the top card of the talon is playable. In both GAME and PLAN modes,
-     * the talon only contains real (not UNKNOWN) cards, so this implementation is identical.
+     * Only the top card of the talon is playable. Planning players assign identities to
+     * revealed UNKNOWN waste cards before expansion; unresolved UNKNOWN sources are excluded.
      *
      * @param out the list to append generated moves to
      */
@@ -75,8 +75,8 @@ public abstract class MovesHelper {
     /**
      * Generates all legal moves from talon (waste pile) to tableau piles.
      * <p>
-     * Only the top card of the talon is playable. In both GAME and PLAN modes,
-     * the talon only contains real (not UNKNOWN) cards, so this implementation is identical.
+     * Only the top card of the talon is playable. Planning players assign identities to
+     * revealed UNKNOWN waste cards before expansion; unresolved UNKNOWN sources are excluded.
      *
      * @param out the list to append generated moves to
      */
@@ -141,19 +141,17 @@ public abstract class MovesHelper {
      *   <li><b>Non-empty pile:</b> Card must be opposite color and exactly one rank lower than the top card
      * </ul>
      * <p>
-     * In PLAN mode, this method may be overridden to handle UNKNOWN target cards
-     * (checking if any possibility could match).
+     * Both GAME and PLAN boards use these rules. UNKNOWN sources and destinations are
+     * rejected until the planner assigns concrete identities.
      *
      * @param moving the card being moved; must not be null
      * @param toPile the destination tableau pile; must not be null
      * @return {@code true} if the move follows tableau placement rules; {@code false} otherwise
      */
     protected boolean canPlaceOnTableau(Card moving, List<Card> toPile) {
-        if (moving == null || toPile.isEmpty()) {
-            if (moving != null) {
-                return moving.getRank() == Rank.KING;
-            }
-            return false;
+        if (moving == null || moving.getRank() == Rank.UNKNOWN) return false;
+        if (toPile.isEmpty()) {
+            return moving.getRank() == Rank.KING;
         }
         
         Card target = toPile.get(toPile.size() - 1);
@@ -185,7 +183,7 @@ public abstract class MovesHelper {
      * @return {@code true} if the move follows foundation placement rules; {@code false} otherwise
      */
     protected boolean canPlaceOnFoundation(Card moving, List<Card> toPile) {
-        if (moving == null) {
+        if (moving == null || moving.getRank() == Rank.UNKNOWN) {
             return false;
         }
         
@@ -202,7 +200,7 @@ public abstract class MovesHelper {
     /**
      * Placement requirements for one generation call. Computing these once avoids
      * reading the same destination pile and top card for every visible source card.
-     * UNKNOWN destinations are rejected here; PLAN mode checks their guesses separately.
+     * UNKNOWN destinations are rejected here; planning players assign their identities before expansion.
      */
     protected static final class TableauDestinations {
         private final int[] requiredRanks;
@@ -228,7 +226,7 @@ public abstract class MovesHelper {
         }
 
         boolean accepts(int destination, int movingRank, boolean movingIsRed) {
-            return movingRank == requiredRanks[destination]
+            return movingRank > 0 && movingRank == requiredRanks[destination]
                     && (empty[destination] || movingIsRed == requiredRed[destination]);
         }
     }

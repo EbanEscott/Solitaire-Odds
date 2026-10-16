@@ -57,9 +57,25 @@ public class UnknownCardTracker {
         }
     }
 
-    /** Restores a card's unknown status when undoing the turn that first revealed it. */
+    /**
+     * Removes knowledge introduced by a stock turn that is being undone.
+     *
+     * @param card the card first revealed by that turn
+     */
     void removeRevealedCard(Card card) {
         revealedCards.remove(card);
+    }
+
+    /**
+     * Adds the source tracker’s revealed identities to this tracker's independent set.
+     * <p>
+     * Board copying calls this on an empty tracker so undo in either board cannot change
+     * what the other board remembers.
+     *
+     * @param source the tracker whose revealed-card knowledge is copied; must not be null
+     */
+    void copyFrom(UnknownCardTracker source) {
+        revealedCards.addAll(source.revealedCards);
     }
 
     /**
@@ -85,10 +101,15 @@ public class UnknownCardTracker {
      * Cards that have cycled through the talon are <strong>not</strong> included, even if
      * they are currently in the stockpile, because the player has already seen them.
      *
+     * PLAN states return possible unseen identities from the standard deck minus known cards.
+     *
      * @param solitaire the game state to analyze; must not be null
      * @return a list of unknown cards; never null, may be empty
      */
     public List<Card> getUnknownCards(Solitaire solitaire) {
+        if (solitaire.isInPlanMode()) {
+            return possibleUnseenCards(solitaire);
+        }
         Set<Card> unknown = new HashSet<>();
 
         // Add all face-down cards from the tableau.
@@ -117,5 +138,34 @@ public class UnknownCardTracker {
         }
 
         return Collections.unmodifiableList(new ArrayList<>(unknown));
+    }
+
+    /**
+     * Derives possible unseen identities from a planning board's knowledge and assignments.
+     * <p>
+     * Concrete cards in the piles and remembered revealed cards are excluded from the standard
+     * 52-card deck. UNKNOWN placeholders contribute no concrete identity, so the real hidden
+     * deal is never consulted.
+     *
+     * @param solitaire the PLAN board whose remaining identity pool is required
+     * @return an unmodifiable list of identities not already known or assigned
+     */
+    private List<Card> possibleUnseenCards(Solitaire solitaire) {
+        Set<Card> known = new HashSet<>(revealedCards);
+        solitaire.getTableau().forEach(known::addAll);
+        solitaire.getFoundation().forEach(known::addAll);
+        known.addAll(solitaire.getStockpile());
+        known.addAll(solitaire.getTalon());
+        List<Card> unseen = new ArrayList<>();
+        for (Suit suit : Suit.values()) {
+            if (suit == Suit.UNKNOWN) continue;
+            for (Rank rank : Rank.values()) {
+                if (rank != Rank.UNKNOWN) {
+                    Card card = new Card(rank, suit);
+                    if (!known.contains(card)) unseen.add(card);
+                }
+            }
+        }
+        return Collections.unmodifiableList(unseen);
     }
 }

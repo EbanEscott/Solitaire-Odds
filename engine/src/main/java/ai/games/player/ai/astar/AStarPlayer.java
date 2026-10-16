@@ -1,6 +1,7 @@
 package ai.games.player.ai.astar;
 
 import ai.games.game.Solitaire;
+import ai.games.game.Card;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 import ai.games.player.ai.tree.PruneReason;
@@ -24,13 +25,13 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>Key features:</b>
  * <ul>
- *   <li>True A* search with f = g + h scoring</li>
- *   <li>Probability weighting for moves targeting UNKNOWN cards</li>
+ *   <li>Bounded best-first search with probability-weighted A* scoring</li>
+ *   <li>Probability weighting for speculative reveal outcomes</li>
  *   <li>Comprehensive pruning: quit moves, ping-pong, useless king moves, duplicates</li>
  *   <li>Cycle detection with tree exhaustion as the quit condition</li>
  * </ul>
  *
- * <p><b>Tree persistence:</b> Static fields ensure the tree survives Spring bean recreation.
+ * <p><b>Tree persistence:</b> Instance fields retain the chosen path between turns.
  * The tree is reset when root is null (new game detected).
  */
 @Component
@@ -54,8 +55,8 @@ public class AStarPlayer extends AIPlayer {
     /** Priority queue for A* expansion, ordered by f-score (lowest first). */
     private PriorityQueue<AStarTreeNode> openSet = null;
 
-    /** Best g-cost seen for each state key, for duplicate path pruning. */
-    private Map<Long, Double> bestG = null;
+    /** Best probability-weighted score seen for each state key, for duplicate path pruning. */
+    private Map<Long, Double> bestScore = null;
 
     /**
      * Resets the game tree state. Called automatically when root is null,
@@ -65,7 +66,7 @@ public class AStarPlayer extends AIPlayer {
         root = null;
         current = null;
         openSet = null;
-        bestG = null;
+        bestScore = null;
     }
 
     /**
@@ -88,22 +89,25 @@ public class AStarPlayer extends AIPlayer {
      */
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
+        Solitaire planning = solitaire.planningCopy();
         // ===== Step 1: Initialise tree if this is a new game =====
         if (root == null) {
             if (log.isDebugEnabled()) {
                 log.debug("Initialising new A* game tree");
             }
-            root = new AStarTreeNode(solitaire.copy());
+            root = new AStarTreeNode(planning);
             current = root;
             openSet = new PriorityQueue<>();
-            bestG = new HashMap<>();
-            bestG.put(current.getStateKey(), current.getG());
+            bestScore = new HashMap<>();
+            bestScore.put(current.getStateKey(), current.getF());
         }
 
         // ===== Step 2: Refresh current state with fresh planning copy =====
         // The real game may have revealed cards that were UNKNOWN in our tree
-        Solitaire freshState = solitaire.copy();
+        Solitaire freshState = planning;
         current.setState(freshState);
+        current.setG(0.0);
+        current.setProbability(1.0);
         current.setH(AStarTreeNode.computeHeuristic(freshState));
         current.recalculateF();
 
@@ -117,12 +121,12 @@ public class AStarPlayer extends AIPlayer {
             invalidateDescendants(current);
             current.getChildren().clear();
         }
-        // Always reset openSet and bestG to start fresh from current on each turn
+        // Always reset openSet and bestScore to start fresh from current on each turn
         // Previous search results are stale after real game state changes
         openSet.clear();
-        bestG.clear();
+        bestScore.clear();
         openSet.add(current);
-        bestG.put(current.getStateKey(), current.getG());
+        bestScore.put(current.getStateKey(), current.getF());
 
         // ===== Step 4: Check for terminal state =====
         if (current.isWon()) {
@@ -142,6 +146,12 @@ public class AStarPlayer extends AIPlayer {
 
             // Skip pruned nodes
             if (node.isPruned()) {
+                continue;
+            }
+
+            // Chance branches assign one newly revealed slot at a time, without consuming a move.
+            if (node.getState().nextUnresolvedCard() != null) {
+                expandReveal(node);
                 continue;
             }
 
@@ -192,7 +202,7 @@ public class AStarPlayer extends AIPlayer {
                 // Create child state by copying and applying move
                 Solitaire childState = node.copyState();
  
-                // Create child node amd apply move
+                // Create child node and apply move
                 AStarTreeNode child = new AStarTreeNode();
                 child.setState(childState);
                 child.applyMove(moveCmd);
@@ -211,21 +221,21 @@ public class AStarPlayer extends AIPlayer {
                 // Compute A* scores
                 child.setG(node.getG() + 1.0);
                 child.setH(AStarTreeNode.computeHeuristic(childState));
-                child.setProbability(AStarTreeNode.computeProbability(moveCmd, nodeState));
+                child.setProbability(node.getProbability());
                 child.recalculateF();
 
-                // ----- Pruning: Duplicate paths (better g already exists) -----
+                // ----- Pruning: Duplicate paths (better score already exists) -----
                 long childKey = child.getStateKey();
-                Double previousG = bestG.get(childKey);
-                if (previousG != null && previousG <= child.getG()) {
-                    // We've reached this state via a better or equal path
+                Double previousScore = bestScore.get(childKey);
+                if (previousScore != null && previousScore <= child.getF()) {
+                    // We've reached this state with a better or equal score
                     if (log.isTraceEnabled()) {
-                        log.trace("Skipping duplicate path for move: {} (prevG={}, newG={})", 
-                                moveCmd, previousG, child.getG());
+                        log.trace("Skipping duplicate path for move: {} (previousScore={}, newScore={})",
+                                moveCmd, previousScore, child.getF());
                     }
                     continue;
                 }
-                bestG.put(childKey, child.getG());
+                bestScore.put(childKey, child.getF());
 
                 // Add to open set for expansion (with size limit to prevent OOM)
                 if (openSet.size() < MAX_OPEN_SET_SIZE) {
@@ -288,6 +298,41 @@ public class AStarPlayer extends AIPlayer {
     }
 
     /**
+     * Expands the next revealed UNKNOWN slot into independent assignment branches.
+     * <p>
+     * Each child owns a planning copy and assigns one remaining unseen identity through
+     * {@link Solitaire#assumeCard(Card, Card)}. Its probability is the parent's cumulative
+     * probability multiplied by the assignment's conditional probability. Assignments do not
+     * increase the game-move count and carry no command for actual play.
+     * <p>
+     * Children enter the open set when their score improves on a previously reached position.
+     * Expansion stops when the open-set size limit is reached; other revealed UNKNOWN slots
+     * are resolved on subsequent expansions.
+     *
+     * @param node the planning node with a revealed UNKNOWN slot awaiting assignment
+     */
+    private void expandReveal(AStarTreeNode node) {
+        Solitaire state = node.getState();
+        Card unknown = state.nextUnresolvedCard();
+        for (Card identity : state.getUnknownCards()) {
+            if (openSet.size() >= MAX_OPEN_SET_SIZE) break;
+            Solitaire branch = state.copy();
+            double conditionalProbability = branch.assumeCard(unknown, identity);
+            AStarTreeNode child = new AStarTreeNode(branch);
+            child.setG(node.getG());
+            child.setProbability(node.getProbability() * conditionalProbability);
+            child.recalculateF();
+            node.addChild("assume " + identity.shortName(), child);
+            // Chance nodes have no game command; traceFirstMove walks back to the real action.
+            Double previous = bestScore.get(child.getStateKey());
+            if (previous == null || child.getF() < previous) {
+                bestScore.put(child.getStateKey(), child.getF());
+                openSet.add(child);
+            }
+        }
+    }
+
+    /**
      * Traces back from a node to find the first move from the search root.
      *
      * @param node       the target node (e.g., winning node or best heuristic)
@@ -316,14 +361,12 @@ public class AStarPlayer extends AIPlayer {
      * @return the best node from the open set, or null if none valid
      */
     private AStarTreeNode findBestNodeFromCurrent() {
-        // The openSet is already sorted by f-score
-        // Find the first node that is a descendant of current
+        AStarTreeNode best = null;
         for (AStarTreeNode node : openSet) {
-            if (!node.isPruned() && isDescendantOf(node, current)) {
-                return node;
-            }
+            if (!node.isPruned() && isDescendantOf(node, current)
+                    && (best == null || node.getF() < best.getF())) best = node;
         }
-        return null;
+        return best;
     }
 
     /**
@@ -362,7 +405,7 @@ public class AStarPlayer extends AIPlayer {
 
     /**
      * Removes nodes from openSet that are not descendants of current.
-     * Also cleans up bestG entries for orphaned nodes.
+     * Also cleans up bestScore entries for orphaned nodes.
      */
     private void cleanOpenSet() {
         Iterator<AStarTreeNode> it = openSet.iterator();
@@ -370,13 +413,13 @@ public class AStarPlayer extends AIPlayer {
             AStarTreeNode node = it.next();
             if (!isDescendantOf(node, current)) {
                 it.remove();
-                // Optionally remove from bestG, but leave it for now as it might help pruning
+                // Optionally remove from bestScore, but leave it for now as it might help pruning
             }
         }
     }
 
     /**
-     * Removes all descendants of a node from the openSet and bestG map.
+     * Removes all descendants of a node from the openSet and bestScore map.
      * Called when invalidating stale children after card reveals.
      *
      * @param parent the parent whose descendants should be removed
@@ -387,7 +430,7 @@ public class AStarPlayer extends AIPlayer {
             AStarTreeNode node = it.next();
             if (isDescendantOf(node, parent) && node != parent) {
                 it.remove();
-                bestG.remove(node.getStateKey());
+                bestScore.remove(node.getStateKey());
             }
         }
     }

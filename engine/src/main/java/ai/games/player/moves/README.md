@@ -1,5 +1,7 @@
 # Move Generation Helpers
 
+This is the legacy, unused `ai.games.player.moves` package. `LegalMovesHelper` dispatches to `ai.games.game.moves`. The active planning implementation now resolves card identities through `Solitaire.assumeCard()` before generating ordinary legal moves; the guess-generation description below records the older design.
+
 This package contains **reusable move generation logic** that is independent of specific AI player implementations. Rather than embedding move calculation inside each player, we've centralized it here so all players can share the same game logic.
 
 ## Architecture: Shared Logic, Not Player-Specific Code

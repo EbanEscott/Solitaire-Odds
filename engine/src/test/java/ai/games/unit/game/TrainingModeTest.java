@@ -144,7 +144,7 @@ class TrainingModeTest {
     @EnumSource(Solitaire.GameMode.class)
     void copiesHaveIndependentUndoBoundaries(Solitaire.GameMode mode) {
         Solitaire source = position();
-        source.setMode(mode);
+        if (mode == Solitaire.GameMode.PLAN) source = source.planningCopy();
         source.turnThree();
         Board original = snapshot(source);
         Solitaire copy = source.copy();
@@ -163,14 +163,15 @@ class TrainingModeTest {
     @Test
     void planUndoPreservesUnknownCardIdentityAndGuesses() {
         Solitaire source = position();
-        source.setMode(Solitaire.GameMode.PLAN);
+        source = source.planningCopy();
         Solitaire plan = source.copy();
         Card unknown = plan.getTableau().get(0).get(0);
         UnknownCardGuess guess = new UnknownCardGuess(unknown, new Card(Rank.KING, Suit.DIAMONDS));
         plan.getUnknownCardGuesses().put(unknown, guess);
         Board before = snapshot(plan);
         assertTrue(plan.moveCard("T1", "T2")); // Expose the UNKNOWN card.
-        assertTrue(plan.moveCard("T1", "T6")); // Move it using PLAN wildcard rules.
+        plan.assumeCard(unknown, new Card(Rank.KING, Suit.DIAMONDS));
+        assertTrue(plan.moveCard("T1", "T6")); // Move the assigned king using normal rules.
         plan.rollbackTo(0);
         assertEquals(before, snapshot(plan));
         assertSame(unknown, plan.getTableau().get(0).get(0));

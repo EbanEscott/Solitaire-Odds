@@ -3,6 +3,7 @@ package ai.games.unit.game;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.games.game.Card;
+import ai.games.game.Deck;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
@@ -55,10 +56,9 @@ class SolitaireCopyTest {
     @Test
     void planCopiesMaskHiddenCardsAndKeepGuessesIndependent() {
         Solitaire original = position();
-        original.setMode(Solitaire.GameMode.PLAN);
         Card hidden = original.getTableau().get(0).get(0);
 
-        Solitaire plan = original.copy();
+        Solitaire plan = original.planningCopy();
         Card unknown = plan.getTableau().get(0).get(0);
         assertEquals(Solitaire.GameMode.PLAN, plan.getMode());
         assertEquals(Rank.UNKNOWN, unknown.getRank());
@@ -75,13 +75,103 @@ class SolitaireCopyTest {
         UnknownCardGuess copiedGuess = copy.getUnknownCardGuesses().get(copiedUnknown);
 
         assertEquals(snapshot(plan), snapshot(copy));
-        assertNotSame(unknown, copiedUnknown);
+        assertSame(unknown, copiedUnknown);
         assertNotNull(copiedGuess);
-        assertNotSame(guess, copiedGuess);
+        assertSame(guess, copiedGuess);
         assertSame(copiedUnknown, copiedGuess.getUnknownCard());
         assertEquals(guess.getPossibilities(), copiedGuess.getPossibilities());
         copy.getUnknownCardGuesses().clear();
         assertEquals(1, plan.getUnknownCardGuesses().size());
+    }
+
+    @Test
+    void planningMasksUnseenStockAndLeavesTheRealBoardUntouched() {
+        Solitaire real = position();
+        Board before = snapshot(real);
+        long realKey = real.getStateKey();
+
+        Solitaire plan = real.planningCopy();
+
+        assertEquals(before, snapshot(real));
+        assertEquals(realKey, real.getStateKey());
+        assertFalse(real.isInPlanMode());
+        assertTrue(plan.getStockpile().stream().allMatch(card -> card.getRank() == Rank.UNKNOWN));
+        assertEquals(real.getStockpile().size(), plan.getStockpile().size());
+        assertEquals(real.getTalon(), plan.getTalon());
+        assertEquals(real.getFoundation(), plan.getFoundation());
+        plan.turnThree();
+        assertEquals(Rank.UNKNOWN, plan.getTalon().get(plan.getTalon().size() - 1).getRank());
+        assertTrue(plan.undoLastMove());
+        assertEquals(snapshot(real.planningCopy()), snapshot(plan));
+        assertEquals(before, snapshot(real));
+    }
+
+    @Test
+    void bothKindsOfCopyPreservePreviouslySeenStockAndIndependentUndo() {
+        Solitaire real = new Solitaire(new Deck());
+        real.turnThree();
+        List<Card> seen = List.copyOf(real.getTalon());
+        Solitaire realCopy = real.copy();
+        assertTrue(real.undoLastMove());
+        assertEquals(45, real.getUnknownCards().size());
+        assertEquals(42, realCopy.getUnknownCards().size());
+        assertEquals(seen, realCopy.planningCopy().getTalon());
+
+        // A complete stock pass followed by recycling retains the observed stock order.
+        for (int i = 0; i < 9; i++) real.turnThree();
+        Solitaire plan = real.planningCopy();
+        assertEquals(real.getStockpile(), plan.getStockpile());
+        assertEquals(21, plan.getUnknownCards().size());
+        for (Solitaire copy : List.of(real.copy(), plan.copy(), plan.planningCopy())) {
+            assertEquals(real.getStockpile(), copy.getStockpile());
+            assertEquals(21, copy.getUnknownCards().size());
+            assertFalse(copy.canUndo());
+            Board before = snapshot(copy);
+            copy.turnThree();
+            copy.rollbackTo(0);
+            assertEquals(before, snapshot(copy));
+            assertEquals(21, copy.getUnknownCards().size());
+        }
+    }
+
+    @Test
+    void hiddenDealsDoNotChangePlanningPositionsOrPossibleUnseenCards() {
+        Solitaire a = SolitaireBuilder.newGame().tableau("T1", 1, "K♦", "5♠").build();
+        Solitaire b = SolitaireBuilder.newGame().tableau("T1", 1, "Q♦", "5♠").build();
+        Solitaire planA = a.planningCopy();
+        Solitaire planB = b.planningCopy();
+        assertNotEquals(a.getTableau(), b.getTableau());
+        assertEquals(snapshot(planA), snapshot(planB));
+        assertEquals(planA.getStateKey(), planB.getStateKey());
+        assertEquals(planA.getUnknownCards(), planB.getUnknownCards());
+        assertEquals(51, planA.getUnknownCards().size());
+        assertFalse(planA.getUnknownCards().contains(new Card(Rank.FIVE, Suit.SPADES)));
+    }
+
+    @Test
+    void copiesRetainSeparateGuessesForHiddenAndExposedUnknownPositions() {
+        Solitaire plan = SolitaireBuilder.newGame()
+                .tableau("T1", 1, "K♦", "A♣").tableau("T2", 1, "Q♣", "4♥")
+                .build().planningCopy();
+        Card first = plan.getTableau().get(0).get(0);
+        Card second = plan.getTableau().get(1).get(0);
+        UnknownCardGuess a = new UnknownCardGuess(first, new Card(Rank.KING, Suit.DIAMONDS));
+        UnknownCardGuess b = new UnknownCardGuess(second, new Card(Rank.QUEEN, Suit.CLUBS));
+        plan.getUnknownCardGuesses().put(first, a);
+        plan.getUnknownCardGuesses().put(second, b);
+        assertEquals(first, second); // Value equality must not merge different hidden positions.
+        assertNotSame(first, second);
+        assertTrue(plan.moveCard("T1", "F1"));
+        long key = plan.getStateKey();
+        for (Solitaire copy : List.of(plan.copy(), plan.planningCopy())) {
+            assertEquals(2, copy.getUnknownCardGuesses().size());
+            assertSame(a, copy.getUnknownCardGuesses().get(first));
+            assertSame(b, copy.getUnknownCardGuesses().get(second));
+            assertEquals(key, copy.getStateKey());
+            assertEquals(snapshot(plan), snapshot(copy));
+            copy.getUnknownCardGuesses().remove(first);
+            assertEquals(2, plan.getUnknownCardGuesses().size());
+        }
     }
 
     private static Solitaire position() {
