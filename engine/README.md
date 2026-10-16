@@ -27,6 +27,10 @@ The engine is a Spring Boot command-line Solitaire (Klondike-style) app under th
 ### Build Files
 `build.gradle`, `settings.gradle`, `gradlew*`, `gradle/wrapper/`.
 
+### Simulation state copies
+
+`Solitaire.copy()` allocates an empty state and copies the pile containers directly, sharing immutable cards. It avoids creating, shuffling, and dealing a throwaway deck on every search branch. Copies preserve the source's GAME or PLAN mode and the existing PLAN masking and guess-copying behavior. They start with fresh revealed-card tracking and omit replay history and the original deck order; they are simulation boards, not replay-based undo snapshots.
+
 ## Running (from `engine/`)
 
 Exactly one player profile must be active at a time. Run with `-Dspring.profiles.active=<profile>`.

@@ -100,6 +100,9 @@ public class Solitaire {
     /** Current operational mode (GAME or PLAN). */
     private GameMode mode = GameMode.GAME;
 
+    /** Creates empty containers for copying an existing state without dealing a new game. */
+    private Solitaire() {
+    }
 
     /**
      * Constructs a new Solitaire game with a shuffled deck.
@@ -124,37 +127,21 @@ public class Solitaire {
     }
 
     /**
-     * Creates a deep copy of this Solitaire state for simulation purposes (PLAN mode).
+     * Copies the board for simulation, preserving the source's GAME or PLAN mode.
      * <p>
-     * Card instances are immutable and reused; all pile and count lists are deep-copied
-     * so that modifications to the clone do not affect the original state. This is essential
-     * for AI search algorithms that simulate moves without altering the current game state.
+     * Pile and count containers are independent; immutable card instances are reused.
+     * The copy is populated directly, without constructing, shuffling, or dealing a deck.
      * <p>
-     * <strong>PLAN Mode Masking:</strong>
-     * The returned copy operates in PLAN mode, where face-down cards in the tableau are replaced
-     * with {@link Card#UNKNOWN} placeholders. This prevents accidental information leaks during
-     * lookahead search: the AI cannot "cheat" by seeing hidden cards during planning.
-     * Cards that have been revealed (cycled through the talon) remain as-is because the player
-     * has already seen them.
+     * In GAME mode, all card identities are preserved. In PLAN mode, unrevealed face-down
+     * tableau cards are replaced with fresh UNKNOWN cards, and their guesses are copied.
      * <p>
-     * In PLAN mode:
-     * <ul>
-     *   <li>Moves on UNKNOWN cards are allowed and treated as wildcards (any move is possible).</li>
-     *   <li>The copy maintains card counts correctly (masking does not change pile sizes).</li>
-     *   <li>Unknown card tracking is copied from the parent so revealed cards stay revealed.</li>
-     * </ul>
+     * Simulation copies start with fresh revealed-card tracking and omit the original
+     * deck order and action history used for replay-based undo.
      *
-     * @return a new Solitaire instance in PLAN mode with identical visible state but masked face-downs
+     * @return an independent simulation board in the source's mode
      */
     public Solitaire copy() {
-        Deck dummy = new Deck();
-        Solitaire clone = new Solitaire(dummy);
-        // Clear dealt state.
-        clone.tableau.clear();
-        clone.tableauFaceUp.clear();
-        clone.foundation.clear();
-        clone.stockpile.clear();
-        clone.talon.clear();
+        Solitaire clone = new Solitaire();
 
         // Track mapping from original UNKNOWN cards to cloned UNKNOWN cards for deep copying guesses.
         Map<Card, Card> unknownMapping = new HashMap<>();
@@ -164,28 +151,19 @@ public class Solitaire {
         // In PLAN mode: replace unrevealed face-down cards with UNKNOWN placeholders.
         for (int i = 0; i < tableau.size(); i++) {
             List<Card> pile = tableau.get(i);
-            List<Card> clonePile = new ArrayList<>();
-            int faceUp = i < tableauFaceUp.size() ? tableauFaceUp.get(i) : 0;
-            int faceDownCount = Math.max(0, pile.size() - faceUp);
-            
-            // Add face-down cards (with masking only if in PLAN mode).
-            for (int j = 0; j < faceDownCount; j++) {
-                Card original = pile.get(j);
-                // In PLAN mode, mask unrevealed cards; in GAME mode, preserve them.
-                if (mode == GameMode.PLAN && !unknownCardTracker.isRevealed(original)) {
-                    Card newUnknown = new Card(Rank.UNKNOWN, Suit.UNKNOWN);
-                    unknownMapping.put(original, newUnknown);
-                    clonePile.add(newUnknown);
-                } else {
-                    clonePile.add(original);
+            List<Card> clonePile = new ArrayList<>(pile);
+            if (mode == GameMode.PLAN) {
+                int faceUp = i < tableauFaceUp.size() ? tableauFaceUp.get(i) : 0;
+                int faceDownCount = Math.max(0, pile.size() - faceUp);
+                for (int j = 0; j < faceDownCount; j++) {
+                    Card original = pile.get(j);
+                    if (!unknownCardTracker.isRevealed(original)) {
+                        Card newUnknown = new Card(Rank.UNKNOWN, Suit.UNKNOWN);
+                        unknownMapping.put(original, newUnknown);
+                        clonePile.set(j, newUnknown);
+                    }
                 }
             }
-            
-            // Add face-up cards as-is.
-            for (int j = faceDownCount; j < pile.size(); j++) {
-                clonePile.add(pile.get(j));
-            }
-            
             clone.tableau.add(clonePile);
         }
         clone.tableauFaceUp.addAll(tableauFaceUp);
@@ -198,10 +176,6 @@ public class Solitaire {
         // Copy stock and talon.
         clone.stockpile.addAll(stockpile);
         clone.talon.addAll(talon);
-
-        // Copy the unknown card tracker so revealed cards stay revealed in the copy.
-        // The copy's tracker will start fresh but inherits revealed state from parent.
-        // For PLAN mode copies, the tracker starts empty but will track new revelations.
 
         // Deep copy unknownCardGuesses using the unknown card mapping.
         for (Card oldUnknown : this.unknownCardGuesses.keySet()) {

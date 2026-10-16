@@ -19,6 +19,7 @@ out/
 # Logs
 *.log
 !logs/archive/**/*.log
+/logs/profiles/
 
 # Java
 *.class

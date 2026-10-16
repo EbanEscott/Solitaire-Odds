@@ -10,6 +10,7 @@ Unit tests verifying core Solitaire game logic: legal moves, illegal move reject
 | `IllegalMovesTest` | Ensures the game rejects moves that violate Solitaire rules |
 | `BoundaryTest` | Edge cases: empty piles, full foundations, special card positions |
 | `PlanningMovesTest` | PLAN mode move generation with UNKNOWN cards: guess creation, plausibility checking, game state copying, and guess consistency validation |
+| `SolitaireCopyTest` | Board preservation, independent moves across simulation copies, and PLAN masking and guess copying |
 | `TrainingModeTest` | Validates undo mechanism: records moves, replays game minus last move, restores deck order deterministically |
 
 ## Run Tests
