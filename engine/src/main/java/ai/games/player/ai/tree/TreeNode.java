@@ -1,6 +1,7 @@
 package ai.games.player.ai.tree;
 
 import ai.games.game.Card;
+import ai.games.game.Move;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.player.LegalMovesHelper;
@@ -192,11 +193,24 @@ public abstract class TreeNode {
         // Parse and store a structured representation for fast comparisons.
         // Catch parsing failures so applyMove remains permissive (unknown commands do not mutate state).
         this.move = null;
+        Move parsed;
         try {
-            this.move = Move.tryParse(move);
+            parsed = Move.tryParse(move);
         } catch (IllegalArgumentException e) {
             return;
         }
+        applyMove(parsed);
+    }
+
+    /**
+     * Apply an already structured move, retaining it for pruning and comparisons.
+     * Uses the same engine validation as the text-command entry point.
+     */
+    public void applyMove(Move move) {
+        if (move == null || state == null) {
+            throw new IllegalArgumentException("Move and state cannot be null");
+        }
+        this.move = move;
 
         if (this.move.isTurn()) {
             state.turnThree();

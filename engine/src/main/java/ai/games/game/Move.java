@@ -1,7 +1,5 @@
-package ai.games.player.ai.tree;
+package ai.games.game;
 
-import ai.games.game.Rank;
-import ai.games.game.Suit;
 import java.util.Locale;
 import java.util.Objects;
 

@@ -1,8 +1,10 @@
 package ai.games.game.moves;
 
 import ai.games.game.Card;
+import ai.games.game.Move;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -18,6 +20,10 @@ import java.util.List;
  * (checking rules for tableau and foundation placement).
  */
 public abstract class MovesHelper {
+    private static final Move.PileRef[] TABLEAU_PILES = pileRefs(Move.PileType.TABLEAU, 7);
+    private static final Move.PileRef[] FOUNDATION_PILES = pileRefs(Move.PileType.FOUNDATION, 4);
+    protected static final Move.PileRef WASTE = new Move.PileRef(Move.PileType.WASTE, -1);
+
     /** The Solitaire game state being analyzed. */
     protected Solitaire solitaire;
 
@@ -29,9 +35,9 @@ public abstract class MovesHelper {
      * passed to the move categories that use them.
      *
      * @param solitaire the game state; must not be null
-     * @return a list of legal move commands (including "turn" and "quit")
+     * @return a list of structured legal moves (including turn and quit)
      */
-    public abstract List<String> listLegalMoves(Solitaire solitaire);
+    public abstract List<Move> listMoves(Solitaire solitaire);
 
     /**
      * Generates all legal moves from tableau piles to foundation piles.
@@ -42,7 +48,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTableauToFoundation(List<String> out, List<List<Card>> tableau,
+    protected abstract void addTableauToFoundation(List<Move> out, List<List<Card>> tableau,
             List<Integer> faceUps, List<List<Card>> foundations);
 
     /**
@@ -54,7 +60,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTableauToTableau(List<String> out, List<List<Card>> tableau, List<Integer> faceUps);
+    protected abstract void addTableauToTableau(List<Move> out, List<List<Card>> tableau, List<Integer> faceUps);
 
     /**
      * Generates all legal moves from talon (waste pile) to foundation piles.
@@ -64,7 +70,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTalonToFoundation(List<String> out, List<Card> talon, List<List<Card>> foundations);
+    protected abstract void addTalonToFoundation(List<Move> out, List<Card> talon, List<List<Card>> foundations);
 
     /**
      * Generates all legal moves from talon (waste pile) to tableau piles.
@@ -74,7 +80,7 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addTalonToTableau(List<String> out, List<Card> talon);
+    protected abstract void addTalonToTableau(List<Move> out, List<Card> talon);
 
     /**
      * Generates all legal moves from foundation piles back to tableau piles.
@@ -85,7 +91,46 @@ public abstract class MovesHelper {
      *
      * @param out the list to append generated moves to
      */
-    protected abstract void addFoundationToTableau(List<String> out, List<List<Card>> tableau, List<List<Card>> foundations);
+    protected abstract void addFoundationToTableau(List<Move> out, List<List<Card>> tableau, List<List<Card>> foundations);
+
+    /**
+     * Compatibility adapter for players and displays that consume text commands.
+     * Preserve the generator's card spelling, including UNKNOWN cards ("??").
+     */
+    public List<String> listLegalMoves(Solitaire solitaire) {
+        List<Move> moves = listMoves(solitaire);
+        List<String> commands = new ArrayList<>(moves.size());
+        for (Move move : moves) {
+            if (move.card() == null) {
+                commands.add(move.toCommandString());
+            } else {
+                Move.CardRef card = move.card();
+                commands.add("move " + move.from().toCode() + " "
+                        + card.rank().toString() + card.suit().getSymbol() + " " + move.to().toCode());
+            }
+        }
+        return commands;
+    }
+
+    private static Move.PileRef[] pileRefs(Move.PileType type, int count) {
+        Move.PileRef[] refs = new Move.PileRef[count];
+        for (int i = 0; i < count; i++) {
+            refs[i] = new Move.PileRef(type, i);
+        }
+        return refs;
+    }
+
+    protected static Move.PileRef tableauPile(int index) {
+        return TABLEAU_PILES[index];
+    }
+
+    protected static Move.PileRef foundationPile(int index) {
+        return FOUNDATION_PILES[index];
+    }
+
+    protected static Move.CardRef cardRef(Card card) {
+        return new Move.CardRef(card.getRank(), card.getSuit());
+    }
 
     /**
      * Validates whether a card can be placed on a tableau pile.

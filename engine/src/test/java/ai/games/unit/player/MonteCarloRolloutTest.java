@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import ai.games.game.Solitaire;
+import ai.games.game.Move;
 import ai.games.game.Rank;
 import ai.games.game.Suit;
 import ai.games.player.LegalMovesHelper;
@@ -22,6 +23,16 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 class MonteCarloRolloutTest {
+    @Test
+    void rolloutGeneratesAndAppliesMovesWithoutParsingCommands() {
+        MonteCarloTreeNode node = new MonteCarloTreeNode(twoAces());
+        try (var moves = mockStatic(Move.class, CALLS_REAL_METHODS)) {
+            Simulation result = simulateOneStep(node, new IndexRandom(0));
+            assertEquals(1, result.candidateBoards().size());
+            moves.verify(() -> Move.tryParse(anyString()), never());
+        }
+    }
+
     @ParameterizedTest
     @EnumSource(Solitaire.GameMode.class)
     void aceSymmetryRetainsEachSourceAndCopiesOnlyTheSelectedRepresentative(Solitaire.GameMode mode) {

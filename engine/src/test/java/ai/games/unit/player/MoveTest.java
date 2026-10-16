@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.games.game.Rank;
 import ai.games.game.Suit;
-import ai.games.player.ai.tree.Move;
+import ai.games.game.Move;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

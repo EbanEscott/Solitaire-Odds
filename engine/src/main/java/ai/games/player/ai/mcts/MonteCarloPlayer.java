@@ -1,9 +1,9 @@
 package ai.games.player.ai.mcts;
 
+import ai.games.game.Move;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
-import ai.games.player.ai.tree.Move;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -115,12 +115,12 @@ public class MonteCarloPlayer extends AIPlayer {
 
         // Phase 1 and 2: Selection and Expansion.
         long startTime = System.currentTimeMillis();
-        List<String> legalMoves = LegalMovesHelper.listLegalMoves(current.getState());
-        legalMoves.removeIf(m -> m.equalsIgnoreCase("quit"));
-        for(String move : legalMoves) {
+        List<Move> legalMoves = LegalMovesHelper.listMoves(current.getState());
+        legalMoves.removeIf(Move::isQuit);
+        for (Move move : legalMoves) {
             MonteCarloTreeNode child = new MonteCarloTreeNode();
             child.setParent(current);
-            current.addChild(move, child);
+            current.addChild(move.toCommandString(), child);
             child.setState(solitaire.copy());
             child.applyMove(move);
 
@@ -250,10 +250,9 @@ public class MonteCarloPlayer extends AIPlayer {
         leaf.setMove(node.getMove());
         for (int steps = 0; steps < maxSteps && !leaf.isWon(); steps++) {
             // Generate moves once and prune using the current board, before copying anything.
-            List<String> legalMoves = LegalMovesHelper.listLegalMoves(leaf.getState());
+            List<Move> legalMoves = LegalMovesHelper.listMoves(leaf.getState());
             List<Move> candidates = new ArrayList<>(legalMoves.size());
-            for (String command : legalMoves) {
-                Move candidate = Move.tryParse(command);
+            for (Move candidate : legalMoves) {
                 if (candidate.isQuit()
                         || leaf.isInverseOfLastMove(candidate)
                         || leaf.isUselessKingMove(candidate)
@@ -275,7 +274,7 @@ public class MonteCarloPlayer extends AIPlayer {
 
                 MonteCarloTreeNode child = new MonteCarloTreeNode(leaf.getState().copy());
                 child.setParent(leaf);
-                child.applyMove(candidate.toCommandString());
+                child.applyMove(candidate);
                 if (child.isCycleDetected()) {
                     continue;
                 }

@@ -1,6 +1,7 @@
 package ai.games.game.moves;
 
 import ai.games.game.Card;
+import ai.games.game.Move;
 import ai.games.game.Rank;
 import ai.games.game.Solitaire;
 import ai.games.game.Suit;
@@ -27,13 +28,13 @@ import java.util.Map;
 public class PlanningMovesHelper extends MovesHelper {
 
     @Override
-    public List<String> listLegalMoves(Solitaire solitaire) {
+    public List<Move> listMoves(Solitaire solitaire) {
         if (solitaire == null) {
             return new ArrayList<>();
         }
         
         this.solitaire = solitaire;
-        List<String> moves = new ArrayList<>();
+        List<Move> moves = new ArrayList<>();
         
         // These lists describe the same board throughout this generation call.
         // Read them once so the move categories share snapshots and views.
@@ -50,17 +51,17 @@ public class PlanningMovesHelper extends MovesHelper {
         
         // "turn" is always legal if stock or talon still has cards to cycle.
         if (!solitaire.getStockpile().isEmpty() || !talon.isEmpty()) {
-            moves.add("turn");
+            moves.add(Move.turn());
         }
         
         // "quit" is always a legal command from the engine's perspective.
-        moves.add("quit");
+        moves.add(Move.quit());
         
         return moves;
     }
 
     @Override
-    protected void addTableauToFoundation(List<String> out, List<List<Card>> tableau,
+    protected void addTableauToFoundation(List<Move> out, List<List<Card>> tableau,
             List<Integer> faceUps, List<List<Card>> foundations) {
         // Only top face-up cards can move to foundation.
         for (int t = 0; t < tableau.size(); t++) {
@@ -72,14 +73,14 @@ public class PlanningMovesHelper extends MovesHelper {
             Card top = pile.get(pile.size() - 1);
             for (int f = 0; f < foundations.size(); f++) {
                 if (canPlaceOnFoundation(top, foundations.get(f))) {
-                    out.add("move T" + (t + 1) + " " + top.shortName() + " F" + (f + 1));
+                    out.add(Move.move(tableauPile(t), cardRef(top), foundationPile(f)));
                 }
             }
         }
     }
 
     @Override
-    protected void addTableauToTableau(List<String> out, List<List<Card>> tableau, List<Integer> faceUps) {
+    protected void addTableauToTableau(List<Move> out, List<List<Card>> tableau, List<Integer> faceUps) {
         TableauDestinations destinations = new TableauDestinations(tableau);
         List<List<Card>> fullTableau = solitaire.getTableau();  // Need full piles to find UNKNOWN cards
         
@@ -105,7 +106,7 @@ public class PlanningMovesHelper extends MovesHelper {
                         continue;
                     }
                     if (destinations.accepts(to, movingRank, movingIsRed)) {
-                        out.add("move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1));
+                        out.add(Move.move(tableauPile(from), cardRef(moving), tableauPile(to)));
                     }
                 }
                 
@@ -119,7 +120,7 @@ public class PlanningMovesHelper extends MovesHelper {
                         Card topCard = toPile.get(toPile.size() - 1);
                         // Check if top card is UNKNOWN and if we can plausibly place on it
                         if (topCard.getRank() == Rank.UNKNOWN && canPlaceOnUnknown(moving, topCard)) {
-                            out.add("move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1));
+                            out.add(Move.move(tableauPile(from), cardRef(moving), tableauPile(to)));
                         }
                     }
                 }
@@ -128,7 +129,7 @@ public class PlanningMovesHelper extends MovesHelper {
     }
 
     @Override
-    protected void addTalonToFoundation(List<String> out, List<Card> talon, List<List<Card>> foundations) {
+    protected void addTalonToFoundation(List<Move> out, List<Card> talon, List<List<Card>> foundations) {
         if (talon.isEmpty()) {
             return;
         }
@@ -136,13 +137,13 @@ public class PlanningMovesHelper extends MovesHelper {
         Card top = talon.get(talon.size() - 1);
         for (int f = 0; f < foundations.size(); f++) {
             if (canPlaceOnFoundation(top, foundations.get(f))) {
-                out.add("move W F" + (f + 1));
+                out.add(Move.move(WASTE, null, foundationPile(f)));
             }
         }
     }
 
     @Override
-    protected void addTalonToTableau(List<String> out, List<Card> talon) {
+    protected void addTalonToTableau(List<Move> out, List<Card> talon) {
         if (talon.isEmpty()) {
             return;
         }
@@ -151,13 +152,13 @@ public class PlanningMovesHelper extends MovesHelper {
         List<List<Card>> tableau = solitaire.getTableau();
         for (int t = 0; t < tableau.size(); t++) {
             if (canPlaceOnTableau(top, tableau.get(t))) {
-                out.add("move W T" + (t + 1));
+                out.add(Move.move(WASTE, null, tableauPile(t)));
             }
         }
     }
 
     @Override
-    protected void addFoundationToTableau(List<String> out, List<List<Card>> tableau, List<List<Card>> foundations) {
+    protected void addFoundationToTableau(List<Move> out, List<List<Card>> tableau, List<List<Card>> foundations) {
         // Foundations can only move their top card back to tableau.
         for (int f = 0; f < foundations.size(); f++) {
             List<Card> pile = foundations.get(f);
@@ -172,7 +173,7 @@ public class PlanningMovesHelper extends MovesHelper {
             }
             for (int t = 0; t < tableau.size(); t++) {
                 if (canPlaceOnTableau(top, tableau.get(t))) {
-                    out.add("move F" + (f + 1) + " T" + (t + 1));
+                    out.add(Move.move(foundationPile(f), null, tableauPile(t)));
                 }
             }
         }

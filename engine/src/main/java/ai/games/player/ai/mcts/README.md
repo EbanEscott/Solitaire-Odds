@@ -15,7 +15,7 @@ It maintains a persistent tree for the duration of a game:
 ### Single Persistent Game Tree
 
 - Each node stores a cloned `Solitaire` snapshot.
-- Children are keyed by the exact move command string returned by `LegalMovesHelper.listLegalMoves()`.
+- Legal moves are generated directly as `Move` objects via `LegalMovesHelper.listMoves()` and applied without parsing commands. Children retain command-string keys for compatibility with the shared tree API.
 
 ### Stale State Handling (Critical)
 

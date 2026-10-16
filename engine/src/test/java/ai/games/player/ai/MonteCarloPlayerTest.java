@@ -241,11 +241,8 @@ class MonteCarloPlayerTest {
 
         Field currentField = MonteCarloPlayer.class.getDeclaredField("current");
         currentField.setAccessible(true);
-        Object current = currentField.get(ai);
-
-        Field moveField = current.getClass().getSuperclass().getDeclaredField("move");
-        moveField.setAccessible(true);
-        String move = (String) moveField.get(current);
+        MonteCarloTreeNode current = (MonteCarloTreeNode) currentField.get(ai);
+        String move = current.getMove() == null ? null : current.getMove().toCommandString();
 
         return new NodeSnapshot(root, current, move);
     }

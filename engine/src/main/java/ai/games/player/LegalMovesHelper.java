@@ -1,5 +1,6 @@
 package ai.games.player;
 
+import ai.games.game.Move;
 import ai.games.game.Solitaire;
 import ai.games.game.moves.GameMovesHelper;
 import ai.games.game.moves.PlanningMovesHelper;
@@ -23,7 +24,8 @@ public final class LegalMovesHelper {
     }
 
     /**
-     * Return all currently legal commands (excluding "quit").
+     * Return all currently legal commands, including "quit", in their existing order.
+     * Retained for human-facing commands and players that consume strings.
      */
     public static List<String> listLegalMoves(Solitaire solitaire) {
         if (solitaire == null) {
@@ -36,5 +38,18 @@ public final class LegalMovesHelper {
         } else {
             return new GameMovesHelper().listLegalMoves(solitaire);
         }
+    }
+
+    /**
+     * Generate structured moves directly, without formatting or parsing commands.
+     * Non-null states return a mutable list, in the same order as listLegalMoves.
+     */
+    public static List<Move> listMoves(Solitaire solitaire) {
+        if (solitaire == null) {
+            return Collections.emptyList();
+        }
+        return solitaire.isInPlanMode()
+                ? new PlanningMovesHelper().listMoves(solitaire)
+                : new GameMovesHelper().listMoves(solitaire);
     }
 }

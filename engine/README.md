@@ -35,6 +35,8 @@ Legal move generation in GAME and PLAN mode reads the visible tableau, face-up c
 
 Tableau-to-tableau generation also computes each visible destination's required rank and colour once per call, then reads each source card's rank and colour once before checking destinations. Empty destinations accept either colour of king. PLAN mode still checks UNKNOWN destinations separately using its existing guess rules. Move ordering and pruning policies are unchanged.
 
+`LegalMovesHelper.listMoves()` generates `List<ai.games.game.Move>` directly. Monte Carlo uses these objects for root candidates, rollout pruning, and `TreeNode.applyMove(Move)`, avoiding command parsing in that path. The existing `listLegalMoves()` API remains a mutable list of strings for other players, guidance, logs, and service payloads, with the same order and card spelling. Human console input, `Player.nextCommand()`, and `TreeNode.applyMove(String)` remain text-based. Tree child keys remain strings, and the final call into `Solitaire.moveCard()` still uses its existing pile/card text API and validation.
+
 ### Monte Carlo rollouts
 
 `MonteCarloPlayer.simulate()` owns rollout initialization, pruning order, random selection, cycle retries, and child attachment. Each step generates legal moves once, then reuses `TreeNode`'s inverse-move, useless-king, and move-symmetry rules before copying any candidate boards. Quit is excluded, and symmetric moves retain the first destination in legal-move order. The rollout tries the remaining candidates uniformly without replacement, copies and applies only the candidate being tried, and rejects it if the resulting state repeats at least twice in its ancestor history. It stops at the first accepted child or ends the rollout when no candidates remain.

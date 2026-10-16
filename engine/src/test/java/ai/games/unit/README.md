@@ -4,8 +4,8 @@ Core unit tests for game logic and helper utilities.
 
 ## Structure
 
-- **`game/`** — Game rules and state management (legal/illegal moves, tableau move ordering and destination refresh, boundaries, training mode)
-- **`player/`** — Search-node pruning, move parsing, and Monte Carlo rollout selection, copy counts, and cycle retries
+- **`game/`** — Game rules and state management (legal/illegal moves, tableau move ordering and destination refresh, structured/text move compatibility, boundaries, training mode)
+- **`player/`** — Search-node pruning, move parsing, human console compatibility, and Monte Carlo rollout selection, copy counts, cycle retries, and parsing avoidance
 - **`helpers/`** — Test support utilities (SolitaireTestHelper, TestGameStateBuilder, FoundationCountHelper)
 
 ## Run Unit Tests
