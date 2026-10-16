@@ -41,7 +41,7 @@ A* searches known cards first using `g + h`, deferring unknown reveals to a sepa
 
 Monte Carlo samples each newly revealed identity uniformly without replacement. The candidate move's reveals are sampled afresh inside each rollout, and all assignments are undone before the next rollout. It continues to use one board per root candidate, with no board copies inside a rollout. Actual next-turn validation compares known cards and pile shapes against the predicted position, allowing predicted UNKNOWN slots to acquire real identities.
 
-Historical full-information results remain labelled in the root README alongside current ten-game A* and Monte Carlo PLAN samples. Both used a 1,000-move cap. Monte Carlo ran while the larger A* batch was active, so its timing includes concurrent CPU contention; these small samples use different random deals.
+The root README results table is reserved for settled players. Interim game results and profiles remain in `engine/logs/profiles/` while the players are being improved; publish them only when requested.
 
 Legal move generation in GAME and PLAN mode reads the visible tableau, face-up counts, foundations, and talon once per call and passes them to the move categories that need them. This avoids rebuilding identical snapshots and views while preserving move checks and ordering. These reads are local to the call; each subsequent call reads the current board again.
 

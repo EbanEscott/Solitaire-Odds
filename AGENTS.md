@@ -15,16 +15,16 @@ When working in this repo:
 - Prefer concise, direct explanations in docs (like this file and the READMEs).
 - Keep code and tests in their respective modules (`engine`, `neural-network`) rather than at the root.
 - Avoid adding new heavy dependencies unless they are clearly justified for the experiment.
-- When you change behaviour in `engine` or `neural-network`, update the relevant module README and, if it affects player performance, the root `README.md` test results table.
+- When you change behaviour in `engine` or `neural-network`, update the relevant module README. Keep interim performance results in run logs while a player is still being improved.
 
 ## Testing and results
 
 - Engine-side game logic and AI players are verified via Gradle tests under `engine/src/test/java`.
-- The canonical win-rate table for players lives in the root `README.md`. If you regenerate results, update that table and note when the tests were last run.
+- The canonical win-rate table in the root `README.md` is reserved for settled players. Update it and its test date only when the user asks to publish results or refresh that table; running development tests or profiles does not authorize publication.
 
 ### Testing and README refresh workflow
 
-When asked to refresh the Solitaire player results end-to-end:
+When asked to publish settled Solitaire player results or refresh the root results table end-to-end:
 
 1. **Run the tests** found in the `engine/src/test/java/ai/games/results` package.
 2. **Gather the test results** from the logging info for each test suite.

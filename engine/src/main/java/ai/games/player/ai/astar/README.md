@@ -39,4 +39,4 @@ Shared inverse, king, cycle and sibling pruning still applies to action branches
 
 After a real move, the current node is refreshed from the new observation. Its speculative descendants are discarded, move cost resets to zero, and probability resets to one. Prior actual positions remain as ancestors for pruning.
 
-`PlanningSearchTest` covers exact probabilities, complete stock samples, deferred expansion, expected-value selection, heuristic fallback when an outcome group cannot fit, and observation refresh. Current result samples are recorded separately from historical full-information results in the root README.
+`PlanningSearchTest` covers exact probabilities, complete stock samples, deferred expansion, expected-value selection, heuristic fallback when an outcome group cannot fit, and observation refresh. Interim result samples remain in `engine/logs/profiles/` during development. The root README results table is updated only when settled results are ready to publish and the user requests it.

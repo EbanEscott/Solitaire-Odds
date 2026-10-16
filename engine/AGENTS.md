@@ -2,7 +2,9 @@
 
 ## Testing and results workflow (engine module)
 
-When asked to refresh Solitaire player results:
+During player development, keep interim results and profiles in run logs (for example, `engine/logs/profiles/`). Do not update the root `README.md` results table or test date for these runs. That table is reserved for settled players.
+
+When asked to publish settled player results or refresh the root results table:
 
 1. **Run the tests** in the `engine/src/test/java/ai/games/results` package.
 2. **Gather the test results** from the logging output for each result suite.
