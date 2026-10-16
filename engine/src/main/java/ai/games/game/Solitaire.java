@@ -6,6 +6,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.random.RandomGenerator;
 
 /**
  * Complete model of a Solitaire/Klondike game state and board layout.
@@ -249,11 +250,6 @@ public class Solitaire {
         if (!isInPlanMode() || unknown == null || unknown.getRank() != Rank.UNKNOWN) {
             throw new IllegalArgumentException("Assumptions require an UNKNOWN in a PLAN board");
         }
-        List<Card> unseen = getUnknownCards();
-        int identityIndex = unseen.indexOf(identity);
-        if (identityIndex < 0) {
-            throw new IllegalArgumentException("Card is already known or assigned: " + identity);
-        }
         String pileCode = null;
         int slot = -1;
         for (int t = 0; t < tableau.size() && slot < 0; t++) {
@@ -266,6 +262,66 @@ public class Solitaire {
             if (talon.get(i) == unknown) { pileCode = "W"; slot = i; }
         }
         if (slot < 0) throw new IllegalArgumentException("UNKNOWN must be a revealed slot on this board");
+        return assignCard(pileCode, slot, identity);
+    }
+
+    /**
+     * Samples one complete hidden-card arrangement on a PLAN board.
+     * <p>
+     * Assigns every UNKNOWN in tableau, stock and waste uniformly without replacement from
+     * the remaining identity pool. Known cards and existing assumptions are preserved, and
+     * face-up counts do not change. Assignments use the ordinary action history: save a
+     * checkpoint before sampling and roll back to it after evaluating the arrangement.
+     * Partial assignments are undone if sampling throws.
+     *
+     * @param random the generator used to choose identities from the remaining pool
+     * @throws IllegalStateException if called on a GAME board
+     * @throws NullPointerException if random is null
+     */
+    public void sampleUnknownCards(RandomGenerator random) {
+        if (!isInPlanMode()) throw new IllegalStateException("Sampling requires a PLAN board");
+        Objects.requireNonNull(random, "random");
+        int checkpoint = getMoveHistorySize();
+        try {
+            for (int t = 0; t < tableau.size(); t++) sampleUnknownCards("T" + (t + 1), random);
+            sampleUnknownCards("S", random);
+            sampleUnknownCards("W", random);
+        } catch (RuntimeException | Error failure) {
+            rollbackTo(checkpoint);
+            throw failure;
+        }
+    }
+
+    /**
+     * Assigns the unresolved slots in one pile without changing its shape or visibility.
+     *
+     * @param pileCode the tableau, stock or waste pile to sample
+     * @param random the generator used for identity selection
+     */
+    private void sampleUnknownCards(String pileCode, RandomGenerator random) {
+        List<Card> pile = resolvePile(pileCode);
+        for (int slot = 0; slot < pile.size(); slot++) {
+            if (pile.get(slot).getRank() != Rank.UNKNOWN) continue;
+            List<Card> unseen = getUnknownCards();
+            assignCard(pileCode, slot, unseen.get(random.nextInt(unseen.size())));
+        }
+    }
+
+    /**
+     * Records an assignment through the shared undo mechanism after the caller locates a slot.
+     *
+     * @param pileCode the pile containing the UNKNOWN
+     * @param slot the index of that UNKNOWN within the pile
+     * @param identity an available concrete identity
+     * @return the conditional probability of assigning this identity
+     */
+    private double assignCard(String pileCode, int slot, Card identity) {
+        Card unknown = resolvePile(pileCode).get(slot);
+        List<Card> unseen = getUnknownCards();
+        int identityIndex = unseen.indexOf(identity);
+        if (identityIndex < 0) {
+            throw new IllegalArgumentException("Card is already known or assigned: " + identity);
+        }
         List<Card> remaining = new ArrayList<>(unseen);
         remaining.remove(identityIndex);
         Assignment assignment = new Assignment(slot, unknown, unknownCardGuesses.get(unknown), unseen);

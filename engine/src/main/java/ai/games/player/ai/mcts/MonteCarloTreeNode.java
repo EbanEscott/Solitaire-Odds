@@ -4,22 +4,12 @@ import ai.games.game.Solitaire;
 import ai.games.player.ai.tree.TreeNode;
 
 /**
- * Monte Carlo Tree Node specialisation for MCTS-based search.
+ * Monte Carlo node with a candidate board, heuristic evaluation, and visit statistics.
  *
- * <p>This node type extends {@link TreeNode} with MCTS-specific evaluation, playout methods,
- * and UCB-based tree statistics.
- * It encapsulates:
- * <ul>
- *   <li>State evaluation for reward computation during playouts
- *   <li>Move application and game state simulation
- *   <li>Terminal state detection
- *   <li>State copying for exploration
- *   <li>UCB statistics: visits count, total reward accumulation
- *   <li>Tree structure: parent/child relationships for backpropagation
- * </ul>
- *
- * <p>These methods are used by MonteCarloPlayer to perform proper Monte Carlo Tree Search with
- * tree building, selection, expansion, simulation, and backpropagation phases.
+ * <p>The inherited tree links retain actual history and immediate candidate moves.
+ * {@link MonteCarloPlayer} owns rollout and allocation policy, using this node's UCT
+ * value to distribute samples among candidates. The current player does not grow a
+ * deeper UCT search tree.
  */
 public class MonteCarloTreeNode extends TreeNode {
 

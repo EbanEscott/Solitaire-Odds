@@ -6,9 +6,14 @@ import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.ToDoubleFunction;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,31 +21,32 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * Pure Monte Carlo Tree Search (MCTS) player for Klondike Solitaire.
+ * Monte Carlo player with UCB allocation among immediate moves for Klondike Solitaire.
  *
  * <h2>Algorithm Overview</h2>
- * <p>This player uses <b>Pure Monte Carlo search</b> (flat bandit evaluation): for each legal move,
- * it runs up to {@value #MCTS_ITERATIONS} bounded random playouts and selects the move with
- * the highest average reward. Unlike full MCTS with UCB-guided tree expansion, this approach
- * evaluates all moves equally without adaptive exploration—making it simpler but less efficient
- * for deep game trees.
+ * <p>This player uses a flat bandit over immediate legal moves. It samples each eligible
+ * candidate once, then allocates the remaining rollouts using an upper confidence bound
+ * (UCB). The total budget is {@value #ROLLOUTS_PER_CANDIDATE} times the number of eligible
+ * candidates. It does not expand a deeper search tree.
  *
  * <h2>How it Works</h2>
  * <ol>
- *   <li><b>Enumerate moves:</b> Get all legal moves from the current position
- *   <li><b>Simulate:</b> For each move, run bounded random playouts on a planning board
- *   <li><b>Score:</b> Record the average heuristic evaluation from those playouts
- *   <li><b>Select:</b> Choose the move with the best average score
+ *   <li><b>Enumerate moves:</b> Create one planning board per legal candidate
+ *   <li><b>Initialise:</b> Sample each candidate once and exclude rejected candidates
+ *   <li><b>Allocate:</b> Use mean reward plus an exploration bonus to choose further samples
+ *   <li><b>Select:</b> Choose the highest mean reward, breaking ties by an immediate win
+ *       and then the existing board progress heuristic, without the exploration bonus
  * </ol>
  *
- * <p>Revealed UNKNOWN identities are sampled without replacement in each rollout. Rewards
- * estimate the performance of the rollout policy; increasing the sample count does not
- * guarantee optimal play.
+ * <p>By default, each evaluation samples every UNKNOWN identity without replacement and
+ * runs bounded depth-first search on that fixed arrangement. This assumes full information
+ * within a sample and can overestimate achievable play under uncertainty. Random rollouts
+ * remain available as a comparator through {@code montecarlo.evaluator=random}.
  *
  * <h2>Configuration</h2>
  * <p>Key parameters can be tuned for different playing strengths:
  * <ul>
- *   <li>{@code MCTS_ITERATIONS}: Number of random playouts per move (default {@value #MCTS_ITERATIONS})
+ *   <li>{@code ROLLOUTS_PER_CANDIDATE}: Budget contribution per eligible move (default {@value #ROLLOUTS_PER_CANDIDATE})
  * </ul>
  */
 @Component
@@ -50,15 +56,46 @@ public class MonteCarloPlayer extends AIPlayer {
     private static final Logger log = LoggerFactory.getLogger(MonteCarloPlayer.class);
 
     /**
-     * Number of MCTS iterations (tree-building loops) per decision.
-     * Higher values = stronger play but slower decisions.
+     * Rollout budget contribution per eligible candidate, shared using UCB.
+     * Individual candidates may receive more or fewer than this many samples.
      */
-    private static final int MCTS_ITERATIONS = 64;
+    private static final int ROLLOUTS_PER_CANDIDATE = 64;
+
+    /**
+     * Exploration weight for rollout rewards in [0, 1].
+     */
+    private static final double EXPLORATION_CONSTANT = Math.sqrt(2.0);
 
     /**
      * Maximum simulation steps per playout to avoid infinite loops.
      */
     private static final int MAX_SIMULATION_STEPS = 128;
+
+    /**
+     * Default visit budget per sampled depth-first search, including its starting position.
+     */
+    private static final int DEFAULT_SEARCH_VISITS = 128;
+
+    /** Whether to use the original random rollout evaluator for comparison. */
+    private final boolean useRandomRollouts;
+    /** Maximum visited positions per sampled depth-first evaluation. */
+    private final int maxSearchVisits;
+
+    /**
+     * Creates a player using sampled depth-first search, or the random rollout comparator.
+     * <p>
+     * Set {@code montecarlo.evaluator=random} for the previous policy. The default is
+     * {@code dfs}; {@code montecarlo.search.visits} controls its per-sample visit budget.
+     */
+    public MonteCarloPlayer() {
+        useRandomRollouts = switch (System.getProperty("montecarlo.evaluator", "dfs")) {
+            case "dfs" -> false;
+            case "random" -> true;
+            default -> throw new IllegalArgumentException("montecarlo.evaluator must be dfs or random");
+        };
+        maxSearchVisits = Integer.getInteger("montecarlo.search.visits", DEFAULT_SEARCH_VISITS);
+        if (maxSearchVisits < 1) throw new IllegalArgumentException("Search visit budget must be positive");
+    }
 
     /**
      * Persisted MCTS tree root across turns.
@@ -106,10 +143,11 @@ public class MonteCarloPlayer extends AIPlayer {
             log.trace("MCTS starting. Root has {} children that include {}", current.getChildren().size(), current.getChildren().keySet());
         }
 
-        // Phase 1 and 2: Selection and Expansion.
+        // Expand immediate candidates; each board is reused throughout allocation.
         long startTime = System.currentTimeMillis();
         List<Move> legalMoves = LegalMovesHelper.listMoves(current.getState());
         legalMoves.removeIf(Move::isQuit);
+        List<MonteCarloTreeNode> candidates = new ArrayList<>(legalMoves.size());
         for (Move move : legalMoves) {
             MonteCarloTreeNode child = new MonteCarloTreeNode();
             child.setParent(current);
@@ -117,31 +155,17 @@ public class MonteCarloPlayer extends AIPlayer {
             child.setState(planning.copy());
             child.applyMove(move);
 
-            // Reuse this candidate board for every rollout; simulate restores it before returning.
-            for (int i = 0; i < MCTS_ITERATIONS; i++) {
-                double reward = simulate(child);
-                if (log.isTraceEnabled()) {
-                    log.trace("Simulation reward: {}", reward);
-                }
-                // Phase 4: Backpropagation (one level is needed only as children are directly under current)
-                child.updateStats(reward);
-
-                // If we hit the sentinel penalty (-1.0), the move is undesirable (quit/useless/cycle).
-                // Running more rollouts for this move cannot improve its mean reward, so stop early.
-                if (reward == -1.0) {
-                    break;
-                }
-            }
+            candidates.add(child);
         }
+        evaluateCandidates(current, candidates, this::simulate);
         long elapsedMs = System.currentTimeMillis() - startTime;
         if(log.isDebugEnabled()) {
-            log.debug("MCTS completed. Root has {} children after {} iterations:", current.getChildren().size(), MCTS_ITERATIONS);
+            log.debug("Monte Carlo evaluated {} candidates with {} rollouts:", candidates.size(), current.getVisits());
         }
 
         // Select best move
         String bestMove = null;
         MonteCarloTreeNode bestChild = null;
-        double bestMeanReward = -1.0;
         for (String move : current.getChildren().keySet()) {
             MonteCarloTreeNode child = (MonteCarloTreeNode) current.getChildren().get(move);
             int visits = child.getVisits();
@@ -151,8 +175,7 @@ public class MonteCarloPlayer extends AIPlayer {
                 log.debug("  '{}': visits={}, meanReward={}", move, visits, String.format("%.4f", meanReward));
             }
             
-            if(meanReward > bestMeanReward) {
-                bestMeanReward = meanReward;
+            if (isBetterCandidate(child, bestChild)) {
                 bestChild = child;
                 bestMove = move;
             }
@@ -166,6 +189,7 @@ public class MonteCarloPlayer extends AIPlayer {
             return "quit";
         }
 
+        int completedRollouts = current.getVisits();
         // Advance current to selected child for next decision (root stays at the initial game state)
         current = bestChild;
 
@@ -173,13 +197,13 @@ public class MonteCarloPlayer extends AIPlayer {
         expectedNextState = current.getState();
 
         if(log.isDebugEnabled()) {
-            log.debug("MCTS selected '{}' with {} visits (highest mean reward)", bestMove, bestMeanReward);
+            log.debug("MCTS selected '{}' with {} visits (highest mean reward)", bestMove, bestChild.getVisits());
         }
 
         if(log.isTraceEnabled()) {
             log.trace(
-                "MCTS decision: {} iterations in {}ms, selected move: {}",
-                MCTS_ITERATIONS,
+                "Monte Carlo decision: {} rollouts in {}ms, selected move: {}",
+                completedRollouts,
                 elapsedMs,
                 bestMove
             );
@@ -189,19 +213,163 @@ public class MonteCarloPlayer extends AIPlayer {
     }
 
     /**
-     * Phase 3: Simulation (Playout).
+     * Compares final candidates by mean reward, then immediate victory and board progress.
+     * <p>
+     * Both unresolved searches and solved sampled worlds can leave moves tied. Prefer
+     * progress on the restored planning board in that case, so equivalent rewards do not
+     * favour detours. The heuristic only breaks exact ties; it does not alter rewards or UCB.
      *
-     * <p>Runs a random playout from the given node to a terminal state.
-     * Returns a reward based on the heuristic evaluation of the final state.
-     * The candidate board is reused and rolled back before returning; no rollout copies are made.
+     * @param candidate the evaluated candidate to consider
+     * @param best the best candidate so far, or null before an eligible candidate is found
+     * @return whether the candidate should replace the current choice
+     */
+    private boolean isBetterCandidate(MonteCarloTreeNode candidate, MonteCarloTreeNode best) {
+        double mean = candidate.getMeanReward();
+        if (best == null) return mean > -1.0;
+        if (mean != best.getMeanReward()) return mean > best.getMeanReward();
+        if (candidate.isWon() != best.isWon()) return candidate.isWon();
+        return candidate.evaluate() > best.evaluate();
+    }
+
+    /**
+     * Allocates a fixed rollout budget among immediate candidates using UCB.
+     * <p>
+     * Each candidate is sampled once before adaptive allocation. Rejected candidates retain
+     * their rejection statistic but do not enter the bandit or contribute to its budget.
+     * Eligible candidates share {@value #ROLLOUTS_PER_CANDIDATE} samples per candidate
+     * in total, including those initial samples. Zero rewards remain eligible, since later
+     * rollouts can have different outcomes.
+     * Statistics on the parent count only eligible rollouts and supply UCB's total visits.
      *
-     * <p>The reward is normalised: -1.0 for loss (no progress), 1.0 for win (all foundation cards).
+     * @param parent the current decision node with fresh statistics
+     * @param candidates the newly expanded candidates in legal-move order
+     * @param rollout the evaluation policy, which restores each candidate board after use
+     */
+    private void evaluateCandidates(MonteCarloTreeNode parent, List<MonteCarloTreeNode> candidates,
+                                    ToDoubleFunction<MonteCarloTreeNode> rollout) {
+        List<MonteCarloTreeNode> eligible = new ArrayList<>(candidates.size());
+        for (MonteCarloTreeNode candidate : candidates) {
+            double reward = rollout.applyAsDouble(candidate);
+            candidate.updateStats(reward);
+            if (reward == -1.0) {
+                continue;
+            }
+            eligible.add(candidate);
+            parent.updateStats(reward);
+        }
+
+        int budget = ROLLOUTS_PER_CANDIDATE * eligible.size();
+        while (parent.getVisits() < budget) {
+            MonteCarloTreeNode selected = null;
+            double bestValue = Double.NEGATIVE_INFINITY;
+            for (MonteCarloTreeNode candidate : eligible) {
+                double value = candidate.getUctValue(EXPLORATION_CONSTANT, parent.getVisits());
+                if (value > bestValue) {
+                    bestValue = value;
+                    selected = candidate;
+                }
+            }
+            double reward = rollout.applyAsDouble(selected);
+            selected.updateStats(reward);
+            parent.updateStats(reward);
+        }
+    }
+
+    /**
+     * Evaluates a candidate using the configured simulation policy.
      *
-     * @param node the node to simulate from
-     * @return reward in [-1.0, 1.0]
+     * @param node the candidate whose board is restored after evaluation
+     * @return the sampled reward, or -1 for a rejected starting candidate
      */
     private double simulate(MonteCarloTreeNode node) {
-        return simulate(node, ThreadLocalRandom.current(), MAX_SIMULATION_STEPS);
+        return useRandomRollouts
+                ? simulateRandom(node, ThreadLocalRandom.current(), MAX_SIMULATION_STEPS)
+                : simulateDepthFirst(node, ThreadLocalRandom.current(), maxSearchVisits);
+    }
+
+    /**
+     * Searches one sampled full-information arrangement using bounded depth-first traversal.
+     * <p>
+     * All unknown identities are sampled once, before traversal, and remain fixed across
+     * sibling branches. Frames hold moves and history checkpoints rather than board copies.
+     * Cycle checks are local to the active path; another branch may revisit the same state.
+     * The starting position and every attempted successor (including cycles) consume a visit.
+     * Search policy is optimistic: it may find different continuations for different sampled
+     * arrangements before those arrangements could be distinguished in actual play.
+     *
+     * @param node the candidate, already containing its first move
+     * @param random the generator used only to sample the hidden arrangement
+     * @param maxVisits the positive visit budget for this evaluation
+     * @return 1 for a win, 0 for exhausted permitted search, 0.5 for a budget cutoff,
+     *         or -1 for a rejected starting candidate; exhaustion is relative to pruning
+     */
+    private double simulateDepthFirst(MonteCarloTreeNode node, RandomGenerator random, int maxVisits) {
+        if (maxVisits < 1) throw new IllegalArgumentException("Search visit budget must be positive");
+        if (node.isQuit() || node.isUselessKingMove() || node.isCycleDetected()) return -1.0;
+        Solitaire board = node.getState();
+        int checkpoint = board.getMoveHistorySize();
+        try {
+            if (board.isInPlanMode()) board.sampleUnknownCards(random);
+            MonteCarloTreeNode position = new MonteCarloTreeNode(board);
+            position.setMove(node.getMove());
+            if (position.isWon()) return 1.0;
+
+            ArrayDeque<SearchFrame> frames = new ArrayDeque<>();
+            Set<Long> path = new HashSet<>();
+            frames.push(searchFrame(position));
+            path.add(position.getStateKey());
+            int visits = 1;
+            while (!frames.isEmpty()) {
+                SearchFrame frame = frames.peek();
+                board.rollbackTo(frame.historyDepth());
+                position.setState(board);
+                position.setMove(frame.move());
+                if (!frame.moves().hasNext()) {
+                    frames.pop();
+                    path.remove(frame.stateKey());
+                    continue;
+                }
+                if (visits >= maxVisits) return 0.5;
+
+                position.applyMove(frame.moves().next());
+                visits++;
+                if (position.isWon()) return 1.0;
+                if (!path.add(position.getStateKey())) continue;
+                frames.push(searchFrame(position));
+            }
+            return 0.0;
+        } finally {
+            board.rollbackTo(checkpoint);
+        }
+    }
+
+    /**
+     * Captures a DFS continuation in legal-move order at the current board position.
+     *
+     * @param position the temporary node used for move application and pruning
+     * @return a frame containing no board snapshot
+     */
+    private SearchFrame searchFrame(MonteCarloTreeNode position) {
+        return new SearchFrame(position.getState().getMoveHistorySize(), position.getStateKey(),
+                position.getMove(), listSimulationMoves(position).iterator());
+    }
+
+    /**
+     * Generates moves with the existing inverse, useless-king and sibling-symmetry filters.
+     *
+     * @param position the board and incoming move against which pruning is evaluated
+     * @return the remaining moves in generation order, excluding quit
+     */
+    private List<Move> listSimulationMoves(MonteCarloTreeNode position) {
+        List<Move> legalMoves = LegalMovesHelper.listMoves(position.getState());
+        List<Move> candidates = new ArrayList<>(legalMoves.size());
+        for (Move candidate : legalMoves) {
+            if (candidate.isQuit() || position.isInverseOfLastMove(candidate)
+                    || position.isUselessKingMove(candidate)
+                    || position.isSimilarSibling(candidate, candidates)) continue;
+            candidates.add(candidate);
+        }
+        return candidates;
     }
 
     // Explicit randomness and step budget also allow deterministic, bounded rollout tests.
@@ -215,9 +383,10 @@ public class MonteCarloPlayer extends AIPlayer {
      * @param node the candidate node whose board is temporarily explored
      * @param random the generator used for move selection and speculative reveals
      * @param maxSteps the maximum number of accepted game moves, excluding assignments
-     * @return the normalised heuristic reward, or {@code -1.0} for a pruned candidate
+     * @return {@code 1.0} for a win, {@code 0.0} for exhausted continuations, the
+     *         normalised heuristic for a cutoff, or {@code -1.0} for a pruned candidate
      */
-    private double simulate(MonteCarloTreeNode node, RandomGenerator random, int maxSteps) {
+    private double simulateRandom(MonteCarloTreeNode node, RandomGenerator random, int maxSteps) {
         if(log.isTraceEnabled()) {
             log.trace(
                 "Simulating move: {} from parent: {}",
@@ -265,17 +434,7 @@ public class MonteCarloPlayer extends AIPlayer {
             position.setState(board);
             for (int steps = 0; steps < maxSteps && !position.isWon(); steps++) {
                 // Generate and prune against the current board before applying candidates.
-                List<Move> legalMoves = LegalMovesHelper.listMoves(board);
-                List<Move> candidates = new ArrayList<>(legalMoves.size());
-                for (Move candidate : legalMoves) {
-                    if (candidate.isQuit()
-                            || position.isInverseOfLastMove(candidate)
-                            || position.isUselessKingMove(candidate)
-                            || position.isSimilarSibling(candidate, candidates)) {
-                        continue;
-                    }
-                    candidates.add(candidate);
-                }
+                List<Move> candidates = listSimulationMoves(position);
 
                 // Try candidates without replacement, reversing a rejected move before retrying.
                 int stepStart = board.getMoveHistorySize();
@@ -303,7 +462,7 @@ public class MonteCarloPlayer extends AIPlayer {
                 }
 
                 if (selected == null) {
-                    break;
+                    return 0.0;
                 }
                 pathKeys.add(board.getStateKey());
                 if (log.isTraceEnabled()) {
@@ -311,10 +470,13 @@ public class MonteCarloPlayer extends AIPlayer {
                 }
             }
 
-            double score = position.evaluate();
-            double clamped = Math.max(-MonteCarloTreeNode.MAX_SCORE,
-                    Math.min(MonteCarloTreeNode.MAX_SCORE, score));
-            double normalised = clamped / MonteCarloTreeNode.MAX_SCORE;
+            // Includes a win reached on the last permitted step. All other positions
+            // here exhausted the step budget, so their outcome is still unresolved.
+            if (position.isWon()) {
+                return 1.0;
+            }
+            double normalised = Math.max(0.0, Math.min(Math.nextDown(1.0),
+                    position.evaluate() / MonteCarloTreeNode.MAX_SCORE));
             if (log.isTraceEnabled()) {
                 log.trace("Normalised reward: {}", String.format("%.4f", normalised));
             }
@@ -344,5 +506,7 @@ public class MonteCarloPlayer extends AIPlayer {
             board.assumeCard(unknown, unseen.get(random.nextInt(unseen.size())));
         }
     }
+
+    private record SearchFrame(int historyDepth, long stateKey, Move move, Iterator<Move> moves) {}
 
 }

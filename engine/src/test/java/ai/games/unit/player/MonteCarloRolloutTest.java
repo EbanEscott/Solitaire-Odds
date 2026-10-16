@@ -115,14 +115,14 @@ class MonteCarloRolloutTest {
     void exhaustedCyclicCandidatesEndTheRollout() {
         MonteCarloTreeNode node = new MonteCarloTreeNode(SolitaireFactory.stockOnly());
         addRepeatedResultToHistory(node, "turn");
-        double initialReward = node.evaluate() / MonteCarloTreeNode.MAX_SCORE;
+        assertTrue(node.evaluate() > 0);
         IndexRandom random = new IndexRandom(0);
 
         Simulation result = simulateOneStep(node, random);
 
         assertEquals(List.of(1), random.bounds);
         assertEquals(1, result.attemptedPositions().size());
-        assertEquals(initialReward, result.reward());
+        assertEquals(0.0, result.reward());
     }
 
     @Test
@@ -146,6 +146,48 @@ class MonteCarloRolloutTest {
         Simulation result = simulateOneStep(new MonteCarloTreeNode(SolitaireFactory.wonGame()),
                 new IndexRandom());
         assertTrue(result.attemptedPositions().isEmpty());
+        assertEquals(1.0, result.reward());
+    }
+
+    @Test
+    void aWinOnTheLastPermittedStepGetsTheFullRewardAndRollsBack() {
+        Simulation result = simulateOneStep(new MonteCarloTreeNode(SolitaireFactory.oneMoveFromWin()),
+                new IndexRandom(0));
+
+        assertEquals(1, result.attemptedPositions().size());
+        assertEquals(52, result.attemptedPositions().get(0).foundations().stream()
+                .mapToInt(List::size).sum());
+        assertEquals(1.0, result.reward());
+    }
+
+    @Test
+    void aStepLimitKeepsTheProgressEstimateWithoutClaimingAWinOrLoss() {
+        MonteCarloTreeNode node = new MonteCarloTreeNode(SolitaireFactory.oneMoveFromWin());
+
+        double reward = simulate(node, new IndexRandom(), 0);
+
+        assertEquals(node.evaluate() / MonteCarloTreeNode.MAX_SCORE, reward);
+        assertTrue(reward > 0.0 && reward < 1.0);
+    }
+
+    @Test
+    void sampledDeadEndsDoNotRejectTheCandidateOrStopFurtherRollouts() throws Exception {
+        MonteCarloPlayer player = new MonteCarloPlayer();
+        // Expose a root action, then exhaust each rollout's continuations. This isolates
+        // the sampling contract from random hidden identities and move ordering.
+        try (var moves = mockStatic(LegalMovesHelper.class)) {
+            moves.when(() -> LegalMovesHelper.listMoves(any(Solitaire.class)))
+                    .thenReturn(new ArrayList<>(List.of(Move.turn())), List.of(Move.quit()));
+
+            assertEquals("turn", player.nextCommand(SolitaireFactory.stockOnly(), "", ""));
+        }
+
+        Field field = MonteCarloPlayer.class.getDeclaredField("current");
+        field.setAccessible(true);
+        MonteCarloTreeNode candidate = (MonteCarloTreeNode) field.get(player);
+        assertEquals(64, candidate.getVisits());
+        assertEquals(0.0, candidate.getMeanReward());
+        assertTrue(candidate.getState().getUnknownCardGuesses().isEmpty());
     }
 
     @Test
@@ -297,16 +339,32 @@ class MonteCarloRolloutTest {
         field.setAccessible(true);
         MonteCarloTreeNode root = (MonteCarloTreeNode) field.get(player);
         assertEquals(rootMoves, root.getChildren().size());
+        int eligible = 0;
+        int rolloutVisits = 0;
         for (var entry : root.getChildren().entrySet()) {
             MonteCarloTreeNode candidate = (MonteCarloTreeNode) entry.getValue();
             assertPositionAfterMove(planning, entry.getKey(), snapshot(candidate.getState()));
             assertEquals(1, candidate.getState().getMoveHistorySize());
             assertTrue(candidate.getChildren().isEmpty());
-            assertTrue(candidate.getVisits() == 64 || candidate.getVisits() == 1);
+            if (candidate.getMeanReward() == -1.0) {
+                assertEquals(1, candidate.getVisits());
+            } else {
+                assertTrue(candidate.getVisits() >= 1);
+                eligible++;
+                rolloutVisits += candidate.getVisits();
+            }
         }
+        assertEquals(64 * eligible, rolloutVisits);
+        assertEquals(rolloutVisits, root.getVisits());
+        Field currentField = MonteCarloPlayer.class.getDeclaredField("current");
+        currentField.setAccessible(true);
+        MonteCarloTreeNode chosen = (MonteCarloTreeNode) currentField.get(player);
+        double bestMean = root.getChildren().values().stream()
+                .mapToDouble(child -> ((MonteCarloTreeNode) child).getMeanReward()).max().orElseThrow();
+        assertEquals(bestMean, chosen.getMeanReward());
     }
 
-    /** Previous copying implementation, retained as a bounded GAME-mode behaviour oracle. */
+    /** Copying traversal oracle with the same terminal rewards as the mutable rollout. */
     private static double copyingReference(MonteCarloTreeNode node, RandomGenerator random, int maxSteps) {
         if (node.isQuit() || node.isUselessKingMove() || node.isCycleDetected()) return -1.0;
         MonteCarloTreeNode leaf = new MonteCarloTreeNode(node.getState().copy());
@@ -332,12 +390,13 @@ class MonteCarloRolloutTest {
                 selected = child;
                 break;
             }
-            if (selected == null) break;
+            if (selected == null) return 0.0;
             leaf.addChild(selected.getMove().toCommandString(), selected);
             leaf = selected;
         }
-        return Math.max(-MonteCarloTreeNode.MAX_SCORE,
-                Math.min(MonteCarloTreeNode.MAX_SCORE, leaf.evaluate())) / MonteCarloTreeNode.MAX_SCORE;
+        if (leaf.isWon()) return 1.0;
+        return Math.max(0.0, Math.min(Math.nextDown(1.0),
+                leaf.evaluate() / MonteCarloTreeNode.MAX_SCORE));
     }
 
     private static Solitaire twoAces() {
@@ -395,7 +454,7 @@ class MonteCarloRolloutTest {
     private static double simulate(MonteCarloTreeNode node, RandomGenerator random, int maxSteps) {
         try {
             Method method = MonteCarloPlayer.class.getDeclaredMethod(
-                    "simulate", MonteCarloTreeNode.class, RandomGenerator.class, int.class);
+                    "simulateRandom", MonteCarloTreeNode.class, RandomGenerator.class, int.class);
             method.setAccessible(true);
             return (double) method.invoke(new MonteCarloPlayer(), node, random, maxSteps);
         } catch (InvocationTargetException e) {
