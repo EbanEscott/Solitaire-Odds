@@ -378,8 +378,10 @@ public final class SolitaireBuilder {
      *
      * <p><strong>Why:</strong> auto-filled cards should be predictable so tests are reproducible.
      * This is intentionally not shuffled.
+     *
+     * @return a fresh list containing each standard card once, in suit/rank order
      */
-    static List<Card> fullDeckInStableOrder() {
+    public static List<Card> fullDeckInStableOrder() {
         List<Card> deck = new ArrayList<>(52);
         for (Suit suit : Suit.values()) {
             if (suit == Suit.UNKNOWN) {

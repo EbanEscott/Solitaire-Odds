@@ -73,12 +73,34 @@ Validation: the Java unit suite plus `GamePromptsTest` and mocked `TypeSafePlaye
 
 ## 4. Verify behavior
 
-- [ ] Cover all 12 configuration combinations.
-- [ ] Test partial draws, waste exposure, retained knowledge, and recycling order.
-- [ ] Test pass boundaries without prematurely ending otherwise playable games.
-- [ ] Test copies, rollback, state keys, and blocked stock turns.
-- [ ] Check observations for hidden-information leaks.
-- [ ] Run relevant engine tests and player smoke tests.
+- [x] Cover all 12 configuration combinations.
+- [x] Test partial draws, waste exposure, retained knowledge, and recycling order.
+- [x] Test pass boundaries without prematurely ending otherwise playable games.
+- [x] Test copies, rollback, state keys, and blocked stock turns.
+- [x] Check observations for hidden-information leaks.
+- [x] Run relevant engine tests and player smoke tests.
+
+Verification completed on 2026-10-17: **382 Java tests passed, with no failures or skips**, plus the Python service observation-ingestion test. No production behavior changes were needed during this stage.
+
+- `RulesBoundaryMatrixTest`: 12 independently reported configurations on a complete deck with an exact five-card stock. Covers partial final draws, observation counts, repeated recycling order, pass exhaustion, GAME/PLAN copies, rollback, state keys, remaining waste moves, and foundation-to-tableau worry-back.
+- `ConfiguredRulesSmokeTest`: 72 cases covering six search players × 12 configurations. Each begins on the same shuffled deal (seed `20261017`) after a complete stock traversal and checks up to 12 player decisions. Checks actual command legality, board integrity, pass limits, and that searches do not mutate real cards, knowledge, history, or pass allowance. Hill/beam use seed `42`; Monte Carlo retains its normal sampling behavior. These are bounded smoke runs, not completed-game win-rate measurements.
+- Existing game and knowledge tests cover exposure after waste moves, permanent observations, training undo versus search rollback, hidden-arrangement invariance, and masked CLI/model/neural payloads. Mocked model-interface tests make no external calls.
+
+The smoke harness accepts both the engine's top-card shorthand and explicit-card commands; string equality with the canonical move list alone is not a valid legality test.
+
+Run from `engine/`:
+
+```bash
+./gradlew test --tests 'ai.games.unit.*' --tests ai.games.player.ai.ConfiguredRulesSmokeTest --tests ai.games.player.ai.GamePromptsTest --tests ai.games.player.ai.TypeSafePlayerTest --console=plain
+```
+
+Run from `neural-network/`:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Local verification output: `engine/logs/profiles/klondike-stage4/verification.log`. Published result values and dates remain unchanged. No results-package suites, LLM games, paid model calls, or live neural-service runs were performed.
 
 ## 5. Clean up documentation and reporting
 
