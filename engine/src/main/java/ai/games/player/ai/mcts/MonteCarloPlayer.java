@@ -3,6 +3,8 @@ package ai.games.player.ai.mcts;
 import ai.games.game.Card;
 import ai.games.game.Move;
 import ai.games.game.Solitaire;
+import ai.games.game.Rank;
+import ai.games.game.Suit;
 import ai.games.player.AIPlayer;
 import ai.games.player.LegalMovesHelper;
 
@@ -12,6 +14,9 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.List;
+import java.util.Objects;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.ToDoubleFunction;
 import java.util.random.RandomGenerator;
@@ -80,6 +85,22 @@ public class MonteCarloPlayer extends AIPlayer {
     private final boolean useRandomRollouts;
     /** Maximum visited positions per sampled depth-first evaluation. */
     private final int maxSearchVisits;
+    /** Experimental reward for an unresolved DFS budget cutoff; ordinary play uses 0.5. */
+    private final double searchCutoffReward;
+    /** Generator used to sample hidden arrangements and random comparator moves. */
+    private final RandomGenerator random;
+    /** Experimental DFS ordering; ordinary play retains generation order by default. */
+    private final boolean revealFirst;
+    /** Experimental per-sample cache, including incoming-move pruning context. */
+    private final boolean useTranspositions;
+    /** Experimental reuse of winning DFS continuations only when every card was already known. */
+    private final boolean reuseKnownSolution;
+    /** Experimental conservative foundation dominance inside sampled DFS only. */
+    private final boolean safeFoundations;
+    /** Winning continuations found during this decision, before any actual move is selected. */
+    private final Map<MonteCarloTreeNode, List<Move>> knownSolutions = new HashMap<>();
+    /** Remaining moves of the selected fully observed solution. */
+    private final ArrayDeque<Move> knownContinuation = new ArrayDeque<>();
 
     /**
      * Creates a player using sampled depth-first search, or the random rollout comparator.
@@ -88,6 +109,28 @@ public class MonteCarloPlayer extends AIPlayer {
      * {@code dfs}; {@code montecarlo.search.visits} controls its per-sample visit budget.
      */
     public MonteCarloPlayer() {
+        this(ThreadLocalRandom.current());
+    }
+
+    /**
+     * Creates a player with explicit randomness for reproducible sampled searches.
+     * <p>
+     * Experimental controls {@code montecarlo.search.revealFirst} and
+     * {@code montecarlo.search.transpositions} default to false. They change only DFS;
+     * the random rollout comparator retains its original move policy.
+     * {@code montecarlo.search.reuseKnownSolution} optionally retains a winning continuation
+     * only when all identities were known before sampling; it also defaults to false.
+     * {@code montecarlo.search.cutoffReward} controls the score of unresolved DFS searches,
+     * defaults to 0.5, and leaves solved and exhausted outcomes unchanged.
+     *
+     * @param random the generator used for sampling, independent of the real hidden deal
+     */
+    public MonteCarloPlayer(RandomGenerator random) {
+        this.random = Objects.requireNonNull(random, "random");
+        revealFirst = Boolean.getBoolean("montecarlo.search.revealFirst");
+        useTranspositions = Boolean.getBoolean("montecarlo.search.transpositions");
+        reuseKnownSolution = Boolean.getBoolean("montecarlo.search.reuseKnownSolution");
+        safeFoundations = Boolean.getBoolean("montecarlo.search.safeFoundations");
         useRandomRollouts = switch (System.getProperty("montecarlo.evaluator", "dfs")) {
             case "dfs" -> false;
             case "random" -> true;
@@ -95,6 +138,10 @@ public class MonteCarloPlayer extends AIPlayer {
         };
         maxSearchVisits = Integer.getInteger("montecarlo.search.visits", DEFAULT_SEARCH_VISITS);
         if (maxSearchVisits < 1) throw new IllegalArgumentException("Search visit budget must be positive");
+        searchCutoffReward = Double.parseDouble(System.getProperty("montecarlo.search.cutoffReward", "0.5"));
+        if (!Double.isFinite(searchCutoffReward) || searchCutoffReward < 0 || searchCutoffReward > 1) {
+            throw new IllegalArgumentException("DFS cutoff reward must be finite and between zero and one");
+        }
     }
 
     /**
@@ -141,6 +188,21 @@ public class MonteCarloPlayer extends AIPlayer {
 
         if(log.isTraceEnabled()) {
             log.trace("MCTS starting. Root has {} children that include {}", current.getChildren().size(), current.getChildren().keySet());
+        }
+
+        knownSolutions.clear();
+        if (reuseKnownSolution && !knownContinuation.isEmpty()) {
+            Move next = knownContinuation.peek();
+            if (planning.getUnknownCards().isEmpty() && LegalMovesHelper.listMoves(planning).contains(next)) {
+                MonteCarloTreeNode child = new MonteCarloTreeNode(planning.copy());
+                current.addChild(next.toCommandString(), child);
+                child.applyMove(next);
+                knownContinuation.remove();
+                current = child;
+                expectedNextState = child.getState();
+                return next.toCommandString();
+            }
+            knownContinuation.clear();
         }
 
         // Expand immediate candidates; each board is reused throughout allocation.
@@ -192,6 +254,7 @@ public class MonteCarloPlayer extends AIPlayer {
         int completedRollouts = current.getVisits();
         // Advance current to selected child for next decision (root stays at the initial game state)
         current = bestChild;
+        if (reuseKnownSolution) knownContinuation.addAll(knownSolutions.getOrDefault(bestChild, List.of()));
 
         // Record the state we expect to see on the next call (after the move is applied).
         expectedNextState = current.getState();
@@ -283,8 +346,8 @@ public class MonteCarloPlayer extends AIPlayer {
      */
     private double simulate(MonteCarloTreeNode node) {
         return useRandomRollouts
-                ? simulateRandom(node, ThreadLocalRandom.current(), MAX_SIMULATION_STEPS)
-                : simulateDepthFirst(node, ThreadLocalRandom.current(), maxSearchVisits);
+                ? simulateRandom(node, random, MAX_SIMULATION_STEPS)
+                : simulateDepthFirst(node, random, maxSearchVisits);
     }
 
     /**
@@ -292,7 +355,8 @@ public class MonteCarloPlayer extends AIPlayer {
      * <p>
      * All unknown identities are sampled once, before traversal, and remain fixed across
      * sibling branches. Frames hold moves and history checkpoints rather than board copies.
-     * Cycle checks are local to the active path; another branch may revisit the same state.
+     * Cycle checks are local to the active path. Optional transposition checks additionally
+     * reject repeated board/incoming-move pairs within this sample.
      * The starting position and every attempted successor (including cycles) consume a visit.
      * Search policy is optimistic: it may find different continuations for different sampled
      * arrangements before those arrangements could be distinguished in actual play.
@@ -300,7 +364,7 @@ public class MonteCarloPlayer extends AIPlayer {
      * @param node the candidate, already containing its first move
      * @param random the generator used only to sample the hidden arrangement
      * @param maxVisits the positive visit budget for this evaluation
-     * @return 1 for a win, 0 for exhausted permitted search, 0.5 for a budget cutoff,
+     * @return 1 for a win, 0 for exhausted permitted search, the configured reward (default 0.5) for a budget cutoff,
      *         or -1 for a rejected starting candidate; exhaustion is relative to pruning
      */
     private double simulateDepthFirst(MonteCarloTreeNode node, RandomGenerator random, int maxVisits) {
@@ -308,6 +372,8 @@ public class MonteCarloPlayer extends AIPlayer {
         if (node.isQuit() || node.isUselessKingMove() || node.isCycleDetected()) return -1.0;
         Solitaire board = node.getState();
         int checkpoint = board.getMoveHistorySize();
+        // Check before sampling: a guessed complete world must never become a retained real-game plan.
+        boolean rememberSolution = reuseKnownSolution && board.getUnknownCards().isEmpty();
         try {
             if (board.isInPlanMode()) board.sampleUnknownCards(random);
             MonteCarloTreeNode position = new MonteCarloTreeNode(board);
@@ -316,8 +382,10 @@ public class MonteCarloPlayer extends AIPlayer {
 
             ArrayDeque<SearchFrame> frames = new ArrayDeque<>();
             Set<Long> path = new HashSet<>();
+            Set<SearchPosition> visited = useTranspositions ? new HashSet<>() : Set.of();
             frames.push(searchFrame(position));
             path.add(position.getStateKey());
+            if (useTranspositions) visited.add(new SearchPosition(position.getStateKey(), position.getMove()));
             int visits = 1;
             while (!frames.isEmpty()) {
                 SearchFrame frame = frames.peek();
@@ -329,12 +397,18 @@ public class MonteCarloPlayer extends AIPlayer {
                     path.remove(frame.stateKey());
                     continue;
                 }
-                if (visits >= maxVisits) return 0.5;
+                if (visits >= maxVisits) return searchCutoffReward;
 
                 position.applyMove(frame.moves().next());
                 visits++;
-                if (position.isWon()) return 1.0;
-                if (!path.add(position.getStateKey())) continue;
+                if (position.isWon()) {
+                    if (rememberSolution) rememberKnownSolution(node, frames, position.getMove());
+                    return 1.0;
+                }
+                if (path.contains(position.getStateKey())) continue;
+                if (useTranspositions
+                        && !visited.add(new SearchPosition(position.getStateKey(), position.getMove()))) continue;
+                path.add(position.getStateKey());
                 frames.push(searchFrame(position));
             }
             return 0.0;
@@ -344,14 +418,121 @@ public class MonteCarloPlayer extends AIPlayer {
     }
 
     /**
-     * Captures a DFS continuation in legal-move order at the current board position.
+     * Retains a winning DFS path only for a candidate that had no unknown identities before sampling.
+     * <p>
+     * The first frame is the already-applied root candidate, so its incoming move is excluded.
+     * Later decisions still validate observations and legality before following this path.
+     *
+     * @param candidate the candidate whose continuation reached a win
+     * @param frames the active DFS path, with the starting candidate at the bottom
+     * @param winningMove the final move, not yet represented by a frame
+     */
+    private void rememberKnownSolution(MonteCarloTreeNode candidate, ArrayDeque<SearchFrame> frames,
+                                       Move winningMove) {
+        List<Move> continuation = new ArrayList<>();
+        Iterator<SearchFrame> path = frames.descendingIterator();
+        path.next();
+        while (path.hasNext()) continuation.add(path.next().move());
+        continuation.add(winningMove);
+        knownSolutions.put(candidate, List.copyOf(continuation));
+    }
+
+    /**
+     * Captures a DFS continuation using the configured ordering at the current board position.
      *
      * @param position the temporary node used for move application and pruning
      * @return a frame containing no board snapshot
      */
     private SearchFrame searchFrame(MonteCarloTreeNode position) {
+        List<Move> moves = listSimulationMoves(position);
+        if (safeFoundations) moves = foundationDominance(position.getState(), moves);
+        if (revealFirst) {
+            List<List<Card>> visible = position.getState().getVisibleTableau();
+            List<Integer> hidden = position.getState().getTableauFaceDownCounts();
+            moves.sort(java.util.Comparator.comparingInt(move -> searchPriority(move, visible, hidden)));
+        }
         return new SearchFrame(position.getState().getMoveHistorySize(), position.getStateKey(),
-                position.getMove(), listSimulationMoves(position).iterator());
+                position.getMove(), moves.iterator());
+    }
+
+    /**
+     * Keeps conservatively safe cards on foundations and prioritises safe tableau placements.
+     * <p>
+     * Waste placements are never forced: removing a waste card changes future draw-three
+     * access. Tableau placements leave stock order intact. This is an opt-in DFS policy,
+     * applied only to the current sampled board, not a filter on real root candidates.
+     *
+     * @param board the sampled position
+     * @param moves moves surviving the ordinary DFS pruning filters
+     * @return a mutable list with one safe tableau placement, or the remaining moves
+     */
+    private List<Move> foundationDominance(Solitaire board, List<Move> moves) {
+        List<List<Card>> foundations = board.getFoundation();
+        List<List<Card>> visible = board.getVisibleTableau();
+        int[] heights = new int[Suit.values().length];
+        for (List<Card> pile : foundations) {
+            if (!pile.isEmpty()) heights[pile.getLast().getSuit().ordinal()] = pile.size();
+        }
+        List<Move> remaining = new ArrayList<>();
+        for (Move move : moves) {
+            if (move.isMove() && move.from().type() == Move.PileType.FOUNDATION
+                    && isSafeFoundation(foundations.get(move.from().index()).getLast(), heights)) continue;
+            if (move.isMove() && move.from().type() == Move.PileType.TABLEAU
+                    && move.to().type() == Move.PileType.FOUNDATION
+                    && isSafeFoundation(visible.get(move.from().index()).getLast(), heights)) {
+                return new ArrayList<>(List.of(move));
+            }
+            remaining.add(move);
+        }
+        return remaining;
+    }
+
+    /**
+     * Checks a conservative foundation safety condition for ordinary alternating-colour tableau rules.
+     * <p>
+     * Aces and twos need no supporting tableau cards. Higher ranks require both opposite-colour
+     * foundations through rank minus one and the other same-colour foundation through rank minus two.
+     *
+     * @param card the concrete card to place or retain on a foundation
+     * @param heights foundation heights indexed by suit ordinal
+     * @return whether this card qualifies for the experimental dominance filter
+     */
+    private boolean isSafeFoundation(Card card, int[] heights) {
+        if (card.getRank() == Rank.UNKNOWN) return false;
+        int rank = card.getRank().getValue();
+        if (rank <= 2) return true;
+        for (Suit suit : Suit.values()) {
+            if (suit == Suit.UNKNOWN || suit == card.getSuit()) continue;
+            int required = suit.isRed() == card.getSuit().isRed() ? rank - 2 : rank - 1;
+            if (heights[suit.ordinal()] < required) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Orders DFS exploration toward reveals and progress while retaining every permitted move.
+     * <p>
+     * Turns precede tableau shuffles and foundation withdrawals. Equal priorities retain
+     * legal-generation order. Only visible cards and pile visibility are inspected here.
+     *
+     * @param move a legal move after the existing pruning filters
+     * @param visible the visible tableau snapshot for this frame
+     * @param hidden the face-down counts for this frame
+     * @return a lower value for a move to explore earlier
+     */
+    private int searchPriority(Move move, List<List<Card>> visible, List<Integer> hidden) {
+        if (move.isTurn()) return 3;
+        if (move.from().type() == Move.PileType.TABLEAU && hidden.get(move.from().index()) > 0) {
+            List<Card> pile = visible.get(move.from().index());
+            Card bottom = pile.getFirst();
+            if ((move.card() != null && move.card().rank() == bottom.getRank()
+                    && move.card().suit() == bottom.getSuit())
+                    || (move.card() == null && pile.size() == 1)) return 0;
+        }
+        if (move.to().type() == Move.PileType.FOUNDATION) return 1;
+        if (move.from().type() == Move.PileType.WASTE) return 2;
+        if (move.from().type() == Move.PileType.FOUNDATION) return 5;
+        return 4;
     }
 
     /**
@@ -508,5 +689,7 @@ public class MonteCarloPlayer extends AIPlayer {
     }
 
     private record SearchFrame(int historyDepth, long stateKey, Move move, Iterator<Move> moves) {}
+
+    private record SearchPosition(long stateKey, Move incomingMove) {}
 
 }

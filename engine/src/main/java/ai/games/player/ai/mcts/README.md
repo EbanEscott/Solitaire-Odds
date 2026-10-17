@@ -56,7 +56,7 @@ Every eligible candidate receives an initial sample before UCB allocation. Ties 
 
 `simulateDepthFirst()` samples all UNKNOWN slots through `Solitaire.sampleUnknownCards()` before exploring. Assignments use only the PLAN pool, never the actual hidden deal, and remain fixed throughout backtracking. Face-up counts and movement rules still apply.
 
-The player owns an explicit stack of frames containing remaining moves, incoming move, state key and history depth. It applies a move, explores deeper, then restores the checkpoint before trying a sibling. Search uses legal-generation order and the existing inverse, useless-king and sibling-symmetry filters. A path-local key set rejects cycles; there is no global transposition pruning. Neither the retained candidate node nor its statistics is used as mutable traversal state.
+The player owns an explicit stack of frames containing remaining moves, incoming move, state key and history depth. It applies a move, explores deeper, then restores the checkpoint before trying a sibling. Search uses legal-generation order and the existing inverse, useless-king and sibling-symmetry filters. A path-local key set rejects cycles; per-sample transposition pruning is disabled by default. Neither the retained candidate node nor its statistics is used as mutable traversal state.
 
 The starting position and every attempted successor, including cycle rejections, count against `montecarlo.search.visits` (default 128). A solved board is recognised on the final permitted visit. A `finally` block restores the candidate's original checkpoint on every exit, including exceptions.
 
@@ -96,3 +96,15 @@ This is important because simulations and expansion must apply moves exactly the
 |------|-------------|
 | `MonteCarloPlayer.java` | Main player and MCTS loop, with stale-state invalidation and move application |
 | `MonteCarloTreeNode.java` | Tree node with MCTS statistics and heuristic evaluation |
+
+### Reproducible research controls
+
+`MonteCarloPlayer(RandomGenerator)` accepts an explicit sampling generator; ordinary construction keeps thread-local randomness. Experimental boolean controls default to false; the cutoff reward defaults to 0.5:
+
+- `-Dmontecarlo.search.revealFirst=true`: explore tableau reveals, foundation moves, waste moves, stock turns, other tableau moves, then foundation withdrawals. Reorders the existing permitted moves without adding pruning.
+- `-Dmontecarlo.search.reuseKnownSolution=true`: retain and follow a winning DFS continuation only when the candidate had no unknown identities before sampling. Each subsequent real move still validates the observation and move legality. Plans based on guessed identities are never retained.
+- `-Dmontecarlo.search.safeFoundations=true`: conservatively keep safe cards on foundations and force a safe tableau-to-foundation move when available inside sampled DFS. Aces/twos qualify; higher ranks require opposite-colour foundations through rank minus one and the other same-colour foundation through rank minus two. Waste-to-foundation moves are not forced because removing stock/waste cards changes draw-three access.
+- `-Dmontecarlo.search.transpositions=true`: skip repeated sampled board/incoming-move pairs across branches. Incoming move is part of the key because inverse pruning depends on it. The cache is discarded between samples.
+- `-Dmontecarlo.search.cutoffReward=0.5`: DFS budget-cutoff reward, configurable between 0 and 1. This is a search scoring choice, not an estimated win probability. Wins remain 1 and exhausted permitted searches remain 0; the random comparator keeps its existing rewards.
+
+These controls do not change the random rollout comparator. Research results and commands are recorded in `experiments/notebooks/monte_carlo_improvement_research.ipynb`; no experimental policy has been promoted to the default.
