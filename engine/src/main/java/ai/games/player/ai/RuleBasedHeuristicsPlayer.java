@@ -1,160 +1,143 @@
 package ai.games.player.ai;
 
 import ai.games.game.Card;
-import ai.games.game.Solitaire;
+import ai.games.game.Move;
 import ai.games.game.Rank;
+import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * Rule-based, deterministic heuristics. Rules:
- * 1) First move: turn stock when permitted.
- * 2) Check tableau then talon for foundation moves; if found, perform and repeat step 2.
- * 3) Scan T7 -> T1 for tableau moves considering the bottom visible card only (earliest face-up). If it fits, move the entire visible pile (one move command) to another tableau pile; then return to step 2.
- * 4) If no tableau move, try talon to foundation/tableau; if moved, return to step 2.
- * 5) If no moves and stock remains, draw the configured count and return to step 2.
- * 6) If stock is exhausted and no talon move has occurred in this pass, quit (avoid endless turns).
+ * Deterministic ordered-rule player with no successor simulation or lookahead.
+ *
+ * <p>Begin with a stock observation when permitted, then prefer exposed foundation
+ * moves, whole-run tableau reveals, waste deployment, and whole-run consolidation,
+ * followed by a stock turn. Tableau ties scan T7 to T1; foundation destinations scan
+ * F1 to F4. Moving a fully exposed king between empty columns is excluded.
+ *
+ * <p>Never repeat an action from the same observed position. Knowledge-aware state
+ * keys allow another pass after discoveries or board changes, while unchanged stock
+ * cycles eventually terminate. Finite pass limits remain the engine's responsibility.
+ * Each game requires a fresh instance or an explicit {@link #resetGame()}.
  */
 @Component
 @Profile("ai-rule")
 public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
-    private boolean hasTurnedOnce = false;
-    private boolean talonMovedThisPass = false;
-    private boolean sawEmptyStock = false;
+    /** Actions already selected at each observed position in the current game. */
+    private final Map<Long, Set<String>> attemptedActions = new HashMap<>();
 
+    /** Whether the initial stock-observation rule has been considered. */
+    private boolean started;
+
+    /** Constructs a player with independent history for one game. */
+    public RuleBasedHeuristicsPlayer() {
+        /** Field initializers provide empty action history and an unused opening rule. */
+    }
+
+    /** Clears instance history before reusing this player for another deal. */
+    public void resetGame() {
+        /** Reset the opening rule together with every remembered action. */
+        attemptedActions.clear();
+        started = false;
+    }
+
+    /** Selects the first applicable untried rule using observed identities only. */
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
-        // Decisions and simulations use only observed identities, including remembered stock cards.
-        solitaire = solitaire.planningCopy();
-        // Step 1: begin with a stock observation when a turn is legal.
-        if (!hasTurnedOnce) {
-            hasTurnedOnce = true;
-            if (solitaire.canTurnStock()) return "turn";
-        }
+        /** Remember actions against actual observations, never hypothetical hidden identities. */
+        Solitaire board = solitaire.planningCopy();
+        Set<String> attempted = attemptedActions.computeIfAbsent(board.getStateKey(), key -> new HashSet<>());
+        List<Move> legal = LegalMovesHelper.listMoves(board);
 
-        // Step 2: foundation priority from tableau then talon.
-        String foundationMove = foundationPriority(solitaire);
-        if (foundationMove != null) {
-            return foundationMove;
-        }
-
-        // Step 3: tableau scan T7 -> T1.
-        String tableauMove = tableauScan(solitaire);
-        if (tableauMove != null) {
-            return tableauMove;
-        }
-
-        // Step 4: talon move.
-        String talonMove = talonMove(solitaire);
-        if (talonMove != null) {
-            talonMovedThisPass = true;
-            return talonMove;
-        }
-
-        // Step 5/6: stock handling with pass detection.
-        if (!solitaire.canTurnStock()) return "quit";
-        if (!solitaire.getStockpile().isEmpty()) {
-            sawEmptyStock = false;
-            return "turn";
-        } else {
-            if (sawEmptyStock && !talonMovedThisPass) {
-                // Stock was already empty once in this pass and no talon moves happened -> quit.
-                return "quit";
+        /** Preserve the baseline's opening stock observation when a turn is legal. */
+        if (!started) {
+            started = true;
+            /** Respect finite pass limits even for the opening rule. */
+            if (board.canTurnStock()) {
+                attempted.add("turn");
+                return "turn";
             }
-            // First time hitting empty stock in this pass: remember and keep trying (turn will do nothing).
-            sawEmptyStock = true;
-            talonMovedThisPass = false;
-            return "turn";
         }
-    }
 
-    private String foundationPriority(Solitaire solitaire) {
-        List<List<Card>> tableau = solitaire.getVisibleTableau();
-        List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
-        List<List<Card>> foundations = solitaire.getFoundation();
-        // Tableau to foundation
-        for (int t = tableau.size() - 1; t >= 0; t--) {
-            // Only consider the top/active visible card for foundation moves.
-            Card moving = topTableauCard(tableau.get(t), faceUpCounts.get(t));
-            if (moving == null) {
+        /** Sort explicit rule categories, not evaluated successor scores. */
+        legal.sort(Comparator.comparingInt((Move move) -> priority(board, move))
+                .thenComparingInt(this::sourceOrder).thenComparingInt(this::destinationOrder));
+        for (Move move : legal) {
+            /** Ignore actions outside this rule policy and actions already tried at this observation. */
+            if (priority(board, move) == Integer.MAX_VALUE) {
                 continue;
             }
-            for (int f = 0; f < foundations.size(); f++) {
-                if (canMoveToFoundation(moving, foundations.get(f))) {
-                    return "move T" + (t + 1) + " F" + (f + 1);
-                }
+            String command = move.toCommandString();
+            /** Record the selected rule before returning control to the actual game. */
+            if (attempted.add(command)) {
+                return command;
             }
         }
-        // Talon to foundation
-        Card moving = top(solitaire.getTalon());
-        if (moving != null) {
-            for (int f = 0; f < foundations.size(); f++) {
-                if (canMoveToFoundation(moving, foundations.get(f))) {
-                    talonMovedThisPass = true;
-                    return "move W F" + (f + 1);
-                }
-            }
-        }
-        return null;
+        return "quit";
     }
 
-    private String tableauScan(Solitaire solitaire) {
-        List<List<Card>> tableau = solitaire.getVisibleTableau();
-        List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
-        List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
-        // T7 down to T1
-        for (int from = tableau.size() - 1; from >= 0; from--) {
-            Card moving = bottomVisibleCard(tableau.get(from), faceUpCounts.get(from));
-            if (moving == null) {
-                continue;
-            }
-            // Foundation priority already checks exposed tops; a visible stack can only move to tableau.
-            for (int to = tableau.size() - 1; to >= 0; to--) {
-                if (to == from) {
-                    continue;
-                }
-                // Skip ping-ponging a lone king: only consider kings if moving them would reveal a facedown card.
-                if (moving.getRank() == Rank.KING && faceDownCounts.get(from) == 0) {
-                    continue;
-                }
-                if (canMoveToTableau(moving, tableau.get(to))) {
-                    return "move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1);
-                }
-            }
+    /** Returns an ordered rule category, or excludes actions without a corresponding rule. */
+    private int priority(Solitaire board, Move move) {
+        /** Stock handling is last and uses engine legality rather than an approximate pass counter. */
+        if (move.isTurn()) {
+            return 4;
         }
-        return null;
+        /** Quit and worry-back have no tactical rule in this deliberately simple baseline. */
+        if (move.isQuit() || move.from().type() == Move.PileType.FOUNDATION) {
+            return Integer.MAX_VALUE;
+        }
+        /** Only legal exposed tops appear among foundation candidates. */
+        if (move.to().type() == Move.PileType.FOUNDATION) {
+            return 0;
+        }
+        /** Deploy waste before rearranging fully visible tableau columns. */
+        if (move.from().type() == Move.PileType.WASTE) {
+            return 2;
+        }
+
+        /** Preserve whole-visible-run selection rather than introducing partial-run search. */
+        int column = move.from().index();
+        List<Card> visible = board.getVisibleTableau().get(column);
+        Card head = visible.getFirst();
+        if (move.card() == null || move.card().rank() != head.getRank()
+                || move.card().suit() != head.getSuit()) {
+            return Integer.MAX_VALUE;
+        }
+        /** A whole-run move with hidden cards beneath it physically exposes a new tableau card. */
+        if (board.getTableauFaceDownCounts().get(column) > 0) {
+            return 1;
+        }
+        /** Moving an exposed king to another empty column creates no additional space. */
+        if (head.getRank() == Rank.KING) {
+            return Integer.MAX_VALUE;
+        }
+        return 3;
     }
 
-    private String talonMove(Solitaire solitaire) {
-        Card moving = top(solitaire.getTalon());
-        if (moving == null) {
-            return null;
+    /** Orders tableau sources T7 to T1, followed by waste and then non-card commands. */
+    private int sourceOrder(Move move) {
+        /** Non-card actions do not carry a source reference. */
+        if (!move.isMove()) {
+            return 8;
         }
-        // Try foundation
-        List<List<Card>> foundations = solitaire.getFoundation();
-        for (int f = 0; f < foundations.size(); f++) {
-            if (canMoveToFoundation(moving, foundations.get(f))) {
-                    return "move W " + moving.shortName() + " F" + (f + 1);
-            }
-        }
-        // Try tableau T7 -> T1
-        List<List<Card>> tableau = solitaire.getVisibleTableau();
-        for (int t = tableau.size() - 1; t >= 0; t--) {
-            if (canMoveToTableau(moving, tableau.get(t))) {
-                return "move W " + moving.shortName() + " T" + (t + 1);
-            }
-        }
-        return null;
+        return move.from().type() == Move.PileType.TABLEAU ? 6 - move.from().index() : 7;
     }
 
-    private Card bottomVisibleCard(List<Card> pile, int faceUpCount) {
-        if (pile == null || pile.isEmpty() || faceUpCount <= 0) {
-            return null;
+    /** Preserves ascending foundation destinations and descending tableau destinations. */
+    private int destinationOrder(Move move) {
+        /** Non-card actions do not carry a destination reference. */
+        if (!move.isMove()) {
+            return 0;
         }
-        int start = Math.max(0, pile.size() - faceUpCount);
-        return pile.get(start);
+        return move.to().type() == Move.PileType.FOUNDATION ? move.to().index() : 6 - move.to().index();
     }
 }
