@@ -58,7 +58,7 @@ Only the waste top is playable under either visibility policy. Observed identiti
 | `ai-copilot` | GitHub Copilot CLI |
 | `ai-typesafe` | TypeSafe AI decision API |
 
-See [model-backed player setup](src/main/java/ai/games/player/ai/README.md) for authentication, model selection, prompt profiles, session handling, and retry settings. Search internals are documented beside each player; shared copying, masking, and move-generation details are in [game state and planning](src/main/java/ai/games/game/README.md).
+See [model-backed player setup](src/main/java/ai/games/player/ai/README.md) for authentication, model selection, prompt profiles, session handling, and retry settings. Rule-based foundation selection uses only exposed tableau tops; its visible-stack scan targets tableau piles only. Search internals are documented beside each player; shared copying, masking, and move-generation details are in [game state and planning](src/main/java/ai/games/game/README.md).
 
 ## Gameplay commands
 
@@ -86,6 +86,8 @@ Routine local verification:
 ```
 
 The smoke suite covers six search players across all 24 rule combinations. It checks bounded decisions and board integrity, not win rates. Select functional tests individually: some require external model or neural services. An unrestricted `test` or `build` also selects result suites.
+
+For a recorded search-only sweep on identical seeded deals, run `python3 scripts/search_sweep.py --games 100`. Configure players, rules, seeds, and move caps through its flags; outputs include per-game results, termination reasons, deck orders, metadata, and the actual source snapshot. The wrapper validates commands, so timings include that overhead.
 
 See [result-suite instructions](src/test/java/ai/games/results/README.md) for explicit benchmark selection and game/move limits. Development measurements belong in logs or [experiment notes](../experiments/README.md). The [root results table](../README.md) contains historical measurements; updating defaults does not retroactively change their conditions.
 

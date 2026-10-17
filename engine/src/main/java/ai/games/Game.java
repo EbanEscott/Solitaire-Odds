@@ -318,7 +318,7 @@ public class Game implements CommandLineRunner {
                     terminationReason,
                     finalCommand);
         }
-        return new GameResult(won, successfulMoves, durationNanos);
+        return new GameResult(won, successfulMoves, durationNanos, terminationReason);
     }
 
     /**
@@ -489,10 +489,35 @@ public class Game implements CommandLineRunner {
         private final int moves;
         private final long durationNanos;
 
+        /** The reason the game loop stopped, independent of whether the deal is winnable. */
+        private final String terminationReason;
+
         public GameResult(boolean won, int moves, long durationNanos) {
+            this(won, moves, durationNanos, won ? "won" : "unknown");
+        }
+
+        /**
+         * Creates a result with the actual game-loop termination reason.
+         *
+         * @param won whether all foundations were completed
+         * @param moves the number of successful actions
+         * @param durationNanos elapsed game time in nanoseconds
+         * @param terminationReason why the game loop stopped
+         */
+        public GameResult(boolean won, int moves, long durationNanos, String terminationReason) {
             this.won = won;
             this.moves = moves;
             this.durationNanos = durationNanos;
+            this.terminationReason = terminationReason;
+        }
+
+        /**
+         * Returns the game-loop stop reason, such as won, quit, or move_cap.
+         *
+         * @return the recorded reason; unknown for legacy non-winning results
+         */
+        public String getTerminationReason() {
+            return terminationReason;
         }
 
         public boolean isWon() {

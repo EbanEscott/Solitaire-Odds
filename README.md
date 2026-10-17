@@ -6,7 +6,7 @@ A well-shuffled 52-card deck has *52! permutations (about 8.1 × 10^67)*, so man
 
 This means testing every deck permutation is impossible. Instead, we lean on AI and solid engineering to run repeatable regression test suites over large batches of randomly shuffled games, so we can measure performance statistically rather than brute-forcing every possible deal. The goal is not to “solve” all of Solitaire, but to apply a range of AI algorithms that reliably solve as many deals as possible and, in doing so, reveal the true probability of winning under real rules.
 
-The highest historical search result is *A\* search* with a win rate of 36.87% ± 0.95% across 10,000 games, with a performance at 4.009s per game and an 8-game win streak.
+The latest search pilot ran 100 matched deals per player under the current rules. Hill-climbing and Monte Carlo each won 21 games. These are preliminary measurements; frequent command-cap stops, especially for rule-based and beam search, need review before a larger benchmark.
 
 ## Repository Layout
 
@@ -19,20 +19,20 @@ The highest historical search result is *A\* search* with a win rate of 36.87% �
 
 The engine defaults to **draw three, `topOnly` stock visibility, and unlimited stock passes** (`drawCount=3`, `stockVisibility=topOnly`, `maxStockPasses=null`, `thoughtful=false`). Optional thoughtful mode makes all identities and positions known without changing legal moves. Foundation-to-tableau moves remain enabled. These settings are independent; see [the rules contract](engine/RULES.md) and [runtime switches](engine/README.md#configuration).
 
-The results below predate enforcement of this knowledge boundary. Historical code drew three with unlimited passes, recorded every drawn card as known, and allowed search copies to retain hidden identities. The inspected model-facing boards showed only the waste top, with prior observations retained in conversation/history. That interface finding does not certify every historical run as fully knowledge-isolated `topOnly`. See [the source audit](experiments/klondike_rules_checklist.md#historical-visibility-audit).
+The refreshed search results below enforce this knowledge boundary. Earlier search results and the retained model-backed results predate it. Historical code drew three with unlimited passes, recorded every drawn card as known, and allowed search copies to retain hidden identities. The inspected model-facing boards showed only the waste top, with prior observations retained in conversation/history. That interface finding does not certify every historical run as fully knowledge-isolated `topOnly`. See [the source audit](experiments/klondike_rules_checklist.md#historical-visibility-audit).
 
-The planned search-only refresh will use the current defaults. Existing model results and dates will be retained without rerunning model games. Visibility alignment alone does not equalize search budgets, move caps, prompts, or other benchmark conditions.
+The search pilot uses the current defaults. Existing model results and dates are retained without rerunning model games. Visibility alignment alone does not equalize search budgets, move caps, prompts, or other benchmark conditions.
 
 ## Test Results
 
-The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
+The latest search pilot completed on Oct 17, 2026 at 3:20 PM AEST. Model-backed results retain their historical dates.
 
 * **Player** Name of the decision or optimisation method or model-backed player being tested.
 * **AI** Whether the method is an `LLM`, typed `Decision` model, or search-based algorithm.
 * **Policy** Prompt and strategy condition used by a model-backed player; this is an experimental variable, not merely implementation detail.
 * **Games Played** Total number of solitaire games the algorithm attempted.
 * **Games Won** Count of games successfully completed.
-* **Win %** Percentage of games successfully completed (foundations fully built), reported as `win% ± 95% confidence interval` so that small improvements are statistically meaningful. The half-width shrinks roughly with `1/sqrt(games)` (e.g., ~±1.0% at 10k games, ~±0.5% at 40k games).
+* **Win %** Percentage of games won. Search pilot rows include 95% Wilson confidence intervals in parentheses; model-backed rows retain their originally reported intervals. Small samples have substantial uncertainty and do not establish precise player rankings.
 * **Avg Time/Game** Mean time taken to finish or fail a game, shown with adaptive units for readability.
 * **Total Time** Sum of all time spent playing the batch, rounded to an appropriate combination of days, hours, minutes, or seconds.
 * **Avg Moves** Average number of moves (legal actions) the algorithm performed per game.
@@ -42,18 +42,24 @@ The latest test run completed on Sep 28, 2026 at 4:33 PM AEST.
 
 ### Search-based players
 
-These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
+These search results were last run on Oct 17, 2026 at 3:20 PM AEST. This is the **100-game setup pilot**; the larger benchmark remains pending.
+
+All six players used the same seeded deals 0–99 with draw-three, `topOnly`, unlimited stock passes, and `thoughtful=false`. Guidance and training undo were disabled, with a 1,000-command cap. Timings include command-validation overhead. Cap stops count as non-wins, not proofs of unwinnability; rule-based and beam reached the cap in 80 and 91 games respectively.
+
+Run with [the reusable search runner](engine/scripts/search_sweep.py); see [configuration and artifacts](engine/src/test/java/ai/games/results/README.md#reusable-matched-deal-search-sweep) and [the pilot record](experiments/klondike_rules_checklist.md#pilot-before-publication). Local evidence is under `engine/logs/profiles/search-sweep-phase7-pilot-100-v2/`, including the actual source snapshot based on revision `410398e` plus the runner and rule-based legality fix.
 
 | Player                        | AI     | Games Played | Games Won | Win % | Avg Time/Game | Total Time | Avg Moves | Best Win Streak | Notes |
 |------------------------------|--------|--------------|-----------|-------|---------------|------------|-----------|-----------------|-------|
-| Rule-based Heuristics        | Search | 10000 | 418 | 4.18% ± 0.39% | 1ms | 7.187s | 733.35 | 2 | Deterministic rule-based baseline; see [code](engine/src/main/java/ai/games/player/ai/RuleBasedHeuristicsPlayer.java). |
-| Greedy Search                | Search | 10000 | 651 | 6.51% ± 1.21% | 3ms | 31.046s | 242.42 | 3 | Greedy one-step lookahead using heuristic scoring; see [code](engine/src/main/java/ai/games/player/ai/GreedySearchPlayer.java). |
-| Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 2ms | 17.181s | 96.20 | 5 | Local hill-climbing with restarts over hashed game states; see [code](engine/src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
-| Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 37ms | 6m 13s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
-| Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 4h 57m | 846.24 | 4 | Historical result before rollout inverse/symmetry pruning; current win rate not remeasured. See [code](engine/src/main/java/ai/games/player/ai/mcts/MonteCarloPlayer.java). |
-| A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 11h 8m | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/astar/AStarPlayer.java). |
+| Rule-based Heuristics | Search | 100 | 13 | 13.00% (7.76–20.98%) | 4.84ms | 484.10ms | 820.04 | 1 | Covered-card foundation command fixed; 80 cap stops; see [code](engine/src/main/java/ai/games/player/ai/RuleBasedHeuristicsPlayer.java). |
+| Greedy Search | Search | 100 | 1 | 1.00% (0.18–5.45%) | 8.26ms | 825.78ms | 357.09 | 1 | One-step heuristic search; 21 cap stops; see [code](engine/src/main/java/ai/games/player/ai/GreedySearchPlayer.java). |
+| Hill-climbing Search | Search | 100 | 21 | 21.00% (14.17–29.98%) | 5.56ms | 555.54ms | 166.56 | 1 | Seeded local search; 4 cap stops; see [code](engine/src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
+| Beam Search | Search | 100 | 9 | 9.00% (4.81–16.23%) | 54.09ms | 5.409s | 928.78 | 1 | Depth 2, width 8; 91 cap stops; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
+| Monte Carlo Search | Search | 100 | 21 | 21.00% (14.17–29.98%) | 13.447s | 22m 25s | 230.81 | 3 | Sampled DFS, 128 visits per evaluation; shared evaluation budget of 64 × eligible candidates; 3 cap stops; see [code](engine/src/main/java/ai/games/player/ai/mcts/MonteCarloPlayer.java). |
+| A* Search | Search | 100 | 11 | 11.00% (6.25–18.63%) | 2.719s | 4m 32s | 206.32 | 3 | 1,024 expansions, 5,000 retained nodes; 3 cap stops; see [code](engine/src/main/java/ai/games/player/ai/astar/AStarPlayer.java). |
 
 ### Model-backed players
+
+Historical model-results timestamp: Sep 28, 2026 at 4:33 PM AEST. No model-backed games were rerun for this search refresh.
 
 The main evaluations target 100 independent random deals per configuration. Jev's ten-game P0 row is included as a diagnostic control so its supplied-policy result is not mistaken for an unguided comparison. Sonnet and Opus stopped short of 100 when the available GitHub Copilot AI credits were exhausted; their confidence intervals use the completed games only. These evaluations ran across Sep 24-30, 2026.
 
@@ -68,7 +74,7 @@ The main evaluations target 100 independent random deals per configuration. Jev'
 | TypeSafe AI (Jev control)     | Decision | P0 unguided      | 10 | 0 | 0.00% (95% CI 0.0%-27.8%) | 1m 9s | 11m 30s | 200.00 | 0 | Diagnostic control: all ten games reached the move cap and 1,971 of 2,000 choices were stock turns; see [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | TypeSafe AI (Jev detailed)    | Decision | P1.5 supplied    | 100 | 10 | 10.00% ± 5.88% | 1m 6s | 1h 49m | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
-> The historical search and model results used different information access, so their gap cannot be attributed to search strategy alone. Astra had the strongest completed P0 model-backed result at 22%, with a confidence interval overlapping Sol’s 18%. Sonnet and Opus remain partial samples; Jev’s supplied-policy and unguided rows represent different experimental conditions.
+> The current search pilot and historical model results use different deals, command caps, and execution conditions. Their win rates are not a controlled head-to-head comparison. Earlier search results also had broader hidden-information access. Astra had the strongest completed P0 model-backed result at 22%, with a confidence interval overlapping Sol’s 18%. Sonnet and Opus remain partial samples; Jev’s supplied-policy and unguided rows represent different experimental conditions.
 
 ## Players
 

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * Rule-based, deterministic heuristics. Rules:
  * 1) First move: turn stock when permitted.
  * 2) Check tableau then talon for foundation moves; if found, perform and repeat step 2.
- * 3) Scan T7 -> T1 for tableau moves considering the bottom visible card only (earliest face-up). If it fits, move the entire visible pile (one move command) to foundation or tableau; then return to step 2.
+ * 3) Scan T7 -> T1 for tableau moves considering the bottom visible card only (earliest face-up). If it fits, move the entire visible pile (one move command) to another tableau pile; then return to step 2.
  * 4) If no tableau move, try talon to foundation/tableau; if moved, return to step 2.
  * 5) If no moves and stock remains, draw the configured count and return to step 2.
  * 6) If stock is exhausted and no talon move has occurred in this pass, quit (avoid endless turns).
@@ -103,7 +103,6 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
 
     private String tableauScan(Solitaire solitaire) {
         List<List<Card>> tableau = solitaire.getVisibleTableau();
-        List<List<Card>> foundations = solitaire.getFoundation();
         List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
         List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
         // T7 down to T1
@@ -112,13 +111,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
             if (moving == null) {
                 continue;
             }
-            // Try foundation first
-            for (int f = 0; f < foundations.size(); f++) {
-                if (canMoveToFoundation(moving, foundations.get(f))) {
-                    return "move T" + (from + 1) + " " + moving.shortName() + " F" + (f + 1);
-                }
-            }
-            // Then try tableau targets
+            // Foundation priority already checks exposed tops; a visible stack can only move to tableau.
             for (int to = tableau.size() - 1; to >= 0; to--) {
                 if (to == from) {
                     continue;

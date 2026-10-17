@@ -39,3 +39,7 @@ surefire-reports/
 tmp/
 *.tmp
 *.swp
+
+# Python benchmark tooling
+__pycache__/
+*.pyc

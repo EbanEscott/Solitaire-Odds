@@ -8,6 +8,25 @@ Run commands from `engine/` and select an individual suite. The current rules de
 
 The configurable-rules refresh covers only the six search players below. Do not rerun model-backed suites for that refresh; preserve their historical results and dates. AlphaSolitaire is also outside that refresh. Benchmark execution alone does not authorize updating the root results table.
 
+## Reusable matched-deal search sweep
+
+From `engine/`, run `python3 scripts/search_sweep.py --games 100`. It selects only rule-based, greedy, hill-climbing, beam, Monte Carlo, and A* players, using the same seeded deals for each. The default rules are draw-three, `topOnly`, unlimited passes, and `thoughtful=false`; guidance, training undo, and episode logging are disabled. The default game-loop cap is 1,000 commands. This is an opt-in `SearchSweepTest`, separate from legacy independent-random-deal result suites.
+
+```bash
+python3 scripts/search_sweep.py --games 100
+python3 scripts/search_sweep.py --games 10000 --seed-start 0 --player-seed 20261017
+python3 scripts/search_sweep.py --games 100 --players greedy astar --draw-count 1 --stock-visibility allDrawn --max-stock-passes 3 --thoughtful
+python3 scripts/search_sweep.py --games 100 --players monteCarlo --property montecarlo.search.visits=256 --max-moves 1000
+```
+
+Use `--output /absolute/fresh/directory` to choose a destination; existing directories are rejected. Otherwise output goes to a new timestamped directory under `logs/profiles/`. The launcher selects only the opted-in test, forces execution, captures stdout/stderr in `console.log`, and preserves partial rows if a run fails. It never publishes the root table or runs model-backed players.
+
+Artifacts include `manifest.json` (revision, actual command, UTC times, completion status), `engine-metadata.json` (rules, budgets, seeds, overrides), `deals.csv` (exact deck order, bottom-to-top), `games.csv` (per-game outcomes, seed, moves, termination, foundation count, seconds), and `summary.json` (wins, timings, moves, streaks, termination counts). `source/` preserves actual main/test sources, scripts, and build files, including uncommitted changes. Each completed game is flushed to disk. Do not interpret a quit or move cap as proof that a deal is unwinnable.
+
+Deal `i` uses `Random(seedStart + i)` to shuffle the stable deck; hill/beam/Monte Carlo use a separate `Random(playerSeed + i)` stream. A* samples from state-derived seeds. Players are recreated for every deal and their execution order rotates. Beam uses its ordinary depth 2 and width 8. `--property KEY=VALUE` supports existing `astar.*` and `montecarlo.*` controls; source snapshots preserve other fixed budgets and defaults.
+
+The harness validates every non-quit command on an independent board before the normal `Game` loop executes it. Invalid commands fail the run instead of silently consuming the cap. Reported time includes this validation overhead, so compare timings from the same harness. `GAME_RULES` names the checking wrapper; adjacent `SWEEP_START` records and CSV rows identify the actual player. Pilot runs remain development measurements and do not refresh the published table. Verify launcher aggregation with `python3 -m unittest discover -s src/test/python -v` from `engine/`.
+
 ## Quick Commands
 
 ```bash

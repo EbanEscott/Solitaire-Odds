@@ -167,14 +167,33 @@ Validation: 541 Java tests passed with no failures or skips, including 24 rule-b
 
 After stages 2–6 are complete, rerun the six search players with `drawCount=3`, `stockVisibility=topOnly`, and `maxStockPasses=null` (unlimited), with `thoughtful=false`, worry-back enabled, and training undo disabled. This aligns stock visibility with the historical model-facing observations for comparison. Preserve the existing LLM/model-backed results and their original dates; do not rerun those suites.
 
-Use the corresponding tests in `engine/src/test/java/ai/games/results`, gather their logged results, and refresh each player's row in the root README.
+Use the reusable `SearchSweepTest` in `engine/src/test/java/ai/games/results` through `python3 engine/scripts/search_sweep.py`. This uses identical recorded seeded deals across players, unlike the legacy individual suites' independent random deals. Gather its per-game CSV and summary before refreshing each player's row in the root README.
 
-- [ ] Rule-based Heuristics — run `RuleBasedHeuristicsPlayerResultsTest` and refresh its results.
-- [ ] Greedy Search — run `GreedySearchPlayerResultsTest` and refresh its results.
-- [ ] Hill-climbing Search — run `HillClimberPlayerResultsTest` and refresh its results.
-- [ ] Beam Search — run `BeamSearchPlayerResultsTest` and refresh its results.
-- [ ] Monte Carlo Search — run `MonteCarloPlayerResultsTest` and refresh its results.
-- [ ] A* Search — run `AStarPlayerResultsTest` and refresh its results.
+### Pilot before publication
+
+- [x] Add an opt-in reusable six-player launcher with game-count, rules, player selection, move-cap, seed, and existing search-property controls.
+- [x] Record exact deck orders, actual source snapshot, revision, rules, budgets, UTC dates, per-game termination reasons, timings, and summaries; fail on illegal commands or incomplete results.
+- [x] Run a one-deal, ten-command setup probe for all six players and local verification (385 Java unit tests and two Python aggregation tests passed).
+- [x] Complete the 100-game-per-player pilot and inspect timings, termination reasons, and artifact consistency before choosing the main sweep size.
+
+Pilot configuration: deals 0–99, independent player seed base 20261017, 1,000-command cap, ordinary search budgets, guidance/training disabled, draw-three/topOnly/unlimited, and `thoughtful=false`. Command: `python3 engine/scripts/search_sweep.py --games 100 --output engine/logs/profiles/search-sweep-phase7-pilot-100-v2`. Output: `engine/logs/profiles/search-sweep-phase7-pilot-100-v2/`. Timings include per-command legality validation. The pilot does not publish results or mark the player refresh items below complete.
+
+The first pilot (`engine/logs/profiles/search-sweep-phase7-pilot-100/`) stopped after 16 completed games: on seed 2, rule-based stack scanning attempted to move a covered 3♣ to a foundation. Removed that invalid branch; foundation priority already handles exposed tops. Added a focused regression. Preserve the failed run and restart all players in a fresh directory so the accepted pilot uses one source snapshot.
+
+The restarted pilot completed all 600 games on 2026-10-17 in approximately 27 minutes. Each player used the same 100 recorded deals. Artifact checks verified unique complete decks, matching seeds, exact requested rules, cap adherence, and win/foundation agreement. Wins out of 100: rule-based 13, greedy 1, hill-climbing 21, beam 9, Monte Carlo 21, and A* 11. Cap stops: 80, 21, 4, 91, 3, and 3 respectively. These remain development measurements; review the high rule-based/beam cap rates before scaling up or publishing. Detailed results and conditions are in `engine/logs/profiles/search-sweep-phase7-pilot-100-v2/README.md` and `summary.json`.
+
+After the rule-based correction, all 386 Java unit tests, 144 search-player smoke cases across the 24 rule configurations, and two Python launcher aggregation tests passed. The launcher now preserves termination reasons through `GameResult`, validates each non-quit command, and rejects incomplete or duplicate result rows. The root README is unchanged; model-backed games were not run. No main sweep size has been selected or started.
+
+On the user’s subsequent request, the root README search table was updated with this 100-game pilot, its Oct 17, 2026 3:20 PM AEST completion timestamp, Wilson confidence intervals, and explicit cap-stop/benchmark conditions. Model-backed rows and historical dates were preserved. This publication does not complete or authorize a larger sweep; the main-sweep items below remain pending.
+
+### Published search refresh
+
+- [ ] Rule-based Heuristics — run the main matched-deal sweep and refresh its results.
+- [ ] Greedy Search — run the main matched-deal sweep and refresh its results.
+- [ ] Hill-climbing Search — run the main matched-deal sweep and refresh its results.
+- [ ] Beam Search — run the main matched-deal sweep and refresh its results.
+- [ ] Monte Carlo Search — run the main matched-deal sweep and refresh its results.
+- [ ] A* Search — run the main matched-deal sweep and refresh its results.
 - [ ] Record resolved rules, code revision, game counts, search budgets, move caps, run dates, and log locations so the refreshed results are reproducible.
 - [ ] Update the root README's search-results test date and rules statement; preserve historical model-result dates and disclose remaining differences in benchmark conditions rather than presenting visibility alignment as full parity.
 
