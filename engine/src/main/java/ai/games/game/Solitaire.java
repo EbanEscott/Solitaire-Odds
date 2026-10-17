@@ -102,6 +102,12 @@ public class Solitaire {
     /** Current operational mode (GAME or PLAN). */
     private final GameMode mode;
 
+    /** Immutable rules shared by this game and its copies. */
+    private final GameRules rules;
+
+    /** Current stock traversal, starting at one and increasing only when waste is recycled. */
+    private long stockPass = 1;
+
     /** Lazily computed board hash; zero is a valid key, so validity is tracked separately. */
     private long cachedStateKey;
     private boolean stateKeyValid;
@@ -110,13 +116,18 @@ public class Solitaire {
      * Creates empty containers for a copy without shuffling or dealing a deck.
      *
      * @param mode the fixed operational mode for the new instance
+     * @param rules the immutable configuration inherited from the source game
+     * @throws NullPointerException if rules is null
      */
-    private Solitaire(GameMode mode) {
+    private Solitaire(GameMode mode, GameRules rules) {
         this.mode = mode;
+        this.rules = Objects.requireNonNull(rules, "rules");
     }
 
     /**
      * Constructs a new Solitaire game with a shuffled deck.
+     * <p>
+     * Captures JVM rule properties once through {@link GameRules#configured()}.
      * <p>
      * Initialises the game by:
      * <ol>
@@ -127,9 +138,21 @@ public class Solitaire {
      *
      * @param deck the shuffled deck to initialise from; must not be null
      * @throws NullPointerException if deck is null
+     * @throws IllegalArgumentException if the configured rule properties are invalid
      */
     public Solitaire(Deck deck) {
-        this(GameMode.GAME);
+        this(deck, GameRules.configured());
+    }
+
+    /**
+     * Constructs and deals a game using explicit rules, independently of JVM properties.
+     *
+     * @param deck the deck to deal from; must not be null
+     * @param rules the immutable game configuration; must not be null
+     * @throws NullPointerException if deck or rules is null
+     */
+    public Solitaire(Deck deck, GameRules rules) {
+        this(GameMode.GAME, rules);
         Objects.requireNonNull(deck, "deck");
         initializeFoundation();
         dealTableau(deck);
@@ -173,7 +196,8 @@ public class Solitaire {
      * @return an independent board with no copied action history
      */
     private Solitaire copy(GameMode targetMode) {
-        Solitaire clone = new Solitaire(targetMode);
+        Solitaire clone = new Solitaire(targetMode, rules);
+        clone.stockPass = stockPass;
         boolean maskHiddenCards = mode == GameMode.GAME && targetMode == GameMode.PLAN;
         for (int i = 0; i < tableau.size(); i++) {
             List<Card> pile = tableau.get(i);
@@ -341,11 +365,15 @@ public class Solitaire {
      * position accepts any identity in the same observed slot, allowing actual play to reveal
      * cards that were unknown when the move was selected. This comparison is directional and
      * does not compare guess maps or action histories.
+     * Rules and finite pass counts must also match. Unlimited traversal counts do not
+     * affect future legality and are ignored.
      *
      * @param observed the newly observed position; must not be null
      * @return {@code true} if the observed piles match all known constraints in this prediction
      */
     public boolean matchesObservation(Solitaire observed) {
+        if (!rules.equals(observed.rules)) return false;
+        if (rules.maxStockPasses() != null && stockPass != observed.stockPass) return false;
         if (!tableauFaceUp.equals(observed.tableauFaceUp)) return false;
         for (int i = 0; i < tableau.size(); i++) {
             if (!matchesPile(tableau.get(i), observed.tableau.get(i))) return false;
@@ -521,27 +549,65 @@ public class Solitaire {
     }
 
     /**
-     * Turns three cards from the stockpile onto the talon, preserving order of draw.
+     * Returns the immutable configuration captured when this game was created.
+     *
+     * @return the rules shared by this game and its copies
+     */
+    public GameRules getRules() {
+        return rules;
+    }
+
+    /**
+     * Returns the current stock traversal, including the initial pass.
+     *
+     * @return the one-based pass number, incremented only when recycling occurs
+     */
+    public long getStockPass() {
+        return stockPass;
+    }
+
+    /**
+     * Checks whether a stock turn is legal under the remaining pass allowance.
      * <p>
-     * If the stockpile is empty but the talon is not, recycles the talon back into the stockpile
-     * (face-down, in reverse order so the top of the talon becomes the bottom of the new stock)
-     * before turning. Then turns up to three cards from the stockpile onto the talon.
+     * Commands, move generation, and simulations share this check. An empty stock
+     * requires a nonempty waste and permission to start another pass.
+     *
+     * @return true if cards can be drawn directly or after a permitted recycle
+     */
+    public boolean canTurnStock() {
+        return !stockpile.isEmpty() || (!talon.isEmpty()
+                && (rules.maxStockPasses() == null || stockPass < rules.maxStockPasses()));
+    }
+
+    /**
+     * Retains the original stock-turn entry point for existing callers.
      * <p>
-     * Cards moved to the talon are marked as revealed in the unknown card tracker, so that
-     * if they later cycle back to the stockpile, the player is aware they have already been seen.
-     * <p>
-     * Records one reversible action, including when recycling precedes the draw.
-     * If both stock and talon are empty, no action is recorded.
+     * Despite its historical name, this method uses the configured draw count and pass
+     * limit. Call {@link #turnStock()} when the caller needs a success result.
      */
     public void turnThree() {
-        if (stockpile.isEmpty() && talon.isEmpty()) {
-            return;
-        }
+        turnStock();
+    }
+
+    /**
+     * Draws the configured number of cards, recycling first when required and permitted.
+     * <p>
+     * A partial final draw takes the remaining stock cards. Recycling preserves card order
+     * and starts the next pass in the same action as the draw. Successful turns record one
+     * reversible action; rejected turns leave the board, pass count, and history unchanged.
+     * The current reveal tracker still records all drawn cards; observation filtering is
+     * a separate implementation step.
+     *
+     * @return true if cards were drawn, false if no stock turn was permitted
+     */
+    public boolean turnStock() {
+        if (!canTurnStock()) return false;
         long previousStateKey = cachedStateKey;
         boolean previousStateKeyValid = stateKeyValid;
         boolean recycled = stockpile.isEmpty();
         stateKeyValid = false;
         if (recycled) {
+            stockPass++;
             // Recycle talon back to stockpile: top of talon becomes bottom of new stock.
             for (int i = talon.size() - 1; i >= 0; i--) {
                 stockpile.add(talon.get(i));
@@ -549,7 +615,7 @@ public class Solitaire {
             talon.clear();
         }
 
-        int movedCount = Math.min(3, stockpile.size());
+        int movedCount = Math.min(rules.drawCount(), stockpile.size());
         int newlyRevealedMask = 0;
         for (int i = 0; i < movedCount; i++) {
             Card card = stockpile.remove(stockpile.size() - 1);
@@ -562,6 +628,7 @@ public class Solitaire {
         }
         moveHistory.add(new Action("turn", null, null, movedCount, -1, -1,
                 recycled, newlyRevealedMask, previousStateKey, previousStateKeyValid, null));
+        return true;
     }
 
     /**
@@ -783,7 +850,14 @@ public class Solitaire {
     }
 
     private long computeStateKey() {
-        long h = 0L;
+        // Encode rules and finite pass state separately from card positions. Unlimited pass
+        // counts are omitted so repeated traversals can still be detected as cycles.
+        // Default rules contribute zero to preserve the empty-board key convention.
+        long ruleCode = (rules.drawCount() == 1 ? 1L : 0L)
+                | (rules.stockVisibility() == GameRules.StockVisibility.allDrawn ? 2L : 0L)
+                | (rules.maxStockPasses() == null ? 0L : (long) rules.maxStockPasses() << 2)
+                | (rules.maxStockPasses() == null ? 0L : stockPass << 5);
+        long h = ruleCode * 0x9E3779B97F4A7C15L;
         int idx = 0;
         int pileIndex = 0;
 
@@ -1195,6 +1269,8 @@ public class Solitaire {
             }
         }
         if (action.recycled()) {
+            // Undoing a recycle restores the previous traversal and its remaining allowance.
+            stockPass--;
             for (int i = stockpile.size() - 1; i >= 0; i--) {
                 talon.add(stockpile.get(i));
             }

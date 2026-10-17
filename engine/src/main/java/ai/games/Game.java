@@ -373,10 +373,13 @@ public class Game implements CommandLineRunner {
                 }
             }
         } else if (input.equalsIgnoreCase("turn")) {
-            solitaire.turnThree();
-            newSuccessfulMoves++;
-            illegalFeedback = "";
-            newTurnsSinceLastMove++;
+            if (solitaire.turnStock()) {
+                newSuccessfulMoves++;
+                illegalFeedback = "";
+                newTurnsSinceLastMove++;
+            } else {
+                illegalFeedback = "Cannot turn stock: no cards remain or the stock pass limit is exhausted.";
+            }
         } else if (input.toLowerCase().startsWith("move")) {
             String[] parts = input.split("\\s+");
             if (parts.length == 4) {

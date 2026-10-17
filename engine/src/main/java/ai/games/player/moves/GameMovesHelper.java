@@ -33,8 +33,8 @@ public class GameMovesHelper extends MovesHelper {
         addTalonToTableau(moves);
         addFoundationToTableau(moves);
         
-        // "turn" is always legal if stock or talon still has cards to cycle.
-        if (!solitaire.getStockpile().isEmpty() || !solitaire.getTalon().isEmpty()) {
+        // Stock turns must respect the remaining pass allowance.
+        if (solitaire.canTurnStock()) {
             moves.add("turn");
         }
         

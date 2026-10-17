@@ -111,6 +111,20 @@ The engine supports the following runtime configuration options (passed via `-D<
 
 #### Core Game Settings
 
+Game rules are captured once per game using these JVM properties:
+
+| Property | Values | Default |
+| --- | --- | --- |
+| `game.drawCount` | `1`, `3` | `3` |
+| `game.stockVisibility` | `topOnly`, `allDrawn` | `topOnly` |
+| `game.maxStockPasses` | `1`, `3`, `null` (unlimited) | `null` |
+
+For example, add `-Dgame.drawCount=1 -Dgame.maxStockPasses=3` to `bootRun` or a selected test command. Invalid values fail at game construction. These properties are read directly from JVM system properties, not Spring's `application.properties`. Java callers can pass an explicit immutable `GameRules` to `new Solitaire(deck, rules)` to avoid runtime overrides.
+
+Draw count and pass limits are implemented. `stockVisibility` is currently validated and retained, but knowledge filtering is pending stage 3: the engine still records every drawn card as revealed. Do not benchmark this intermediate implementation as enforcing `topOnly`. See [RULES.md](RULES.md) for the contract and [the checklist](../experiments/klondike_rules_checklist.md) for progress.
+
+The initial stock traversal is pass 1. A permitted `turn` on empty stock recycles the waste and draws in one action. Exhausting the final pass disables stock turns, while other legal moves remain available. Copies and rollback preserve pass allowance; finite pass state participates in search keys and position comparisons. Unlimited traversal counts do not prevent cycle detection.
+
 - **`training.mode`** (boolean, default: `false`)  
   Enable training mode to allow players to undo moves and explore alternative game paths without penalty.  
   Example: `-Dtraining.mode=true`
@@ -336,7 +350,7 @@ java -cp src/main/java ai.games.Game
 ```
 
 ## Gameplay commands (CLI)
-- `turn` — flip up to three cards from stock to talon.
+- `turn` — draw up to the configured count from stock to talon; recycle first when stock is empty and another pass is permitted.
 - `move FROM TO` — e.g., `move W T3`, `move T7 F1`, `move T6 T1`.
 - `undo` — revert the last move or turn directly from its recorded changes (training mode only).
 - `quit` — exit.

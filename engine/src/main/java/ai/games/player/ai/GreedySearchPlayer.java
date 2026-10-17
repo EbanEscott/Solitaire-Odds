@@ -135,6 +135,7 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
         }
 
         // No legal moves found.
+        if (!solitaire.canTurnStock()) return "quit";
         if (!solitaire.getStockpile().isEmpty()) {
             // Stock still has cards; turning is the only action.
             sawEmptyStock = false;

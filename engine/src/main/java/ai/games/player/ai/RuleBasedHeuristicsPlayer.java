@@ -53,6 +53,7 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
         }
 
         // Step 5/6: stock handling with pass detection.
+        if (!solitaire.canTurnStock()) return "quit";
         if (!solitaire.getStockpile().isEmpty()) {
             sawEmptyStock = false;
             return "turn";
