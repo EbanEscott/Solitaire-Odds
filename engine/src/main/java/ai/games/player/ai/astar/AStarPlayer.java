@@ -301,11 +301,7 @@ public class AStarPlayer extends AIPlayer {
      */
     private void expandReveal(AStarTreeNode node, Search search) {
         Solitaire state = node.getState();
-        int slots = 0;
-        for (List<Card> pile : state.getVisibleTableau()) {
-            for (Card card : pile) if (card.getRank() == Rank.UNKNOWN) slots++;
-        }
-        for (Card card : state.getTalon()) if (card.getRank() == Rank.UNKNOWN) slots++;
+        int slots = state.unresolvedObservationCount();
         int remaining = state.getUnknownCards().size();
         int outcomes = 1;
         for (int i = 0; i < slots && outcomes <= REVEAL_SAMPLES; i++) outcomes *= remaining - i;

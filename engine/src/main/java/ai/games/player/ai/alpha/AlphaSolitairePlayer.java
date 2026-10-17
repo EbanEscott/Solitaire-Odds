@@ -126,7 +126,7 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
 
         // Root node uses a copy of the current state so that MCTS can freely
         // explore without mutating the real game.
-        AlphaTreeNode root = AlphaTreeNode.createRoot(solitaire.copy(), legal);
+        AlphaTreeNode root = AlphaTreeNode.createRoot(solitaire.planningCopy(), legal);
 
         // Ensure the root has priors and a value estimate from the neural net.
         root.ensureEvaluated(client);
@@ -175,7 +175,7 @@ public class AlphaSolitairePlayer extends AIPlayer implements Player {
 
         while (true) {
             // Terminal state or max depth: stop and backpropagate
-            if (node.isTerminal() || depth >= mctsMaxDepth) {
+            if (node.isTerminal() || depth >= mctsMaxDepth || node.getState().nextUnresolvedCard() != null) {
                 double terminalValue = node.getValueEstimate();
                 backpropagate(pathNodes, pathMoves, terminalValue);
                 return;

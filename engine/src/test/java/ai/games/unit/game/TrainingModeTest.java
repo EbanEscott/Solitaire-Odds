@@ -242,7 +242,12 @@ class TrainingModeTest {
         GuidanceModeProperties guidance = new GuidanceModeProperties();
         guidance.setMode(false);
         new Game(player, training, guidance).play(state);
-        assertEquals(before, snapshot(state));
+        assertEquals(before.tableau(), state.getTableau());
+        assertEquals(before.stock(), state.getStockpile());
+        assertEquals(before.talon(), state.getTalon());
+        assertEquals(0, state.getMoveHistorySize());
+        assertEquals(before.unknown().size() - 1, state.getUnknownCards().size());
+        assertNotEquals(before.key(), state.getStateKey());
         verify(player, times(3)).nextCommand(any(), anyString(), anyString());
     }
 

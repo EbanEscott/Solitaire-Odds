@@ -119,7 +119,7 @@ class AStarResearchTest {
                 game.turnThree();
             }
             assertTrue(game.getStockpile().isEmpty());
-            assertEquals(21, game.planningCopy().getUnknownCards().size());
+            assertEquals(37, game.planningCopy().getUnknownCards().size());
             player.nextCommand(game, "", "");
             var root = AStarPlayer.class.getDeclaredField("root");
             root.setAccessible(true);

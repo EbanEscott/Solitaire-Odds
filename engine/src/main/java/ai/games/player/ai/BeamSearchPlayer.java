@@ -52,6 +52,8 @@ public class BeamSearchPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
+        // Decisions and simulations use only observed identities, including remembered stock cards.
+        solitaire = solitaire.planningCopy();
         List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
         if (legal.isEmpty()) {
             return "quit";
@@ -73,6 +75,8 @@ public class BeamSearchPlayer extends AIPlayer implements Player {
         for (int depth = 0; depth < depthLimit; depth++) {
             List<Node> nextFrontier = new ArrayList<>();
             for (Node node : frontier) {
+                // Evaluate reveal positions as leaves; this player does not model chance outcomes.
+                if (node.state.nextUnresolvedCard() != null) continue;
                 List<String> moves = LegalMovesHelper.listLegalMoves(node.state);
                 // Mild branching factor cap per node.
                 int expanded = 0;

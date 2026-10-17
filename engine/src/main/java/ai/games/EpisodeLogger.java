@@ -83,6 +83,9 @@ public class EpisodeLogger {
             Map<String, Object> decisionMetadata) {
 
         try {
+            // Training observations use the same knowledge boundary as player inputs.
+            stateBefore = stateBefore.planningCopy();
+            stateAfter = stateAfter.planningCopy();
             // Log the state BEFORE the move, with legal moves and chosen command
             long stateKey = stateBefore.getStateKey();
             List<List<Card>> visibleTableau = stateBefore.getVisibleTableau();

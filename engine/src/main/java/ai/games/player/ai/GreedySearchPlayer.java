@@ -101,6 +101,8 @@ public class GreedySearchPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
+        // Decisions and simulations use only observed identities, including remembered stock cards.
+        solitaire = solitaire.planningCopy();
         long currentKey = solitaire.getStateKey();
 
         // Learn the transition from the previous state and command, if any.

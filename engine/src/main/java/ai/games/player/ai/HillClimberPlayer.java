@@ -60,6 +60,8 @@ public class HillClimberPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
+        // Decisions and simulations use only observed identities, including remembered stock cards.
+        solitaire = solitaire.planningCopy();
         stepsTaken++;
         if (stepsTaken > MAX_STEPS_PER_GAME) {
             return "quit";

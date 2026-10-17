@@ -355,7 +355,7 @@ public class Game implements CommandLineRunner {
                     log.debug("Undo command with empty move history");
                 }
             } else {
-                boolean undoSucceeded = solitaire.undoLastMove();
+                boolean undoSucceeded = solitaire.undoTrainingMove();
                 if (!undoSucceeded) {
                     illegalFeedback = "Undo failed unexpectedly.\n"
                             + "- Please try again.";

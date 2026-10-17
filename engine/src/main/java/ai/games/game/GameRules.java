@@ -8,8 +8,7 @@ import java.util.Properties;
  * <p>
  * Games capture these settings at construction and retain them in ordinary and planning
  * copies. Draw count, observation policy, and stock pass allowance are independent.
- * Visibility is currently retained as configuration; knowledge filtering is implemented
- * separately from drawing and pass enforcement.
+ * Visibility controls observation independently of waste-card playability.
  *
  * @param drawCount the number of cards drawn per stock turn, either 1 or 3
  * @param stockVisibility the observation policy for drawn cards; must not be null

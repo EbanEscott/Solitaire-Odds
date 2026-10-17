@@ -12,7 +12,7 @@ Implement three independent settings: `drawCount` (`1` or `3`), `stockVisibility
 - [x] Audit historical benchmark visibility before labelling existing results.
 - [x] Write [engine/RULES.md](../engine/RULES.md), including worry-back and worked examples.
 
-The current implementation marks every drawn card as revealed and retains the entire waste in planning copies, while some model observations expose only its top card. Verify benchmark revisions before describing historical results as uniformly `topOnly`.
+The implementation inspected during stage 1 marked every drawn card as revealed and retained the entire waste in planning copies, while some model observations exposed only its top card. Verify benchmark revisions before describing historical results as uniformly `topOnly`.
 
 Stage 1 is documentation only. The rules document describes the agreed target, not a claim that the current engine already implements it.
 
@@ -50,18 +50,26 @@ Preserve existing model-backed results as historical measurements. Do not label 
 
 Implemented `GameRules`, the explicit `Solitaire(deck, rules)` constructor, and JVM configuration through `game.drawCount`, `game.stockVisibility`, and `game.maxStockPasses`. Existing constructors capture runtime configuration once; copies retain it. `turnStock()` reports success, and `turnThree()` remains a compatibility wrapper using the configured count. Both move-generation paths use `canTurnStock()`. The game loop rejects blocked turns without counting them as successful moves; rule-based and greedy fallback decisions respect the limit.
 
-Pass state survives copies and rollback. Rules and finite pass counts participate in keys/comparisons; unlimited pass counts do not prevent cycle detection. Knowledge tracking, knowledge-sensitive keys, and training-undo semantics remain part of stage 3. `stockVisibility` is retained but not yet enforced.
+Pass state survives copies and rollback. Rules and finite pass counts participate in keys/comparisons; unlimited pass counts do not prevent cycle detection. At the end of stage 2, knowledge tracking, knowledge-sensitive keys, and training-undo semantics remained for stage 3; visibility was stored but not yet enforced.
 
 Validation: `./gradlew test --tests 'ai.games.unit.*' --console=plain` passed 278 tests on 2026-10-17, including six new rules tests covering the configuration matrix, draw/recycle order, partial draws, rejected turns, remaining waste moves, copies, rollback, and state identity. No results suites or model calls were run.
 
 ## 3. Enforce player knowledge
 
-- [ ] Implement `topOnly` and `allDrawn` observation behavior.
-- [ ] Reveal the next waste card after its top card is played.
-- [ ] Preserve observed identities across recycling.
-- [ ] Mask unknown stock and waste cards in planning views.
-- [ ] Update reveal resolution and audit search players for hidden-information access.
-- [ ] Align CLI, model observations, prompts, and neural-service inputs with configured rules.
+- [x] Implement `topOnly` and `allDrawn` observation behavior.
+- [x] Reveal the next waste card after its top card is played.
+- [x] Preserve observed identities across recycling.
+- [x] Mask unknown stock and waste cards in planning views.
+- [x] Update reveal resolution and audit search players for hidden-information access.
+- [x] Align CLI, model observations, prompts, and neural-service inputs with configured rules.
+
+Both visibility policies now control actual observations and planning reveals. Waste/tableau exposure records knowledge; search rollback restores it exactly, while `undoTrainingMove()` retains real observations and restores pass allowance. Covered knowledge participates in state keys, and comparisons distinguish knowledge differences.
+
+All search-player entry points use masked boards. A* counts only exposed UNKNOWN slots, Monte Carlo resolves those slots or samples complete hypothetical worlds, and beam/AlphaSolitaire stop further expansion at unresolved reveal leaves. Simple search players no longer inspect real hidden identities through copies. The legacy planning move entry point delegates to the maintained generator.
+
+CLI rendering, conversational prompts, TypeSafe observations, neural requests, and episode steps respect the same boundary. Requests describe rules and retain observed pile order. Neural service ingestion now supplies the unseen-card inventory to existing features. Its current feature vector does not separately encode rule settings, pass count, or remembered pile order; these remain request metadata, with legality enforced by the engine. No checkpoint or architecture changes were made.
+
+Validation: the Java unit suite plus `GamePromptsTest` and mocked `TypeSafePlayerTest` passed 298 tests. The Python service observation test passed for camelCase and snake_case inventories using a local stub model. Formatter coverage verifies fresh observations when a renderer is reused. No results suites or paid/model-backed game runs were executed.
 
 ## 4. Verify behavior
 

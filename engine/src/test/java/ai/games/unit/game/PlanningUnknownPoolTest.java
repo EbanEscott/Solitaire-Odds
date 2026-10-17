@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PlanningUnknownPoolTest {
     @Test
     void assignmentReplacesAnImmutableSnapshotAndUndoRestoresItsOrder() {
-        Solitaire plan = SolitaireFactory.stockOnly().planningCopy();
+        Solitaire plan = SolitaireBuilder.newGame().build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null)).planningCopy();
         List<Card> before = plan.getUnknownCards();
         assertSame(before, plan.getUnknownCards());
         assertThrows(UnsupportedOperationException.class, () -> before.remove(0));
@@ -38,7 +38,7 @@ class PlanningUnknownPoolTest {
 
     @Test
     void copiesCanAssignAndUndoIndependentlyWhileSharingImmutableSnapshots() {
-        Solitaire plan = SolitaireFactory.stockOnly().planningCopy();
+        Solitaire plan = SolitaireBuilder.newGame().build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null)).planningCopy();
         plan.turnThree();
         List<Card> before = plan.getUnknownCards();
         Solitaire sibling = plan.copy();
@@ -61,7 +61,7 @@ class PlanningUnknownPoolTest {
 
     @Test
     void completeStockAssignmentRecycleAndRollbackAgreeWithRebuildingThePool() {
-        Solitaire plan = SolitaireFactory.stockOnly().planningCopy();
+        Solitaire plan = SolitaireBuilder.newGame().build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null)).planningCopy();
         List<Card> initial = plan.getUnknownCards();
         long key = plan.getStateKey();
         while (!plan.getStockpile().isEmpty()) {
@@ -107,7 +107,7 @@ class PlanningUnknownPoolTest {
 
     @Test
     void invalidAssignmentsDoNotChangeThePoolOrHistory() {
-        Solitaire plan = SolitaireFactory.stockOnly().planningCopy();
+        Solitaire plan = SolitaireBuilder.newGame().build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null)).planningCopy();
         plan.turnThree();
         List<Card> before = plan.getUnknownCards();
         int depth = plan.getMoveHistorySize();

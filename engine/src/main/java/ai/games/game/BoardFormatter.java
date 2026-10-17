@@ -13,13 +13,8 @@ import java.util.List;
  * All length calculations account for ANSI colour escape sequences, ensuring proper alignment
  * regardless of whether colour codes are present in the output.
  * <p>
- * <strong>TODO: Full Talon Display:</strong>
- * The talon section currently displays only the top card plus a count (e.g., "Q♣ (3)") to avoid
- * cluttering the console. Per official Klondike rules, all three drawn cards are face-up and
- * visible to the player. Consider implementing a new gameplay command (e.g., `show talon` or `show W`)
- * that displays the full sequence of talon cards to improve player awareness. This would be especially
- * useful during debugging and AI analysis, as the underlying {@link Solitaire#getTalon()} method
- * already provides full access to all cards.
+ * Waste and stock knowledge are rendered from a planning view. Unknown identities stay
+ * masked, while observed identities remain available even when covered or recycled.
  */
 public class BoardFormatter {
     /** Default cell width (in characters) used when content is narrower than this value. */
@@ -35,7 +30,7 @@ public class BoardFormatter {
      * @throws NullPointerException if solitaire is null
      */
     public BoardFormatter(Solitaire solitaire) {
-        this.solitaire = solitaire;
+        this.solitaire = java.util.Objects.requireNonNull(solitaire, "solitaire");
     }
 
     /**
@@ -53,6 +48,15 @@ public class BoardFormatter {
      * @return a formatted board representation as a multi-line string
      */
     public String format() {
+        return new BoardFormatter(solitaire.planningCopy()).formatObservation();
+    }
+
+    /**
+     * Renders a single masked snapshot so all sections describe the same observation.
+     *
+     * @return the formatted snapshot, including remembered identities and current rules
+     */
+    private String formatObservation() {
         StringBuilder sb = new StringBuilder();
         int tableauCellWidth = computeTableauCellWidth();
         String tableauBorder = buildBorder(solitaire.getVisibleTableau().size(), "  ", tableauCellWidth);
@@ -60,6 +64,17 @@ public class BoardFormatter {
         appendFoundationSection(sb);
         appendTableauSection(sb, tableauCellWidth);
         appendStockAndTalon(sb);
+        sb.append("\nRules: drawCount=").append(solitaire.getRules().drawCount())
+                .append(", stockVisibility=").append(solitaire.getRules().stockVisibility())
+                .append(", maxStockPasses=").append(solitaire.getRules().maxStockPasses())
+                .append("; currentPass=").append(solitaire.getStockPass()).append('\n');
+        sb.append("Known waste (bottom to top; only top playable): ")
+                .append(solitaire.getTalon().stream().map(Card::shortName).toList()).append('\n');
+        sb.append("Known stock (next draw first): ")
+                .append(solitaire.getStockpile().reversed().stream().map(Card::shortName).toList()).append('\n');
+        sb.append("Known tableau (bottom to top; face-down cards remain unplayable): ")
+                .append(solitaire.getTableau().stream()
+                        .map(pile -> pile.stream().map(Card::shortName).toList()).toList()).append('\n');
         return sb.toString();
     }
 

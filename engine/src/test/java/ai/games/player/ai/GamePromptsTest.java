@@ -39,7 +39,8 @@ class GamePromptsTest {
         assertEquals(named, versioned);
         assertEquals("detailed", named.profile());
         assertEquals("P1.5", named.version());
-        assertTrue(named.strategyPrompt().contains("unlimited passes"));
+        assertTrue(named.strategyPrompt().contains("current board rules"));
+        assertFalse(named.strategyPrompt().contains("unlimited passes"));
         assertTrue(named.strategyPrompt().contains("decision order"));
         assertFalse(named.strategyPrompt().contains("turn impossible"));
         assertTrue(named.gameInterface().contains("exhaustive"));

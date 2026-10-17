@@ -722,6 +722,10 @@ class TreeNodeTest {
                 new String[] {}
             );
 
+            // Establish stock knowledge first; discovering cards makes the initial pass distinct.
+            solitaire.turnStock();
+            solitaire.turnStock();
+
             MonteCarloTreeNode root = new MonteCarloTreeNode();
             root.setState(solitaire);
 

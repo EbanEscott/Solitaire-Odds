@@ -50,12 +50,12 @@ class MonteCarloRolloutTest {
         for (int index = 0; index < representatives.size(); index++) {
             MonteCarloTreeNode node = new MonteCarloTreeNode(position.copy());
             IndexRandom random = mode == Solitaire.GameMode.PLAN && index == 2
-                    ? new IndexRandom(index, 0, 0, 0) : new IndexRandom(index);
+                    ? new IndexRandom(index, 0) : new IndexRandom(index);
 
             Simulation result = simulateOneStep(node, random);
 
             if (mode == Solitaire.GameMode.PLAN && index == 2) {
-                assertEquals(List.of(3, 49, 48, 47), random.bounds);
+                assertEquals(List.of(3, 49), random.bounds);
             } else {
                 assertEquals(List.of(3), random.bounds);
             }

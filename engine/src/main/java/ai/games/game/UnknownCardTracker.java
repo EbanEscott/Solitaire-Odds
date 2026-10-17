@@ -7,33 +7,18 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Tracks which cards have been revealed during play via the stock/talon cycle.
+ * Tracks identities observed through stock draws and newly exposed waste or tableau cards.
  * <p>
- * In Solitaire PLAN mode (lookahead), face-down cards in the tableau are masked with
- * UNKNOWN placeholders. However, cards that have been revealed during actual play
- * (by cycling them through the talon) are no longer truly hidden and should not be
- * masked. This tracker maintains a set of revealed cards so that lookahead can
- * distinguish between:
- * <ul>
- *   <li><strong>Unknown cards:</strong> Never cycled through talon; truly hidden.</li>
- *   <li><strong>Revealed cards:</strong> Once visible in the talon; now in stockpile but known to the player.</li>
- * </ul>
- * <p>
- * The tracker is created once per game and persists across stock cycles. It is reset
- * when a new game begins; undo removes knowledge introduced by the undone turn.
- * <p>
- * <strong>Usage:</strong>
- * <ul>
- *   <li>Call {@link #addRevealedCard(Card)} when a card moves from stockpile to talon.</li>
- *   <li>Call {@link #isRevealed(Card)} to check if a specific card has been seen.</li>
- *   <li>Call {@link #getUnknownCards(Solitaire)} to get a list of all cards not yet revealed.</li>
- * </ul>
+ * Observations survive covering and recycling. Search rollback removes observations introduced
+ * by the discarded action; training undo explicitly retains real observations. Unknown
+ * placeholders are never recorded as identities. Currently visible cards are also known
+ * directly from the board, without requiring a tracker entry.
  */
 public class UnknownCardTracker {
     /** Standard identities in stable suit/rank order; immutable cards can be shared by boards. */
     private static final List<Card> STANDARD_CARDS = standardCards();
 
-    /** Set of cards that have been revealed during play (cycled through talon). */
+    /** Identities remembered after observation, independently of their current pile. */
     private final Set<Card> revealedCards = new HashSet<>();
 
     /**
@@ -46,24 +31,23 @@ public class UnknownCardTracker {
     }
 
     /**
-     * Records that a card has been revealed (visible in the talon).
+     * Records an observed concrete identity.
      * <p>
-     * This is called when a card is drawn from the stockpile onto the talon
-     * during a turn operation. Once recorded, the card is considered "known" to the player
-     * even if it later cycles back to the stockpile.
+     * Once recorded, the card remains known when covered or recycled. Null values and
+     * UNKNOWN placeholders are ignored so placeholders are never mistaken for observed identities.
      *
-     * @param card the card that has been revealed; must not be null
+     * @param card the newly observed card, or null when an action exposed no concrete identity
      */
     public void addRevealedCard(Card card) {
-        if (card != null) {
+        if (card != null && card.getRank() != Rank.UNKNOWN) {
             revealedCards.add(card);
         }
     }
 
     /**
-     * Removes knowledge introduced by a stock turn that is being undone.
+     * Removes knowledge introduced by an action being rolled back.
      *
-     * @param card the card first revealed by that turn
+     * @param card the card first revealed by the discarded action
      */
     void removeRevealedCard(Card card) {
         revealedCards.remove(card);
@@ -85,80 +69,53 @@ public class UnknownCardTracker {
      * Checks whether a specific card has been revealed during play.
      *
      * @param card the card to check; must not be null
-     * @return {@code true} if this card has been revealed (cycled through talon);
-     *         {@code false} if it remains unknown (hidden face-down)
+     * @return {@code true} if this identity has been observed;
+     *         {@code false} if no observation has been recorded
      */
     public boolean isRevealed(Card card) {
         return revealedCards.contains(card);
     }
 
     /**
-     * Returns a list of all cards that are unknown (not yet revealed) in the given game state.
+     * Derives possible unseen identities from public knowledge and planning assignments.
      * <p>
-     * This includes:
-     * <ul>
-     *   <li>Face-down cards in the tableau (cards beyond the visible suffix in each pile).</li>
-     *   <li>Cards in the stockpile (which have not cycled through the talon yet).</li>
-     * </ul>
-     * <p>
-     * Cards that have cycled through the talon are <strong>not</strong> included, even if
-     * they are currently in the stockpile, because the player has already seen them.
+     * Covered waste cards are included when unobserved. GAME boards contribute only visible
+     * and remembered identities, so this inventory never reveals the true location of a hidden card. PLAN boards retain
+     * their committed assumptions as unavailable identities.
      *
-     * PLAN states return possible unseen identities from the standard deck minus known cards.
-     *
-     * @param solitaire the game state to analyze; must not be null
-     * @return a list of unknown cards; never null, may be empty
+     * @param solitaire the real or planning board
+     * @return an immutable list of identities not observed or assigned
      */
     public List<Card> getUnknownCards(Solitaire solitaire) {
-        if (solitaire.isInPlanMode()) {
-            return possibleUnseenCards(solitaire);
-        }
-        Set<Card> unknown = new HashSet<>();
-
-        // Add all face-down cards from the tableau.
-        List<List<Card>> tableau = solitaire.getTableau();
-        List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
-        for (int i = 0; i < tableau.size(); i++) {
-            List<Card> pile = tableau.get(i);
-            int faceUp = i < faceUpCounts.size() ? faceUpCounts.get(i) : 0;
-            if (faceUp < pile.size()) {
-                // Add all face-down cards (cards before the visible suffix).
-                int faceDownStart = Math.max(0, pile.size() - faceUp);
-                for (int j = 0; j < faceDownStart; j++) {
-                    Card card = pile.get(j);
-                    if (!revealedCards.contains(card)) {
-                        unknown.add(card);
-                    }
-                }
-            }
-        }
-
-        // Add all cards in the stockpile that have not been revealed.
-        for (Card card : solitaire.getStockpile()) {
-            if (!revealedCards.contains(card)) {
-                unknown.add(card);
-            }
-        }
-
-        return Collections.unmodifiableList(new ArrayList<>(unknown));
+        return possibleUnseenCards(solitaire);
     }
 
     /**
-     * Derives possible unseen identities from a planning board's knowledge and assignments.
+     * Derives possible unseen identities from observations and planning assignments.
      * <p>
      * Concrete cards in the piles and remembered revealed cards are excluded from the standard
      * 52-card deck. UNKNOWN placeholders contribute no concrete identity, so the real hidden
      * deal is never consulted.
      *
-     * @param solitaire the PLAN board whose remaining identity pool is required
+     * @param solitaire the real or planning board whose remaining identity pool is required
      * @return an unmodifiable list of identities not already known or assigned
      */
     private List<Card> possibleUnseenCards(Solitaire solitaire) {
         Set<Card> known = new HashSet<>(revealedCards);
-        solitaire.getTableau().forEach(known::addAll);
         solitaire.getFoundation().forEach(known::addAll);
-        known.addAll(solitaire.getStockpile());
-        known.addAll(solitaire.getTalon());
+        if (solitaire.isInPlanMode()) {
+            solitaire.getTableau().forEach(known::addAll);
+            known.addAll(solitaire.getStockpile());
+            known.addAll(solitaire.getTalon());
+        } else {
+            // Visible cards are public even when a test fixture did not populate the tracker.
+            solitaire.getVisibleTableau().forEach(known::addAll);
+            if (solitaire.getRules().stockVisibility() == GameRules.StockVisibility.allDrawn) {
+                known.addAll(solitaire.getTalon());
+            } else if (!solitaire.getTalon().isEmpty()) {
+                known.add(solitaire.getTalon().getLast());
+            }
+        }
         List<Card> unseen = new ArrayList<>();
         for (Card card : STANDARD_CARDS) {
             if (!known.contains(card)) unseen.add(card);

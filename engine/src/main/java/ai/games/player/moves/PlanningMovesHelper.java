@@ -11,49 +11,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Computes legal moves for PLAN mode (lookahead with UNKNOWN cards).
+ * Compatibility entry point for the legacy planning move helper.
  * <p>
- * In PLAN mode, face-down cards are masked with UNKNOWN placeholders to prevent
- * information leaks during AI search. This implementation extends the base logic to:
- * <ul>
- *   <li>Generate moves to UNKNOWN card positions (gambling on hidden cards)
- *   <li>Validate moves using UnknownCardGuess plausibility checking
- *   <li>Handle mixed visible/UNKNOWN tableau stacks correctly
- * </ul>
- * <p>
- * The key insight: when we move a card to an UNKNOWN, we're making an assumption
- * about what that card is. The UnknownCardGuess mechanism tracks those assumptions
- * across the lookahead tree.
+ * Public move generation delegates to the maintained knowledge-aware implementation.
+ * The protected helpers below retain the historical guess-based implementation and are
+ * not used by this entry point. Generating moves never assigns an UNKNOWN identity.
  */
 public class PlanningMovesHelper extends MovesHelper {
 
     @Override
     public List<String> listLegalMoves(Solitaire solitaire) {
-        if (solitaire == null) {
-            return new ArrayList<>();
-        }
-        
-        this.solitaire = solitaire;
-        List<String> moves = new ArrayList<>();
-        
-        addTableauToFoundation(moves);
-        addTableauToTableau(moves);
-        addTalonToFoundation(moves);
-        addTalonToTableau(moves);
-        addFoundationToTableau(moves);
-        
-        // Stock turns must respect the remaining pass allowance.
-        if (solitaire.canTurnStock()) {
-            moves.add("turn");
-        }
-        
-        // "quit" is always a legal command from the engine's perspective.
-        moves.add("quit");
-        
-        // Validate all guesses to ensure state remains plausible and consistent
-        validateGuesses();
-        
-        return moves;
+        return ai.games.player.LegalMovesHelper.listLegalMoves(solitaire);
     }
 
     @Override

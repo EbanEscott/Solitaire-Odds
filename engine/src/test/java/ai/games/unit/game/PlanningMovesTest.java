@@ -112,6 +112,6 @@ class PlanningMovesTest {
                     .map(rank -> new Card(rank, suit).shortName()).toArray(String[]::new);
             builder.foundation("F" + pile++, cards);
         }
-        return builder.build();
+        return builder.build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null));
     }
 }

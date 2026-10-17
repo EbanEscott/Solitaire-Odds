@@ -31,21 +31,15 @@ import java.util.random.RandomGenerator;
  *   <li><strong>Foundation (F1–F4):</strong> Four piles, one per suit, built from Ace to King.</li>
  *   <li><strong>Stockpile (S):</strong> Remaining undealt cards (face-down). When empty,
  *       the talon can be recycled back.</li>
- *   <li><strong>Talon (W):</strong> Cards revealed from the stockpile during \"turn three\" operations.
- *       Per Klondike Turn-3 rules: three cards are drawn and placed face-up into the talon.
- *       All three cards are strategically visible to the player, but only the top card is legally
- *       playable to the foundations or tableau at any given time. Use {@link #getTalon()} to inspect
- *       all cards in the talon (important for AI planning), and {@link ai.games.player.LegalMovesHelper} enforces
- *       that only the top card can actually be moved.</li>
+ *   <li><strong>Talon (W):</strong> Cards drawn from stock. Only its top card is playable.
+ *       The configured visibility policy controls which identities become observed.</li>
  * </ul>
  * <p>
  * <strong>Card Visibility:</strong>
- * GAME states retain the actual hidden identities. Use {@link #planningCopy()} before
- * exploring positions using only player knowledge.
- * Use {@link #getVisibleTableau()} for AI decision-making and {@link #getTableauFaceDownCounts()}
- * to know how many cards are hidden in each pile. The talon, by contrast, is fully visible (all
- * cards dealt face-up per Klondike rules), and AI players have full access to all three cards via
- * {@link #getTalon()} for strategic planning, even though only the top card is playable.
+ * GAME states retain actual identities for rule execution. Player decisions and simulations
+ * use {@link #planningCopy()}, which masks unobserved stock, tableau, and covered waste
+ * identities. Observed cards remain known after covering or recycling. A known identity is
+ * not necessarily playable: pile position and face-up status still govern movement.
  * <p>
  * <strong>Move Validation:</strong>
  * All moves are validated against Solitaire rules:
@@ -176,7 +170,7 @@ public class Solitaire {
     /**
      * Creates a PLAN copy containing only visible or previously observed card identities.
      * <p>
-     * Unseen tableau and stock cards become UNKNOWN placeholders; the source is unchanged.
+     * Unseen tableau, stock, and covered waste cards become UNKNOWN placeholders; the source is unchanged.
      * On an existing PLAN state, this is equivalent to {@link #copy()} and preserves committed
      * assumptions. Players resolve revealed UNKNOWN slots through {@link #assumeCard(Card, Card)}.
      *
@@ -219,7 +213,11 @@ public class Solitaire {
         } else {
             clone.stockpile.addAll(stockpile);
         }
-        clone.talon.addAll(talon);
+        for (int i = 0; i < talon.size(); i++) {
+            Card card = talon.get(i);
+            clone.talon.add(maskHiddenCards && rules.stockVisibility() == GameRules.StockVisibility.topOnly
+                    && i < talon.size() - 1 ? observedCard(card) : card);
+        }
         clone.unknownCardTracker.copyFrom(unknownCardTracker);
         clone.unknownCardGuesses.putAll(unknownCardGuesses);
         if (maskHiddenCards) {
@@ -236,8 +234,8 @@ public class Solitaire {
     /**
      * Finds the first revealed UNKNOWN slot that still needs an identity.
      * <p>
-     * Searches visible tableau cards in pile order, then waste cards from bottom to top.
-     * Face-down tableau and stock slots remain unresolved until revealed.
+     * Searches visible tableau cards, then exposed waste slots under the configured policy.
+     * Face-down tableau, stock, and covered topOnly waste slots remain unresolved until exposed.
      *
      * @return the UNKNOWN card instance identifying the slot, or {@code null} when no revealed
      *         slot needs an assignment or this instance is in GAME mode
@@ -250,10 +248,37 @@ public class Solitaire {
                 if (pile.get(i).getRank() == Rank.UNKNOWN) return pile.get(i);
             }
         }
-        for (Card card : talon) {
-            if (card.getRank() == Rank.UNKNOWN) return card;
+        for (int i = 0; i < talon.size(); i++) {
+            Card card = talon.get(i);
+            if (isWasteExposed(i) && card.getRank() == Rank.UNKNOWN) return card;
         }
         return null;
+    }
+
+    /**
+     * Checks whether a waste slot is exposed under the configured draw policy.
+     *
+     * @param index the bottom-to-top waste index
+     * @return true for the top slot, or every slot under allDrawn
+     */
+    private boolean isWasteExposed(int index) {
+        return index == talon.size() - 1 || rules.stockVisibility() == GameRules.StockVisibility.allDrawn;
+    }
+
+    /**
+     * Counts exposed UNKNOWN slots without treating covered waste cards as observations.
+     *
+     * @return the number of identities a planning branch must resolve before continuing
+     */
+    public int unresolvedObservationCount() {
+        int count = 0;
+        for (List<Card> pile : getVisibleTableau()) {
+            for (Card card : pile) if (card.getRank() == Rank.UNKNOWN) count++;
+        }
+        for (int i = 0; i < talon.size(); i++) {
+            if (isWasteExposed(i) && talon.get(i).getRank() == Rank.UNKNOWN) count++;
+        }
+        return count;
     }
 
     /**
@@ -283,7 +308,7 @@ public class Solitaire {
             }
         }
         for (int i = 0; i < talon.size() && slot < 0; i++) {
-            if (talon.get(i) == unknown) { pileCode = "W"; slot = i; }
+            if (isWasteExposed(i) && talon.get(i) == unknown) { pileCode = "W"; slot = i; }
         }
         if (slot < 0) throw new IllegalArgumentException("UNKNOWN must be a revealed slot on this board");
         return assignCard(pileCode, slot, identity);
@@ -350,7 +375,7 @@ public class Solitaire {
         remaining.remove(identityIndex);
         Assignment assignment = new Assignment(slot, unknown, unknownCardGuesses.get(unknown), unseen);
         moveHistory.add(new Action("assume", pileCode, null, 0, -1, -1, false, 0,
-                cachedStateKey, stateKeyValid, assignment));
+                cachedStateKey, stateKeyValid, assignment, null));
         remainingUnknownCards = Collections.unmodifiableList(remaining);
         resolvePile(pileCode).set(slot, identity);
         unknownCardGuesses.put(unknown, new UnknownCardGuess(unknown, identity));
@@ -366,12 +391,21 @@ public class Solitaire {
      * cards that were unknown when the move was selected. This comparison is directional and
      * does not compare guess maps or action histories.
      * Rules and finite pass counts must also match. Unlimited traversal counts do not
-     * affect future legality and are ignored.
+     * affect future legality and are ignored. Two GAME boards are compared by equal public
+     * knowledge; hidden arrangements do not participate in that comparison.
      *
      * @param observed the newly observed position; must not be null
      * @return {@code true} if the observed piles match all known constraints in this prediction
      */
     public boolean matchesObservation(Solitaire observed) {
+        // Compare public knowledge rather than true hidden arrangements on real boards.
+        if (!isInPlanMode()) {
+            Solitaire prediction = planningCopy();
+            if (observed.isInPlanMode()) return prediction.matchesObservation(observed);
+            Solitaire observation = observed.planningCopy();
+            return prediction.matchesObservation(observation) && observation.matchesObservation(prediction);
+        }
+        if (!observed.isInPlanMode()) observed = observed.planningCopy();
         if (!rules.equals(observed.rules)) return false;
         if (rules.maxStockPasses() != null && stockPass != observed.stockPass) return false;
         if (!tableauFaceUp.equals(observed.tableauFaceUp)) return false;
@@ -381,7 +415,8 @@ public class Solitaire {
         for (int i = 0; i < foundation.size(); i++) {
             if (!matchesPile(foundation.get(i), observed.foundation.get(i))) return false;
         }
-        return matchesPile(stockpile, observed.stockpile) && matchesPile(talon, observed.talon);
+        if (!matchesPile(stockpile, observed.stockpile) || !matchesPile(talon, observed.talon)) return false;
+        return true;
     }
 
     /**
@@ -452,8 +487,9 @@ public class Solitaire {
     }
 
     /**
-     * Returns an immutable view of the stockpile (undealt cards, face-down).
+     * Returns an immutable view of the stockpile in this board's mode.
      * <p>
+     * GAME views contain true identities; player-facing callers must use a planning board.
      * The stockpile is a LIFO stack; the last card added is the first to be drawn.
      * When empty and the talon is not empty, the talon can be recycled back into the stockpile.
      *
@@ -464,8 +500,10 @@ public class Solitaire {
     }
 
     /**
-     * Returns an immutable view of the talon (revealed cards from the stockpile).
+     * Returns an immutable view of the waste in this board's mode.
      * <p>
+     * Covered cards can be unobserved. GAME views contain true identities; planning views
+     * mask those unobserved cards while preserving the waste top and remembered identities.
      * The talon grows as cards are turned from the stockpile and shrinks as cards are moved
      * to the tableau or foundation. The top card (last in the list) is the most recently revealed.
      *
@@ -595,8 +633,7 @@ public class Solitaire {
      * A partial final draw takes the remaining stock cards. Recycling preserves card order
      * and starts the next pass in the same action as the draw. Successful turns record one
      * reversible action; rejected turns leave the board, pass count, and history unchanged.
-     * The current reveal tracker still records all drawn cards; observation filtering is
-     * a separate implementation step.
+     * Only identities exposed by the configured visibility policy are recorded as observed.
      *
      * @return true if cards were drawn, false if no stock turn was permitted
      */
@@ -621,13 +658,14 @@ public class Solitaire {
             Card card = stockpile.remove(stockpile.size() - 1);
             talon.add(card);
             // Only newly revealed cards should become unknown again on undo.
-            if (!unknownCardTracker.isRevealed(card)) {
+            if ((rules.stockVisibility() == GameRules.StockVisibility.allDrawn || i == movedCount - 1)
+                    && card.getRank() != Rank.UNKNOWN && !unknownCardTracker.isRevealed(card)) {
                 newlyRevealedMask |= 1 << i;
                 unknownCardTracker.addRevealedCard(card);
             }
         }
         moveHistory.add(new Action("turn", null, null, movedCount, -1, -1,
-                recycled, newlyRevealedMask, previousStateKey, previousStateKeyValid, null));
+                recycled, newlyRevealedMask, previousStateKey, previousStateKeyValid, null, null));
         return true;
     }
 
@@ -743,10 +781,18 @@ public class Solitaire {
 
         int movedCount = fromPile.size() - movingIdx;
         List<Card> segment = new ArrayList<>(fromPile.subList(movingIdx, fromPile.size()));
+        Card revealed = null;
+        if (movingIdx > 0 && (fromType == 'W'
+                || (fromType == 'T' && movingIdx == startFaceUpIdx))) {
+            Card exposed = fromPile.get(movingIdx - 1);
+            if (exposed.getRank() != Rank.UNKNOWN && !unknownCardTracker.isRevealed(exposed)) {
+                revealed = exposed;
+            }
+        }
         Action action = new Action("move", fromNormalized, toNormalized, movedCount,
                 fromType == 'T' ? tableauFaceUp.get(fromIndex) : -1,
                 toType == 'T' ? tableauFaceUp.get(toIndex) : -1,
-                false, 0, cachedStateKey, stateKeyValid, null);
+                false, 0, cachedStateKey, stateKeyValid, null, revealed);
         stateKeyValid = false;
         for (int i = fromPile.size() - 1; i >= movingIdx; i--) {
             fromPile.remove(i);
@@ -765,6 +811,7 @@ public class Solitaire {
             tableauFaceUp.set(toIndex, tableauFaceUp.get(toIndex) + movedCount);
         }
         
+        unknownCardTracker.addRevealedCard(revealed);
         moveHistory.add(action);
         
         return MoveResult.success("Moved " + moving.shortName() + " from " + fromNormalized + " to " + toNormalized + ".");
@@ -867,7 +914,11 @@ public class Solitaire {
             int faceUpBase = 2048 + pileIndex * 64;
             h ^= STATE_ZOBRIST[faceUpBase + tableauFaceUp.get(pileIndex)] ^ STATE_ZOBRIST[faceUpBase];
             pileIndex++;
-            for (Card c : pile) h ^= cardSlotKey(idx++, c);
+            for (int i = 0; i < pile.size(); i++) {
+                Card card = pile.get(i);
+                if (i < pile.size() - tableauFaceUp.get(pileIndex - 1)) h ^= knowledgeSlotKey(idx, card);
+                h ^= cardSlotKey(idx++, card);
+            }
         }
 
         // Foundation piles.
@@ -883,11 +934,13 @@ public class Solitaire {
         h ^= pileSizeKey(pileIndex, talon.size());
         // Stockpile.
         for (Card c : stockpile) {
+            h ^= knowledgeSlotKey(idx, c);
             h ^= cardSlotKey(idx++, c);
         }
 
         // Talon.
         for (Card c : talon) {
+            if (c != talon.getLast()) h ^= knowledgeSlotKey(idx, c);
             h ^= cardSlotKey(idx++, c);
         }
 
@@ -897,6 +950,18 @@ public class Solitaire {
         }
 
         return h;
+    }
+
+    /**
+     * Distinguishes remembered identities at currently covered positions.
+     *
+     * @param slot the stable card position in the board hash
+     * @param card the card occupying that position
+     * @return a position-specific contribution when the identity has been observed
+     */
+    private long knowledgeSlotKey(int slot, Card card) {
+        return unknownCardTracker.isRevealed(card)
+                ? Long.rotateLeft(0xD1B54A32D192ED03L, slot) : 0L;
     }
 
     /**
@@ -1197,9 +1262,37 @@ public class Solitaire {
             undoTurn(action);
         } else {
             undoCardMove(action);
+            unknownCardTracker.removeRevealedCard(action.revealedCard());
         }
         cachedStateKey = action.previousStateKey();
         stateKeyValid = action.previousStateKeyValid();
+        return true;
+    }
+
+    /**
+     * Undoes a real training action while retaining identities the player has observed.
+     * <p>
+     * Search must use {@link #undoLastMove()} or {@link #rollbackTo(int)} instead: information
+     * from discarded hypothetical branches must not survive rollback.
+     *
+     * @return true if a real action was undone, false if no action was available
+     * @throws IllegalStateException if invoked on a planning board
+     */
+    public boolean undoTrainingMove() {
+        if (isInPlanMode()) throw new IllegalStateException("Training undo requires a real game");
+        if (!canUndo()) return false;
+        UnknownCardTracker remembered = new UnknownCardTracker();
+        remembered.copyFrom(unknownCardTracker);
+        for (List<Card> pile : getVisibleTableau()) {
+            for (Card card : pile) remembered.addRevealedCard(card);
+        }
+        for (List<Card> pile : foundation) {
+            for (Card card : pile) remembered.addRevealedCard(card);
+        }
+        if (!talon.isEmpty()) remembered.addRevealedCard(talon.getLast());
+        undoLastMove();
+        unknownCardTracker.copyFrom(remembered);
+        stateKeyValid = false;
         return true;
     }
 
@@ -1283,12 +1376,13 @@ public class Solitaire {
      * after validation, so every entry has the information needed for exact undo.
      * Face-up counts are -1 for non-tableau piles. For turns, bit i of newlyRevealedMask
      * records whether drawn card i was previously unknown (at most three bits).
+     * Card transfers retain the newly exposed identity, if any, for knowledge rollback.
      * For assignments, {@code from} identifies the affected pile and {@code assignment}
      * stores its slot, placeholder, prior guess, and previous identity pool; other action types leave it null.
      */
     private record Action(String type, String from, String to, int movedCount,
                           int fromFaceUp, int toFaceUp, boolean recycled, int newlyRevealedMask,
-                          long previousStateKey, boolean previousStateKeyValid, Assignment assignment) {}
+                          long previousStateKey, boolean previousStateKeyValid, Assignment assignment, Card revealedCard) {}
 
     /**
      * Stores the information needed to undo one speculative card assignment.

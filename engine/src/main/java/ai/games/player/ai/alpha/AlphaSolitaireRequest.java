@@ -1,6 +1,7 @@
 package ai.games.player.ai.alpha;
 
 import ai.games.game.Card;
+import ai.games.game.GameRules;
 import ai.games.game.Solitaire;
 import ai.games.player.LegalMovesHelper;
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ public class AlphaSolitaireRequest {
     /**
      * Cards in the talon (waste) pile.
      * Shows cards drawn from the stockpile but not yet played.
-     * Listed in display order (most recently drawn first).
+     * Listed bottom-to-top, with unknown covered cards represented by placeholders.
      */
     private final List<String> talon;
 
@@ -60,6 +61,66 @@ public class AlphaSolitaireRequest {
      * Each move is a command string (e.g., "move T1 A♥ F1", "turn", "quit").
      */
     private final List<String> legalMoves;
+
+    /** Rules attached to the observation; absent on legacy manually constructed requests. */
+    private GameRules rules;
+
+    /** Current stock traversal, including the initial pass. */
+    private long stockPass;
+
+    /** Possible unseen identities derived only from observations, never hidden locations. */
+    private List<String> unknownCards;
+
+    /**
+     * Returns the unseen identity inventory used by the existing neural feature encoder.
+     *
+     * @return possible card identities with observed and assigned cards removed
+     */
+    public List<String> getUnknownCards() {
+        return unknownCards;
+    }
+
+    /** Remembered stock identities in next-draw order, with unknown slots masked. */
+    private List<String> knownStock;
+
+    /** Remembered tableau identities, including observed cards covered by training undo. */
+    private List<List<String>> knownTableau;
+
+    /**
+     * Returns the rules governing the observed game.
+     *
+     * @return the rules, or null for a legacy manually constructed request
+     */
+    public GameRules getRules() {
+        return rules;
+    }
+
+    /**
+     * Returns the current stock traversal.
+     *
+     * @return the one-based pass number, or zero for a legacy request
+     */
+    public long getStockPass() {
+        return stockPass;
+    }
+
+    /**
+     * Returns stock knowledge without exposing unobserved identities.
+     *
+     * @return known cards and UNKNOWN placeholders in next-draw order
+     */
+    public List<String> getKnownStock() {
+        return knownStock;
+    }
+
+    /**
+     * Returns tableau knowledge independently of card playability.
+     *
+     * @return masked columns in bottom-to-top order
+     */
+    public List<List<String>> getKnownTableau() {
+        return knownTableau;
+    }
 
     /**
      * Constructs a request with the full game state.
@@ -153,6 +214,7 @@ public class AlphaSolitaireRequest {
      * @return a new AlphaSolitaireRequest with the encoded game state
      */
     public static AlphaSolitaireRequest fromSolitaire(Solitaire solitaire) {
+        solitaire = solitaire.planningCopy();
         List<List<String>> tableauVisible = new ArrayList<>();
         for (List<Card> pile : solitaire.getVisibleTableau()) {
             List<String> pileShortNames = new ArrayList<>(pile.size());
@@ -182,13 +244,20 @@ public class AlphaSolitaireRequest {
 
         List<String> legalMoves = LegalMovesHelper.listLegalMoves(solitaire);
 
-        return new AlphaSolitaireRequest(
+        AlphaSolitaireRequest request = new AlphaSolitaireRequest(
                 tableauVisible,
                 tableauFaceDown,
                 foundation,
                 talon,
                 stockSize,
                 legalMoves);
+        request.unknownCards = solitaire.getUnknownCards().stream().map(Card::shortName).toList();
+        request.rules = solitaire.getRules();
+        request.stockPass = solitaire.getStockPass();
+        request.knownStock = solitaire.getStockpile().reversed().stream().map(Card::shortName).toList();
+        request.knownTableau = solitaire.getTableau().stream()
+                .map(pile -> pile.stream().map(Card::shortName).toList()).toList();
+        return request;
     }
 }
 

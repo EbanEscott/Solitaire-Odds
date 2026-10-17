@@ -52,7 +52,7 @@ final class GamePrompts {
             "Quit only when stock passes and legal rearrangements offer no productive path.");
 
     static final String MOVE_SELECTION_INSTRUCTIONS =
-            "Choose the command you would play next in this draw-three Klondike Solitaire game. "
+            "Choose the command you would play next in this Klondike Solitaire game. "
                     + "The objective is to move all cards to the foundations. Return one listed option.";
 
     static final String MOVE_SELECTION_INSTRUCTIONS_DETAILED =
@@ -71,7 +71,7 @@ final class GamePrompts {
 
     private static String detailedStrategyPrompt() {
         return """
-            You are about to play one complete game of draw-three Klondike Solitaire.
+            You are about to play one complete game of Klondike Solitaire.
 
             Before the game begins, form a strategy using these rules and priorities.
 
@@ -193,7 +193,7 @@ final class GamePrompts {
     static String commandEffect(String command) {
         String[] parts = command.split(" ");
         if (command.equals("turn")) {
-            return "Draw up to three cards from stock onto the waste, or recycle the waste when stock is empty.";
+            return "Draw the configured number of cards, recycling first only when another pass is allowed.";
         }
         if (command.equals("quit")) {
             return "End the game immediately without winning.";
@@ -259,7 +259,7 @@ final class GamePrompts {
                 "Build downward in alternating colours; movable visible stacks remain ordered; only a King-led stack enters an empty column.");
         rules.put(
                 "stock",
-                "Draw three cards at a time. Only the visible waste top is playable. When stock is empty, turn recycles the waste with unlimited passes.");
+                "Use the current board rules for draw count, observation policy, and total stock passes. Only the waste top is playable; remembered covered cards remain unplayable. A permitted turn on empty stock recycles and draws.");
         return Collections.unmodifiableMap(rules);
     }
 

@@ -1,6 +1,6 @@
 # Klondike rules
 
-This is the agreed contract for configurable rules. Configuration, draw count, and pass limits are implemented. Knowledge filtering and the distinction between training undo and search rollback are pending; the current engine does not yet enforce every rule below. Track implementation in the [checklist](../experiments/klondike_rules_checklist.md).
+This is the agreed contract for configurable rules. Configuration, draw count, pass limits, knowledge filtering, and separate training-undo/search-rollback behavior are implemented. Track implementation in the [checklist](../experiments/klondike_rules_checklist.md).
 
 ## Configuration
 

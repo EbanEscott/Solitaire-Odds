@@ -62,6 +62,9 @@ def _pick_action_and_scores(
         or request_payload.get("tableauFaceDown", []),
         "foundation": request_payload.get("foundation", []),
         "talon": request_payload.get("talon", []),
+        # The engine derives this inventory from observations, including remembered stock cards.
+        "unknown_cards": request_payload.get("unknown_cards")
+        or request_payload.get("unknownCards", []),
         "stock_size": request_payload.get("stock_size")
         or request_payload.get("stockSize", 0),
         "legal_moves": request_payload.get("legal_moves")

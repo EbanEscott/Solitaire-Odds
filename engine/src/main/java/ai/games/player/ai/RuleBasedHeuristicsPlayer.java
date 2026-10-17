@@ -11,11 +11,11 @@ import org.springframework.stereotype.Component;
 
 /**
  * Rule-based, deterministic heuristics. Rules:
- * 1) First move: always turn three.
+ * 1) First move: turn stock when permitted.
  * 2) Check tableau then talon for foundation moves; if found, perform and repeat step 2.
  * 3) Scan T7 -> T1 for tableau moves considering the bottom visible card only (earliest face-up). If it fits, move the entire visible pile (one move command) to foundation or tableau; then return to step 2.
  * 4) If no tableau move, try talon to foundation/tableau; if moved, return to step 2.
- * 5) If no moves and stock remains, turn three and return to step 2.
+ * 5) If no moves and stock remains, draw the configured count and return to step 2.
  * 6) If stock is exhausted and no talon move has occurred in this pass, quit (avoid endless turns).
  */
 @Component
@@ -27,10 +27,12 @@ public class RuleBasedHeuristicsPlayer extends AIPlayer implements Player {
 
     @Override
     public String nextCommand(Solitaire solitaire, String moves, String feedback) {
-        // Step 1: first move is to turn three.
+        // Decisions and simulations use only observed identities, including remembered stock cards.
+        solitaire = solitaire.planningCopy();
+        // Step 1: begin with a stock observation when a turn is legal.
         if (!hasTurnedOnce) {
             hasTurnedOnce = true;
-            return "turn";
+            if (solitaire.canTurnStock()) return "turn";
         }
 
         // Step 2: foundation priority from tableau then talon.

@@ -19,7 +19,7 @@ class PlanningSamplingTest {
     @Test
     void samplingPreservesKnownCardsAndAssignmentsAndUsesTheExistingUndoHistory() {
         Solitaire real = SolitaireBuilder.newGame().tableau("T1", 1, "5♣", "A♠")
-                .tableau("T2", 1, "K♦", "2♥").build();
+                .tableau("T2", 1, "K♦", "2♥").build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null));
         real.turnThree();
         long realKey = real.getStateKey();
         List<Card> knownWaste = List.copyOf(real.getTalon());

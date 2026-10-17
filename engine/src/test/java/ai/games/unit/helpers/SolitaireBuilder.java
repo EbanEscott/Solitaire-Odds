@@ -176,8 +176,18 @@ public final class SolitaireBuilder {
      * to this builder so it can be removed later without touching every test.
      */
     public Solitaire build() {
+        return build(ai.games.game.GameRules.DEFAULT);
+    }
+
+    /**
+     * Builds a fixture with explicit rules instead of runtime configuration.
+     *
+     * @param rules the immutable configuration for the fixture
+     * @return the complete seeded board
+     */
+    public Solitaire build(ai.games.game.GameRules rules) {
         // Start from a real instance so all internal lists exist and have correct shapes.
-        Solitaire s = new Solitaire(new Deck());
+        Solitaire s = new Solitaire(new Deck(), rules);
 
         // Auto-fill remaining cards into stock (bottom-to-top), preserving any explicit stock order.
         List<Card> fullDeck = fullDeckInStableOrder();

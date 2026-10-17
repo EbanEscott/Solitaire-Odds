@@ -59,7 +59,7 @@ class PlanningSearchTest {
 
     @Test
     void aStarSamplesCompleteStockOutcomesAndRetainsAllWeight() throws Exception {
-        Solitaire state = SolitaireFactory.stockOnly().planningCopy();
+        Solitaire state = SolitaireBuilder.newGame().build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null)).planningCopy();
         state.turnThree();
         AStarTreeNode node = new AStarTreeNode(state);
         expandReveal(new AStarPlayer(), node, newSearch());
@@ -237,6 +237,6 @@ class PlanningSearchTest {
                     .filter(rank -> rank != Rank.UNKNOWN && rank.getValue() <= maximum)
                     .map(rank -> new Card(rank, suit).shortName()).toArray(String[]::new));
         }
-        return builder.build();
+        return builder.build(new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null));
     }
 }

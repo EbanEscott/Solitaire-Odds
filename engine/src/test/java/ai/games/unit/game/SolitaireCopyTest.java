@@ -108,7 +108,7 @@ class SolitaireCopyTest {
 
     @Test
     void bothKindsOfCopyPreservePreviouslySeenStockAndIndependentUndo() {
-        Solitaire real = new Solitaire(new Deck());
+        Solitaire real = new Solitaire(new Deck(), new ai.games.game.GameRules(3, ai.games.game.GameRules.StockVisibility.allDrawn, null));
         real.turnThree();
         List<Card> seen = List.copyOf(real.getTalon());
         Solitaire realCopy = real.copy();

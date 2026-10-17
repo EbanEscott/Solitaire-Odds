@@ -224,7 +224,7 @@ public class TypeSafePlayer extends AIPlayer
             Map<String, Object> currentBoard, String feedback) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("game", "Klondike Solitaire");
-        state.put("variant", "draw three with unlimited stock passes");
+        state.put("variant", currentBoard.get("game_rules"));
         state.put("observation_format", observationFormat());
         if (promptSet.profile().equals("detailed")) {
             state.put("rules", promptSet.rules());
@@ -257,13 +257,24 @@ public class TypeSafePlayer extends AIPlayer
 
     /** Captures exactly the board information visible in the human console. */
     private static Map<String, Object> observedBoard(Solitaire solitaire) {
+        solitaire = solitaire.planningCopy();
         Map<String, Object> board = new LinkedHashMap<>();
+        Map<String, Object> rules = new LinkedHashMap<>();
+        rules.put("drawCount", solitaire.getRules().drawCount());
+        rules.put("stockVisibility", solitaire.getRules().stockVisibility().name());
+        rules.put("maxStockPasses", solitaire.getRules().maxStockPasses());
+        board.put("game_rules", rules);
+        board.put("stock_pass", solitaire.getStockPass());
+        board.put("known_stock_next_draw_first", cardNames(solitaire.getStockpile().reversed()));
+        board.put("known_tableau_bottom_to_top", solitaire.getTableau().stream()
+                .map(TypeSafePlayer::cardNames).toList());
         board.put("foundations", foundationState(solitaire));
         board.put("tableau", tableauState(solitaire));
         board.put("stock", Map.of("face_down_count", solitaire.getStockpile().size()));
 
         Map<String, Object> waste = new LinkedHashMap<>();
         waste.put("card_count", solitaire.getTalon().size());
+        waste.put("known_bottom_to_top", cardNames(solitaire.getTalon()));
         waste.put(
                 "visible_top",
                 solitaire.getTalon().isEmpty()
@@ -328,7 +339,7 @@ public class TypeSafePlayer extends AIPlayer
                 "tableau_order",
                 "face_up_bottom_to_top is ordered from the bottom of the visible stack to its exposed top card.");
         format.put("hidden_cards", "Only face_down_count is observable; identities remain unknown.");
-        format.put("waste_visibility", "Only visible_top is playable and currently visible.");
+        format.put("waste_visibility", "Only visible_top is playable. Known sequences retain observed identities; UNKNOWN entries remain unobserved.");
         format.put("empty_pile", "An empty visible stack is [] and a missing top card is null.");
         format.put(
                 "previous_turns",
@@ -373,7 +384,7 @@ public class TypeSafePlayer extends AIPlayer
 
         int hiddenBefore = faceDownCount(solitaire);
         int foundationBefore = foundationCount(solitaire);
-        Solitaire resultingState = solitaire.copy();
+        Solitaire resultingState = solitaire.planningCopy();
         applyCommand(resultingState, command);
         int hiddenDelta = hiddenBefore - faceDownCount(resultingState);
         int foundationDelta = foundationCount(resultingState) - foundationBefore;
@@ -476,7 +487,7 @@ public class TypeSafePlayer extends AIPlayer
     private static SimulatedProgress simulateProgress(Solitaire solitaire, String command) {
         int hiddenBefore = faceDownCount(solitaire);
         int foundationBefore = foundationCount(solitaire);
-        Solitaire resultingState = solitaire.copy();
+        Solitaire resultingState = solitaire.planningCopy();
         applyCommand(resultingState, command);
         return new SimulatedProgress(
                 hiddenBefore - faceDownCount(resultingState),

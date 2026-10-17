@@ -399,3 +399,9 @@ The service exposes a single endpoint:
   ```
 
 On the Java side, an `AlphaSolitairePlayer` can mirror the existing logging structure to build this JSON, POST it to `/evaluate`, and use `chosen_command` as its move.
+
+## Configurable engine observations
+
+The Java service request masks unobserved waste cards and supplies only observed or simulated information. It includes `rules`, `stockPass`, `knownStock` (next draw first), `knownTableau` (bottom to top), and `unknownCards` (possible unseen identities). The service accepts `unknownCards` or `unknown_cards` and passes that inventory into the existing 52-card knowledge features. UNKNOWN card placeholders encode as zero rank/colour while retaining pile counts.
+
+The existing feature layout and checkpoints are unchanged. Rules, pass count, and remembered pile order are available in the request but are not separate features in the current network; the engine enforces legality and supplies the legal-action list. The model therefore cannot distinguish every rule or memory condition from its feature vector alone. Expanding those features and retraining is separate work.
