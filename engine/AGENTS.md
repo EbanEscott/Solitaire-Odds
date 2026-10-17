@@ -16,3 +16,13 @@ When asked to publish settled player results or refresh the root results table:
 5. **Keep engine-specific details** (how to run, profiles, logging) in `engine/README.md`, and avoid duplicating the full results table there.
 
 Use the paths under `engine/src/main/java/ai/games/player/ai/` when linking to player implementations from documentation.
+
+## Java documentation
+
+Every class (including nested classes and records), field, constructor, and method must have a descriptive Javadoc-style comment using `/** ... */`, matching the documented search players. Document purpose, behavior, and relevant constraints; use `@param` and `@return` where they clarify the contract.
+
+Every logical code block inside a method must also have an explanatory `/** ... */` comment. Describe the intent of loops, branches, and grouped operations rather than restating individual statements. Apply this style throughout classes you substantially revise, including their tests.
+
+Keep algorithm documentation accurate: explain search depth, scoring, tie-breaking, information boundaries, cycle handling, and termination where relevant. Do not describe local perturbations as restarts or claim a player avoids simulation when it evaluates copied successors.
+
+Do not hard-wrap Markdown prose; let the viewer wrap lines.

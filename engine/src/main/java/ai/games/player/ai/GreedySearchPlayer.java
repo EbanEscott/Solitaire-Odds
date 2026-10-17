@@ -1,10 +1,11 @@
 package ai.games.player.ai;
 
 import ai.games.game.Card;
+import ai.games.game.Move;
 import ai.games.game.Solitaire;
 import ai.games.player.AIPlayer;
+import ai.games.player.LegalMovesHelper;
 import ai.games.player.Player;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -14,514 +15,209 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
- * Greedy (1-ply) player for Klondike:
+ * Deterministic one-ply greedy player that scores every legal immediate successor.
  *
- * - Enumerates ALL legal immediate moves.
- * - Assigns a local score to each move (no search, no simulation, no multi-step planning).
- * - Plays the highest-scoring move. Ties are broken by fixed scan order.
+ * <p>Only observed identities are available to simulations. Scores reward physical tableau
+ * reveals, net empty columns, waste deployment, and foundation progress. Conservative
+ * foundation safety affects priority rather than legality. Ties retain engine move order.
+ * There is no deeper search, hidden-card sampling, or random escape.
  *
- * Key differences vs the old greedy:
- * 1) Tableau-to-tableau considers ANY face-up run head, not just top cards.
- * 2) Always plays any legal foundation move, with extra score for those that reveal facedown cards.
- * 3) Adds explicit greedy features that matter in solitaire:
- *    - reveal facedown cards
- *    - create / use empty columns
- * 4) Blocks exact inverse moves and known cycle moves to avoid ping-pong loops.
- *
- * Notes:
- * - This stays greedy: it only looks at the current position and never simulates outcomes.
- * - The scoring is just a heuristic for choosing between *already legal* moves.
+ * <p>Observed transitions and visited positions prevent cycles, including stock recycling.
+ * Knowledge and remaining finite passes are part of the state key, so new observations do
+ * not count as old positions. Create one player per game, or call {@link #resetGame()}.
  */
 @Component
 @Profile("ai-greedy")
 public class GreedySearchPlayer extends AIPlayer implements Player {
 
-    // Tracks whether we made any talon move in the current empty-stock pass.
-    // NOTE: made static because the game loop appears to recreate the player each move,
-    // which would otherwise reset this and break the "empty stock pass" logic.
-    private static boolean talonMovedThisPass = false;
+    /** Observed positions in this player's current game, never shared with other players. */
+    private final Set<Long> visitedStates = new HashSet<>();
 
-    // Helps detect a full pass through empty stock without progress.
-    // NOTE: made static for the same reason as talonMovedThisPass.
-    private static boolean sawEmptyStock = false;
+    /** Actual observed successors, distinguished from predictions containing unknown cards. */
+    private final Map<StateCommand, Long> transitions = new HashMap<>();
 
-    // Last real move, used to block exact inverse ("ping-pong") moves.
-    // NOTE: made static because the game loop appears to recreate the player each move.
-    // Without persistence, lastMove was always null and inverse blocking never fired.
-    private static MoveSignature lastMove = null;
+    /** Previous selected action awaiting its real observation, including stock turns. */
+    private StateCommand pendingAction;
 
-    // Visited engine states and observed transitions for cycle detection.
-    private static final Set<Long> visitedStates = new HashSet<>();
-    private static final Map<StateCommand, Long> transitions = new HashMap<>();
-    private static Long lastStateKey = null;
-    private static String lastCommand = null;
-    private static long firstTurnStateKey = 0L;
-    private static boolean hasFirstTurnState = false;
-    private static int consecutiveTurns = 0;
-    private static final int MAX_CONSECUTIVE_TURNS = 40;
+    /** Reward for exposing a physically face-down tableau card, even in thoughtful mode. */
+    private static final int SCORE_REVEAL = 10;
 
-    /**
-     * Resets all static per-game state for this player.
-     * Call this when starting a new Solitaire game.
-     */
-    public static void resetForNewGame() {
-        talonMovedThisPass = false;
-        sawEmptyStock = false;
-        lastMove = null;
-        visitedStates.clear();
-        transitions.clear();
-        lastStateKey = null;
-        lastCommand = null;
-        firstTurnStateKey = 0L;
-        hasFirstTurnState = false;
-        consecutiveTurns = 0;
+    /** Reward per net new empty tableau column; relocating a king earns no such reward. */
+    private static final int SCORE_EMPTY_COLUMN = 7;
+
+    /** Reward for foundation progress with conservative support from the other suits. */
+    private static final int SCORE_SAFE_FOUNDATION = 15;
+
+    /** Smaller reward for legal foundation progress whose tableau usefulness is uncertain. */
+    private static final int SCORE_RISKY_FOUNDATION = 3;
+
+    /** Cost of withdrawing a foundation card, recoverable by immediate tableau benefits. */
+    private static final int COST_WORRY_BACK = 5;
+
+    /** Creates an independent player with no observed game history. */
+    public GreedySearchPlayer() {
+        /** Field initializers provide empty per-game history. */
     }
 
-    // -----------------------------
-    // Greedy scoring weights
-    // -----------------------------
+    /** Clears this instance's history when its owner starts a different game. */
+    public void resetGame() {
+        /** Discard both visited observations and the action awaiting observation. */
+        visitedStates.clear();
+        transitions.clear();
+        pendingAction = null;
+    }
 
-    // Foundation progress is good; safety gate prevents reckless early pushes.
-    private static final int SCORE_FOUNDATION = 15;
+    /**
+     * Retains source compatibility for callers that reset before constructing a new player.
+     *
+     * @deprecated History is now instance-owned; construct a new player or call {@link #resetGame()}.
+     */
+    @Deprecated
+    public static void resetForNewGame() {
+        /** No shared game history remains to reset. */
+    }
 
-    // Big reward for revealing facedown cards (opens the game).
-    private static final int SCORE_REVEAL_FACEDOWN = 10;
-
-    // Reward for emptying a tableau pile (creates an empty column).
-    private static final int SCORE_EMPTY_SOURCE_PILE = 7;
-
-    // Reward for placing onto an empty tableau pile (usually king/run placement).
-    private static final int SCORE_TO_EMPTY_PILE = 5;
-
-    // Small baseline for any legal tableau move so we don't stall.
-    private static final int SCORE_TABLEAU_MOVE = 1;
-
-    // Talon-to-tableau is often necessary but lower priority than tableau development.
-    private static final int SCORE_TALON_TO_TABLEAU = 2;
-
+    /**
+     * Selects the highest-scoring unvisited immediate successor, or quits when none remains.
+     *
+     * <p>Every selected action is recorded through the same path. Unknown predictions are
+     * never stored as actual observations; the next call supplies the real successor.
+     */
     @Override
     public String nextCommand(Solitaire solitaire, String recommendedMoves, String feedback) {
-        // Decisions and simulations use only observed identities, including remembered stock cards.
-        solitaire = solitaire.planningCopy();
-        long currentKey = solitaire.getStateKey();
-
-        // Learn the transition from the previous state and command, if any.
-        if (lastStateKey != null && lastCommand != null) {
-            transitions.put(new StateCommand(lastStateKey, lastCommand), currentKey);
+        /** Restrict all features and successor simulations to the player's knowledge. */
+        Solitaire board = solitaire.planningCopy();
+        long currentKey = board.getStateKey();
+        /** Complete the previous transition from the board actually returned by the game. */
+        if (pendingAction != null) {
+            transitions.put(pendingAction, currentKey);
         }
         visitedStates.add(currentKey);
 
-        Move best = pickBestMove(solitaire, currentKey);
-
-        if (best != null) {
-            // Remember last move for inverse blocking.
-            lastMove = MoveSignature.tryParse(best.command);
-            lastStateKey = currentKey;
-            lastCommand = best.command;
-
-            // Any non-turn progress breaks a potential stock-cycle loop.
-            if (!"turn".equalsIgnoreCase(best.command)) {
-                hasFirstTurnState = false;
-                consecutiveTurns = 0;
-            }
-
-            // Any real move resets empty-stock pass tracking.
-            sawEmptyStock = false;
-
-            // If we moved from waste/talon, that's progress in this pass.
-            if (best.command.startsWith("move W")) {
-                talonMovedThisPass = true;
-            }
-
-            return best.command;
-        }
-
-        // No legal moves found.
-        if (!solitaire.canTurnStock()) return "quit";
-        if (!solitaire.getStockpile().isEmpty()) {
-            // Stock still has cards; turning is the only action.
-            sawEmptyStock = false;
-            talonMovedThisPass = false;
-            consecutiveTurns++;
-            if (consecutiveTurns >= MAX_CONSECUTIVE_TURNS) {
-                return "quit";
-            }
-            // Detect a pure "turn" cycle: if we are back at the same state after only turning, quit.
-            if (hasFirstTurnState && firstTurnStateKey == currentKey) {
-                return "quit";
-            }
-            if (!hasFirstTurnState) {
-                firstTurnStateKey = currentKey;
-                hasFirstTurnState = true;
-            }
-            return "turn";
-        }
-
-        // Stock empty: allow one recycle/no-op pass before quitting.
-        if (sawEmptyStock && !talonMovedThisPass) {
-            // Full empty-stock pass with no talon progress -> quit.
-            return "quit";
-        }
-
-        // First time seeing empty stock this pass: try another turn (recycle/no-op).
-        sawEmptyStock = true;
-        talonMovedThisPass = false;
-        consecutiveTurns++;
-        if (consecutiveTurns >= MAX_CONSECUTIVE_TURNS) {
-            return "quit";
-        }
-        return "turn";
-    }
-
-    private Move pickBestMove(Solitaire solitaire, long currentKey) {
-        List<Move> candidates = new ArrayList<>();
-
-        // Fixed generation order also acts as deterministic tie-breaker.
-        addTableauToFoundationMoves(solitaire, candidates);
-        addTalonToFoundationMoves(solitaire, candidates);
-        addTableauToTableauMoves(solitaire, candidates);
-        addTalonToTableauMoves(solitaire, candidates);
-
+        /** Evaluate each legal action once, retaining the first candidate on equal scores. */
         Move best = null;
-        for (Move m : candidates) {
-            if (isInverseOfLast(m.command)) {
-                continue; // hard block ping-pong
-            }
-            // Avoid moves that lead back to a previously visited state when known.
-            if (leadsToVisited(solitaire, currentKey, m.command)) {
+        int bestScore = Integer.MIN_VALUE;
+        for (Move move : LegalMovesHelper.listMoves(board)) {
+            /** Quit is a termination decision, not a scored successor. */
+            if (move.isQuit()) {
                 continue;
             }
-            if (best == null || m.score > best.score) {
-                best = m;
+            Solitaire successor = board.copy();
+            apply(successor, move);
+            Long observed = transitions.get(new StateCommand(currentKey, move.toCommandString()));
+            long nextKey = observed != null ? observed : successor.getStateKey();
+            /** Reject repeated observations, including exact reversals and exhausted stock cycles. */
+            if (visitedStates.contains(nextKey)) {
+                continue;
+            }
+            int score = score(board, successor, move);
+            /** Strict comparison makes tie-breaking deterministic in engine generation order. */
+            if (best == null || score > bestScore) {
+                best = move;
+                bestScore = score;
             }
         }
-        return best;
+
+        /** Record turns and card moves identically; quitting leaves no pending action. */
+        String command = best == null ? "quit" : best.toCommandString();
+        pendingAction = best == null ? null : new StateCommand(currentKey, command);
+        return command;
     }
 
-    // ---------------------------------------------------------------------
-    // Move generation: Foundation moves
-    // ---------------------------------------------------------------------
+    /** Applies one generated legal move to a planning copy without expanding its successors. */
+    private void apply(Solitaire board, Move move) {
+        /** Stock turns use the configured draw count and pass limit. */
+        if (move.isTurn()) {
+            board.turnStock();
+        } else {
+            /** Structured moves preserve explicit run heads and foundation withdrawals. */
+            board.moveCard(move.from().toCode(), move.card() == null ? null : move.card().shortName(),
+                    move.to().toCode());
+        }
+    }
 
-    private void addTableauToFoundationMoves(Solitaire solitaire, List<Move> out) {
-        List<List<Card>> tableau = solitaire.getVisibleTableau();
-        List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
-        List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
-        List<List<Card>> foundations = solitaire.getFoundation();
+    /** Scores immediate physical changes and action utility without inspecting hidden identities. */
+    private int score(Solitaire before, Solitaire after, Move move) {
+        /** Engine-maintained counts correctly distinguish whole-run reveals from top-card moves. */
+        int reveals = hiddenCount(before) - hiddenCount(after);
+        int score = SCORE_REVEAL * reveals
+                + SCORE_EMPTY_COLUMN * (emptyColumns(after) - emptyColumns(before));
+        /** Drawing is neutral: moving cards between stock and waste alone is not deployment. */
+        if (move.isTurn()) {
+            return score;
+        }
+        /** Foundation legality comes from the engine; safety only adjusts its local reward. */
+        if (move.to().type() == Move.PileType.FOUNDATION) {
+            List<Card> destination = after.getFoundation().get(move.to().index());
+            Card card = destination.getLast();
+            score += isConservativelySafe(card, before.getFoundation())
+                    ? SCORE_SAFE_FOUNDATION : SCORE_RISKY_FOUNDATION;
+        } else if (move.from().type() == Move.PileType.FOUNDATION) {
+            /** Worry-back remains available, but must compete with cheaper immediate actions. */
+            score -= COST_WORRY_BACK;
+        } else if (move.from().type() == Move.PileType.WASTE) {
+            /** Deploying waste cards changes access on later passes without assuming their identities. */
+            score += 2;
+        } else {
+            /** Give ordinary tableau rearrangements a small deterministic preference over drawing. */
+            score += 1;
+        }
+        return score;
+    }
 
-        for (int from = 0; from < tableau.size(); from++) {
-            List<Card> pile = tableau.get(from);
-            int faceUp = faceUpCounts.get(from);
-            if (pile == null) continue;
-            if (faceUp <= 0) continue;
+    /** Counts physically face-down cards independently of whether their identities are known. */
+    private int hiddenCount(Solitaire board) {
+        /** Sum all tableau columns; no hidden identity is consulted. */
+        return board.getTableauFaceDownCounts().stream().mapToInt(Integer::intValue).sum();
+    }
 
-            Card moving = topVisibleTableauCard(pile, faceUp);
-            if (moving == null) continue;
-
-            int faceDown = faceDownCounts.get(from);
-            boolean revealsFacedown = faceDown > 0 && faceUp == 1;
-
-            boolean safe = isSafeFoundationMove(moving, revealsFacedown, foundations);
-            if (!safe) continue;
-
-            for (int f = 0; f < foundations.size(); f++) {
-                if (!canMoveToFoundation(moving, foundations.get(f))) continue;
-
-                String cmd = "move T" + (from + 1) + " " + moving.shortName() + " F" + (f + 1);
-                if (isInverseOfLast(cmd, moving.shortName())) continue;
-
-                int score = SCORE_FOUNDATION;
-                if (revealsFacedown) score += SCORE_REVEAL_FACEDOWN;
-
-                out.add(new Move(cmd, score));
+    /** Counts genuinely empty columns, excluding columns whose visible suffix is empty. */
+    private int emptyColumns(Solitaire board) {
+        /** Both visible and face-down counts must be zero for a usable empty column. */
+        int empty = 0;
+        for (int column = 0; column < 7; column++) {
+            /** A column with hidden cards is not an empty king destination. */
+            if (board.getTableauFaceUpCounts().get(column) == 0
+                    && board.getTableauFaceDownCounts().get(column) == 0) {
+                empty++;
             }
         }
+        return empty;
     }
 
     /**
-     * Talon -> Foundation:
-     * Talon moves don't reveal facedown directly.
+     * Gives priority to low cards and cards supported by progress in every other suit.
+     *
+     * <p>Opposite-color suits must reach rank minus one; the other same-color suit must
+     * reach rank minus two. This conservative heuristic is not a proof of deal solvability.
      */
-    private void addTalonToFoundationMoves(Solitaire solitaire, List<Move> out) {
-        Card moving = top(solitaire.getTalon());
-        if (moving == null) return;
-
-        List<List<Card>> foundations = solitaire.getFoundation();
-        boolean safe = isSafeFoundationMove(moving, false, foundations);
-        if (!safe) return;
-
-        for (int f = 0; f < foundations.size(); f++) {
-            if (!canMoveToFoundation(moving, foundations.get(f))) continue;
-
-            String cmd = "move W " + moving.shortName() + " F" + (f + 1);
-            if (isInverseOfLast(cmd, moving.shortName())) continue;
-
-            out.add(new Move(cmd, SCORE_FOUNDATION));
-        }
-    }
-
-    private boolean isSafeFoundationMove(Card moving, boolean revealsFacedown, List<List<Card>> foundations) {
-        int rankValue = moving.getRank().getValue();
-        if (rankValue <= 2) {
+    private boolean isConservativelySafe(Card card, List<List<Card>> foundations) {
+        /** Aces and twos cannot serve as essential supports for undeployed lower tableau runs. */
+        int rank = card.getRank().getValue();
+        if (rank <= 2) {
             return true;
         }
-
-        if (revealsFacedown) {
-            return true;
-        }
-
-        int targetRank = rankValue - 1;
+        /** Count supporting suits, treating an empty foundation as rank zero. */
+        int supportingSuits = 0;
         for (List<Card> pile : foundations) {
-            if (pile.isEmpty()) {
-                continue;
-            }
-            Card top = pile.get(pile.size() - 1);
-            if (top.getSuit() == moving.getSuit() && top.getRank().getValue() == targetRank) {
-                return true;
+            /** Only nonempty foundations identify a suit and its deployed rank. */
+            if (!pile.isEmpty() && pile.getLast().getSuit() != card.getSuit()) {
+                Card top = pile.getLast();
+                int required = top.getSuit().isRed() == card.getSuit().isRed() ? rank - 2 : rank - 1;
+                /** Each sufficiently advanced other suit contributes one support. */
+                if (top.getRank().getValue() >= required) {
+                    supportingSuits++;
+                }
             }
         }
-        return false;
+        return supportingSuits == 3;
     }
-
-    // ---------------------------------------------------------------------
-    // Move generation: Tableau -> Tableau
-    // ---------------------------------------------------------------------
 
     /**
-     * Tableau -> Tableau:
-     * Consider ANY face-up run head in each pile (bottom face-up -> top face-up).
+     * Identifies an action at an observed position for subsequent transition learning.
+     *
+     * @param stateKey knowledge-aware position before the selected command
+     * @param command selected engine command, including stock turns
      */
-    private void addTableauToTableauMoves(Solitaire solitaire, List<Move> out) {
-        List<List<Card>> tableau = solitaire.getVisibleTableau();
-        List<Integer> faceUpCounts = solitaire.getTableauFaceUpCounts();
-        List<Integer> faceDownCounts = solitaire.getTableauFaceDownCounts();
-
-        for (int from = 0; from < tableau.size(); from++) {
-            List<Card> fromPile = tableau.get(from);
-            if (fromPile == null) continue;
-
-            int faceUp = faceUpCounts.get(from);
-            int faceDown = faceDownCounts.get(from);
-            if (fromPile.isEmpty() || faceUp <= 0) continue;
-
-            int lastVisibleIndex = fromPile.size() - 1;
-
-            for (int i = lastVisibleIndex; i >= 0; i--) {
-                Card moving = fromPile.get(i);
-
-                if (!isValidRunHead(fromPile, i)) {
-                    continue;
-                }
-
-                boolean revealsFacedown = (i == lastVisibleIndex && faceDown > 0 && faceUp == fromPile.size());
-                boolean emptiesSource = (faceDown + i == 0);
-
-                for (int to = 0; to < tableau.size(); to++) {
-                    if (to == from) continue;
-
-                    List<Card> toPile = tableau.get(to);
-                    if (!canMoveToTableau(moving, toPile)) continue;
-
-                    String cmd = "move T" + (from + 1) + " " + moving.shortName() + " T" + (to + 1);
-                    if (isInverseOfLast(cmd, moving.shortName())) continue;
-
-                    int score = SCORE_TABLEAU_MOVE;
-                    if (revealsFacedown) score += SCORE_REVEAL_FACEDOWN;
-                    if (emptiesSource) score += SCORE_EMPTY_SOURCE_PILE;
-                    if (toPile.isEmpty()) score += SCORE_TO_EMPTY_PILE;
-
-                    out.add(new Move(cmd, score));
-                }
-            }
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Move generation: Talon -> Tableau
-    // ---------------------------------------------------------------------
-
-    /**
-     * Talon -> Tableau:
-     * Consider placements into tableau, with moderate score.
-     */
-    private void addTalonToTableauMoves(Solitaire solitaire, List<Move> out) {
-        Card moving = top(solitaire.getTalon());
-        if (moving == null) return;
-
-        List<List<Card>> tableau = solitaire.getVisibleTableau();
-        for (int t = 0; t < tableau.size(); t++) {
-            List<Card> toPile = tableau.get(t);
-
-            if (!canMoveToTableau(moving, toPile)) continue;
-
-            String cmd = "move W " + moving.shortName() + " T" + (t + 1);
-            if (isInverseOfLast(cmd, moving.shortName())) continue;
-
-            int score = SCORE_TALON_TO_TABLEAU;
-            if (toPile.isEmpty()) score += SCORE_TO_EMPTY_PILE;
-
-            out.add(new Move(cmd, score));
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Small helpers
-    // ---------------------------------------------------------------------
-
-    /**
-     * Returns the top visible tableau card given top-first storage.
-     */
-    private Card topVisibleTableauCard(List<Card> pile, int faceUp) {
-        if (pile == null || pile.isEmpty() || faceUp <= 0) return null;
-        return pile.get(pile.size() - 1);
-    }
-
-    private boolean isValidRunHead(List<Card> pile, int index) {
-        for (int i = index; i < pile.size() - 1; i++) {
-            Card current = pile.get(i);
-            Card next = pile.get(i + 1);
-            boolean alternatingColor = current.getSuit().isRed() != next.getSuit().isRed();
-            boolean oneLower = current.getRank().getValue() == next.getRank().getValue() + 1;
-            if (!alternatingColor || !oneLower) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // ---------------------------------------------------------------------
-    // Ping-pong prevention (exact inverse only)
-    // ---------------------------------------------------------------------
-
-    private boolean leadsToVisited(Solitaire solitaire, long currentKey, String command) {
-        StateCommand key = new StateCommand(currentKey, command);
-        Long next = transitions.get(key);
-        if (next == null) {
-            // Simulate the move on a copy to discover the resulting state key.
-            Solitaire copy = solitaire.copy();
-            String trimmed = command.trim();
-            if ("turn".equalsIgnoreCase(trimmed)) {
-                copy.turnThree();
-            } else if (trimmed.startsWith("move")) {
-                String[] parts = trimmed.split("\\s+");
-                // Destination pile code is always the last token.
-                String dest = parts[parts.length - 1];
-                // Never block moves that go to foundation; they always represent progress.
-                if (dest.startsWith("F")) {
-                    return false;
-                }
-                if (parts.length == 3) {
-                    copy.moveCard(parts[1], null, dest);
-                } else if (parts.length >= 4) {
-                    copy.moveCard(parts[1], parts[2], dest);
-                }
-            }
-            next = copy.getStateKey();
-            transitions.put(key, next);
-        }
-        return visitedStates.contains(next);
-    }
-
-    private boolean isInverseOfLast(String candidateCmd, String candidateCardShort) {
-        if (lastMove == null) return false;
-        MoveSignature cand = MoveSignature.tryParse(candidateCmd, candidateCardShort);
-        if (cand == null) return false;
-        return lastMove.isInverseOf(cand);
-    }
-
-    private boolean isInverseOfLast(String cmd) {
-        if (lastMove == null) return false;
-        MoveSignature cand = MoveSignature.tryParse(cmd);
-        return cand != null && lastMove.isInverseOf(cand);
-    }
-
-    private static class MoveSignature {
-        final String from;
-        final String to;
-        final String cardShort; // may be null for "move Tn Fn"
-
-        private MoveSignature(String from, String to, String cardShort) {
-            this.from = from;
-            this.to = to;
-            this.cardShort = cardShort;
-        }
-
-        boolean isInverseOf(MoveSignature other) {
-            if (other == null) return false;
-            if (cardShort != null && other.cardShort != null && !cardShort.equals(other.cardShort)) {
-                return false;
-            }
-            return from.equals(other.to) && to.equals(other.from);
-        }
-
-        static MoveSignature tryParse(String cmd) {
-            return tryParse(cmd, null);
-        }
-
-        static MoveSignature tryParse(String cmd, String fallbackCardShort) {
-            if (cmd == null || !cmd.startsWith("move")) return null;
-
-            // Supported shapes:
-            // 1) "move Tn Fn"
-            // 2) "move Tn <card> Tm/Fm"
-            // 3) "move W <card> Tm/Fm"
-            String[] parts = cmd.split("\\s+");
-            if (parts.length < 3) return null;
-
-            String from = parts[1];                 // "Tn" or "W"
-            String to = parts[parts.length - 1];    // "Tn" or "Fn"
-            String cardShort = fallbackCardShort;
-
-            // If explicit card is present, it's the token before the destination.
-            if (parts.length >= 4) {
-                String maybeCard = parts[parts.length - 2];
-                if (maybeCard.matches(".*[A23456789TJQK].*")) {
-                    cardShort = maybeCard;
-                }
-            }
-
-            return new MoveSignature(from, to, cardShort);
-        }
-    }
-
-    private static class Move {
-        final String command;
-        final int score;
-
-        Move(String command, int score) {
-            this.command = command;
-            this.score = score;
-        }
-    }
-
-    private static final class StateCommand {
-        final long stateKey;
-        final String command;
-
-        StateCommand(long stateKey, String command) {
-            this.stateKey = stateKey;
-            this.command = command;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (!(obj instanceof StateCommand)) {
-                return false;
-            }
-            StateCommand other = (StateCommand) obj;
-            if (stateKey != other.stateKey) {
-                return false;
-            }
-            return command == null ? other.command == null : command.equals(other.command);
-        }
-
-        @Override
-        public int hashCode() {
-            int result = Long.hashCode(stateKey);
-            result = 31 * result + (command != null ? command.hashCode() : 0);
-            return result;
-        }
-    }
+    private record StateCommand(long stateKey, String command) { }
 }

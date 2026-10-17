@@ -1,192 +1,59 @@
 package ai.games.player.ai;
 
-import static org.junit.jupiter.api.Assertions.*;
-
-import ai.games.game.Card;
-import ai.games.game.Deck;
+import ai.games.game.Move;
 import ai.games.game.Solitaire;
-import ai.games.player.Player;
 import ai.games.player.LegalMovesHelper;
 import ai.games.unit.helpers.SolitaireBuilder;
 import ai.games.unit.helpers.SolitaireFactory;
-import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Simple completion test for the greedy AI: seeds a near-won state and expects the last move.
- */
+/** Functional coverage for deterministic greedy completion and legal cycle termination. */
 class GreedySearchPlayerTest {
-    private static final Logger log = LoggerFactory.getLogger(GreedySearchPlayerTest.class);
-    private static final int MAX_TEST_STEPS = 1000;
 
+    /** A nearly completed deal must finish with its remaining legal foundation move. */
     @Test
     void greedyAiFinishesGame() {
-        logTestHeader("greedyAiFinishesGame");
-        Solitaire solitaire = seedNearlyWonGame();
-        Player ai = new GreedySearchPlayer();
-
-        if (log.isDebugEnabled()) {
-            log.debug("Initial board (nearly-won test):\n{}", stripAnsi(solitaire.toString()));
-        }
-
-        runSingleMoveCompletion(solitaire, ai);
-
-        if (log.isDebugEnabled()) {
-            log.debug("Final board (nearly-won test):\n{}", stripAnsi(solitaire.toString()));
-        }
-
-        assertEquals(52, totalFoundation(solitaire), "AI should finish the game");
-        assertTrue(isWon(solitaire));
+        /** Run the fixed endgame without relying on random deals or shared player history. */
+        assertCompletes(SolitaireFactory.oneMoveFromWin(), 5);
     }
 
+    /** The established mid-game fixture remains solvable with one-ply greedy decisions. */
     @Test
     void greedyAiWinsKnownMidGameState() {
-        logTestHeader("greedyAiWinsKnownMidGameState");
-        // Seed a winnable mid-game so the greedy AI has to make several choices.
-        Solitaire solitaire = seedMidGameWinnable();
-        GreedySearchPlayer.resetForNewGame();
-        Player ai = new GreedySearchPlayer();
-
-        if (log.isDebugEnabled()) {
-            log.debug("Initial board (mid-game test):\n{}", stripAnsi(solitaire.toString()));
-        }
-
-        for (int i = 0; i < MAX_TEST_STEPS && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "", "");
-            if (log.isDebugEnabled()) {
-                log.debug("greedyAiWinsKnownMidGameState: step {} command={}", i, command);
-            }
-            if (command == null) {
-                break;
-            }
-            String trimmed = command.trim();
-            if ("quit".equalsIgnoreCase(trimmed)) {
-                break;
-            }
-            applyCommand(solitaire, command);
-            if (log.isDebugEnabled()) {
-                log.debug("Board after command:\n{}", stripAnsi(solitaire.toString()));
-            }
-        }
-
-        assertTrue(isWon(solitaire), "Greedy AI should win the seeded mid-game state");
+        /** Preserve the existing complete-deck fixture and its completion expectation. */
+        Solitaire board = SolitaireBuilder.newGame().foundation("F1", "A♠")
+                .tableau("T1", "3♠").tableau("T2", "2♠").tableau("T3", "K♥")
+                .tableau("T4", "J♣").tableau("T5", "Q♦").waste("4♠").build();
+        assertCompletes(board, 1000);
     }
 
-    @Test
-    void greedyAiDoesNotQuitWithMovesAvailableInRandomGame() {
-        logTestHeader("greedyAiDoesNotQuitWithMovesAvailableInRandomGame");
-        GreedySearchPlayer.resetForNewGame();
-        Solitaire solitaire = new Solitaire(new Deck());
-        Player ai = new GreedySearchPlayer();
-
-        if (log.isDebugEnabled()) {
-            log.debug("Initial board (random game test):\n{}", stripAnsi(solitaire.toString()));
-        }
-
-        for (int step = 0; step < MAX_TEST_STEPS && !isWon(solitaire); step++) {
-            String command = ai.nextCommand(solitaire, "", "");
-            if (log.isDebugEnabled()) {
-                log.debug("greedyAiDoesNotQuitWithMovesAvailableInRandomGame: step {} command={}", step, command);
-            }
-            if (command == null) {
+    /** Checks legal execution and completion while allowing quit when all choices repeat history. */
+    private void assertCompletes(Solitaire board, int limit) {
+        /** Use a fresh player and validate every selected action against the real board. */
+        GreedySearchPlayer player = new GreedySearchPlayer();
+        for (int step = 0; step < limit && !won(board); step++) {
+            String command = player.nextCommand(board, "", "");
+            assertTrue(LegalMovesHelper.listLegalMoves(board).contains(command), command);
+            Move move = Move.parse(command);
+            /** A quit is legal but cannot satisfy a completion fixture prematurely. */
+            if (move.isQuit()) {
                 break;
             }
-            String trimmed = command.trim();
-            if ("quit".equalsIgnoreCase(trimmed)) {
-                List<String> legal = LegalMovesHelper.listLegalMoves(solitaire);
-                boolean hasNonQuitMove = legal.stream().anyMatch(m -> !"quit".equalsIgnoreCase(m.trim()));
-                assertTrue(!hasNonQuitMove, "Greedy quit while non-quit moves were still legal: " + legal);
-                break;
-            }
-            applyCommand(solitaire, command);
-            if (log.isDebugEnabled()) {
-                log.debug("Board after command:\n{}", stripAnsi(solitaire.toString()));
-            }
-        }
-    }
-
-    private void runSingleMoveCompletion(Solitaire solitaire, Player ai) {
-        for (int i = 0; i < 5 && !isWon(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "", "");
-            if (log.isDebugEnabled()) {
-                log.debug("greedyAiFinishesGame: step {} command={}", i, command);
-            }
-            applyCommand(solitaire, command);
-            if (log.isDebugEnabled()) {
-                log.debug("Board after command:\n{}", stripAnsi(solitaire.toString()));
-            }
-        }
-    }
-
-    private void applyCommand(Solitaire solitaire, String command) {
-        if (command == null) {
-            return;
-        }
-        String trimmed = command.trim();
-        if (trimmed.equalsIgnoreCase("turn")) {
-            solitaire.turnThree();
-            return;
-        }
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
-            if (parts.length == 4) {
-                solitaire.moveCard(parts[1], parts[2], parts[3]);
+            /** Apply configured turns or structured card moves and require successful execution. */
+            if (move.isTurn()) {
+                assertTrue(board.turnStock());
             } else {
-                solitaire.moveCard(parts[1], null, parts[2]);
+                assertTrue(board.moveCard(move.from().toCode(),
+                        move.card() == null ? null : move.card().shortName(), move.to().toCode()));
             }
         }
+        assertTrue(won(board), "Greedy should complete this fixed winnable fixture");
     }
 
-    private Solitaire seedNearlyWonGame() {
-        return SolitaireFactory.oneMoveFromWin();
-    }
-
-    private Solitaire seedMidGameWinnable() {
-        return SolitaireBuilder
-            .newGame()
-            .foundation("F1", "A♠")
-            .tableau("T1", "3♠")
-            .tableau("T2", "2♠")
-            .tableau("T3", "K♥")
-            .tableau("T4", "J♣")
-            .tableau("T5", "Q♦")
-            .waste("4♠")
-            .build();
-    }
-
-    private int totalFoundation(Solitaire solitaire) {
-        int total = 0;
-        for (List<Card> pile : solitaire.getFoundation()) {
-            total += pile.size();
-        }
-        return total;
-    }
-
-    private boolean isWon(Solitaire solitaire) {
-        return totalFoundation(solitaire) == 52;
-    }
-
-    private static String stripAnsi(String input) {
-        return input.replaceAll("\\u001B\\[[;\\d]*m", "");
-    }
-
-    private static void logTestHeader(String testName) {
-        if (!log.isDebugEnabled()) {
-            return;
-        }
-        String banner = """
-============================================================
-   ____                 _           _        _             
-  / ___| ___ _ __   ___| |__   __ _| |_ _ __(_)_ __   __ _ 
- | |  _ / _ \\ '_ \\ / __| '_ \\ / _` | __| '__| | '_ \\ / _` |
- | |_| |  __/ | | | (__| | | | (_| | |_| |  | | | | | (_| |
-  \\____|\\___|_| |_|\\___|_| |_|\\__,_|\\__|_|  |_|_| |_|\\__, |
-                                                      |___/ 
-============================================================
-GREEDY TEST START: %s
-============================================================""".formatted(testName);
-        log.debug("\n{}", banner);
+    /** Identifies completion using all four foundation sizes. */
+    private boolean won(Solitaire board) {
+        /** All 52 cards must have reached foundations. */
+        return board.getFoundation().stream().mapToInt(java.util.List::size).sum() == 52;
     }
 }
