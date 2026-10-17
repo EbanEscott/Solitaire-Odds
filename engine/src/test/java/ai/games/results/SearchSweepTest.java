@@ -65,7 +65,8 @@ class SearchSweepTest {
         metadata.put("astarKnownFirstBudget", Integer.getInteger("astar.knownFirstBudget",
                 Integer.getInteger("astar.nodeBudget", 1024) / 2));
         metadata.put("hillMaxSteps", 5000);
-        metadata.put("hillMaxRestartsPerPosition", 8);
+        metadata.put("hillMaxSidewaysSteps", 8);
+        metadata.put("hillPerturbation", "one random eligible neighbor after sideways preference");
         metadata.put("commandValidationIncludedInTiming", true);
         Map<String, String> overrides = new TreeMap<>();
         System.getProperties().stringPropertyNames().stream()

@@ -1,100 +1,100 @@
 package ai.games.player.ai;
 
-import static org.junit.jupiter.api.Assertions.*;
-
+import ai.games.game.Card;
 import ai.games.game.Deck;
+import ai.games.game.Move;
+import ai.games.game.Rank;
 import ai.games.game.Solitaire;
-import ai.games.player.Player;
-import ai.games.unit.helpers.FoundationCountHelper;
+import ai.games.game.Suit;
+import ai.games.player.LegalMovesHelper;
 import ai.games.unit.helpers.SolitaireFactory;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Tests for {@link HillClimberPlayer} focusing on improvement behaviour, backtracking,
- * random restarts, and basic safety (no infinite loops, no crashes).
- */
+/** Integration coverage for hill-climbing completion, legality, and history on a reproducible real deal. */
 class HillClimberPlayerTest {
+    /** Integration budget, not a claim that every deal can be resolved within this many commands. */
+    private static final int MAX_TEST_STEPS = 1000;
 
-    private static final int MAX_TEST_STEPS = 2000;
-
+    /** A known near-win must still complete through legal foundation progress. */
     @Test
-    void hillClimberAdvancesOnSimpleNearlyWonGame() {
-        Solitaire solitaire = SolitaireFactory.oneMoveFromWin();
-        Player ai = new HillClimberPlayer(123L);
-
-        int startFoundation = FoundationCountHelper.totalFoundation(solitaire);
-
-        for (int i = 0; i < 10 && FoundationCountHelper.totalFoundation(solitaire) < 52; i++) {
-            String command = ai.nextCommand(solitaire, "", "");
-            applyCommand(solitaire, command);
+    void hillClimberCompletesNearlyWonGame() {
+        /** Exercise seeded local selection on a complete, validated fixture. */
+        Solitaire board = SolitaireFactory.oneMoveFromWin();
+        HillClimberPlayer player = new HillClimberPlayer(123);
+        for (int step = 0; step < 10 && !won(board); step++) {
+            String command = player.nextCommand(board, "", "");
+            assertNotEquals("quit", command);
+            apply(board, command);
         }
-
-        int endFoundation = FoundationCountHelper.totalFoundation(solitaire);
-        assertTrue(endFoundation > startFoundation, "Hill climber should improve foundation count on simple setup");
+        assertTrue(won(board));
     }
 
+    /** A fixed real deal must never repeat an action at an identical observed position. */
     @Test
-    void hillClimberDoesNotLoopForeverOnRandomGame() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        Player ai = new HillClimberPlayer(98765L);
-
-        int steps = 0;
-        while (!isTerminal(solitaire) && steps < MAX_TEST_STEPS) {
-            String command = ai.nextCommand(solitaire, "", "");
-            assertNotNull(command, "Hill climber should always return a command until game exits");
-            if ("quit".equalsIgnoreCase(command.trim())) {
+    void decisionsAreLegalAndDoNotRepeatObservedActions() {
+        /** Fix both deck order and tie-breaking seed so failures can be reproduced. */
+        Solitaire board = seededBoard();
+        HillClimberPlayer player = new HillClimberPlayer(42);
+        Set<String> decisions = new HashSet<>();
+        for (int step = 0; step < MAX_TEST_STEPS && !won(board); step++) {
+            long observation = board.planningCopy().getStateKey();
+            long trueState = board.getStateKey();
+            String command = player.nextCommand(board, "", "");
+            assertEquals(trueState, board.getStateKey(), "Search must not mutate the game");
+            assertTrue(LegalMovesHelper.listLegalMoves(board).contains(command), command);
+            /** Exhausted policy choices may terminate even when some repeating actions remain legal. */
+            if (command.equals("quit")) {
                 break;
             }
-            applyCommand(solitaire, command);
-            steps++;
+            assertTrue(decisions.add(observation + ":" + command), "Repeated observed action: " + command);
+            apply(board, command);
         }
-
-        assertTrue(steps < MAX_TEST_STEPS, "Hill climber should not run indefinitely on a random game");
     }
 
-    @Test
-    void hillClimberExploresDifferentNeighboursUsingRestarts() {
-        Solitaire solitaire = new Solitaire(new Deck());
-        HillClimberPlayer ai = new HillClimberPlayer(42L);
-
-        Set<String> uniqueCommands = new HashSet<>();
-        for (int i = 0; i < 50 && !isTerminal(solitaire); i++) {
-            String command = ai.nextCommand(solitaire, "", "");
-            assertNotNull(command, "Hill climber should provide commands for exploration");
-            uniqueCommands.add(command.trim().toLowerCase());
-            if ("quit".equalsIgnoreCase(command)) {
-                break;
+    /** Builds an ordinary 52-card game with stable suit/rank ordering before seeded shuffling. */
+    private Solitaire seededBoard() {
+        /** Unknown placeholders are excluded from the physical deck. */
+        List<Card> cards = new ArrayList<>();
+        for (Suit suit : Suit.values()) {
+            /** Skip the suit placeholder used only in planning observations. */
+            if (suit == Suit.UNKNOWN) {
+                continue;
             }
-            applyCommand(solitaire, command);
-        }
-
-        assertTrue(uniqueCommands.size() > 1, "Random restarts / hill-climb steps should explore different moves");
-    }
-
-    private boolean isTerminal(Solitaire solitaire) {
-        return FoundationCountHelper.totalFoundation(solitaire) == 52
-                || (solitaire.getStockpile().isEmpty()
-                && solitaire.getTalon().isEmpty());
-    }
-
-    private void applyCommand(Solitaire solitaire, String command) {
-        if (command == null) {
-            return;
-        }
-        String trimmed = command.trim();
-        if (trimmed.equalsIgnoreCase("turn")) {
-            solitaire.turnThree();
-            return;
-        }
-        String[] parts = trimmed.split("\\s+");
-        if (parts.length >= 3 && parts[0].equalsIgnoreCase("move")) {
-            if (parts.length == 4) {
-                solitaire.moveCard(parts[1], parts[2], parts[3]);
-            } else {
-                solitaire.moveCard(parts[1], null, parts[2]);
+            /** Add each real rank exactly once for this suit. */
+            for (Rank rank : Rank.values()) {
+                /** Skip the rank placeholder used only in planning observations. */
+                if (rank != Rank.UNKNOWN) {
+                    cards.add(new Card(rank, suit));
+                }
             }
         }
+        Collections.shuffle(cards, new Random(42));
+        return new Solitaire(new Deck(cards));
+    }
+
+    /** Applies a selected command and requires that the real engine accepts it. */
+    private void apply(Solitaire board, String command) {
+        /** Parse the same structured formats used by production move generation. */
+        Move move = Move.parse(command);
+        if (move.isTurn()) {
+            assertTrue(board.turnStock());
+        } else {
+            /** Card moves can omit an explicit card when the source has only one playable top. */
+            assertTrue(board.moveCard(move.from().toCode(),
+                    move.card() == null ? null : move.card().shortName(), move.to().toCode()));
+        }
+    }
+
+    /** Requires all 52 cards to reach foundations for completion. */
+    private boolean won(Solitaire board) {
+        /** Foundation sizes are observable and do not depend on hidden identities. */
+        return board.getFoundation().stream().mapToInt(List::size).sum() == 52;
     }
 }
