@@ -359,3 +359,37 @@ Pile codes:
 ## Notes
 - ANSI suit symbols are used (hearts/diamonds in red).
 - Tableau display shows face-up top rows with face-down counts next to headers.
+
+## A* development experiments
+
+A* exposes independent experimental JVM properties `astar.foundationWeight`
+(default `1.0`), `astar.stockWeight` (default `0.5`), and `astar.knownFirstBudget`
+(default `512`). Defaults preserve the existing policy; experimental scores apply to both
+action and chance nodes. Default expansion and retained-node limits remain unchanged;
+[the A* README](src/main/java/ai/games/player/ai/astar/README.md) documents optional
+search-capacity, reveal-scoring, failure-cost and transposition experiments.
+
+The opt-in `ai.games.experiments.AStarScreenTest` runs baseline and three single-change
+variants on identical seeded deals and writes deck orders and per-game CSV results. Enable
+with `-Dastar.screen=true -Dastar.output=/absolute/run/directory`; optionally set
+`astar.games` (default 20) and `astar.seedStart` (default 0). Use a fresh output directory.
+Research notes and analysis live in `experiments/notebooks/astar_improvement_research.ipynb`
+at the repository root. Development runs do not update the canonical win-rate table.
+
+Experimental A* duplicate-value reuse is enabled with both `astar.transpositions=true`
+and `astar.reuseDuplicates=true` (screen preset `reuse`). Duplicate nodes retain a
+link to their representative instead of disappearing from decision backups; values
+include the difference in accumulated move cost. Recursive alias cycles receive the
+finite failure cost. Backups cache completed node values separately for each root
+action to bound work; cycle cutoffs can make these estimates traversal-dependent.
+Links are cleared at each real observation and never cross chance
+outcome contexts. Path-dependent pruning still makes this an approximate policy.
+Defaults remain unchanged; development results are recorded in the A* notebook.
+
+`astar.balancedSearch=true` tests round-robin expansion attempts across root actions,
+then least-used chance contexts within an action, with ordinary f/h/state ordering
+breaking ties. The `balanced` screen preset combines this with duplicate pruning.
+Known/reveal phase scheduling and total expansion/node bounds remain unchanged.
+This balances attempts among queued candidates, not retained nodes or guaranteed
+successful expansions; blocked expansions still consume attempts. Root traces report
+allocated attempts. The option is disabled by default.

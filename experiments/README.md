@@ -7,6 +7,7 @@ The recommendation is to keep the experiments stack Python-based while treating 
 Start with [DESIGN.md](DESIGN.md) for the current architecture, storage model, resumability rules, and implementation shape.
 See [RESULTS.md](RESULTS.md) for result presentation, runtime housekeeping, and promotion rules.
 Use notebooks under `experiments/notebooks/` for active research questions, goals, and experiment notes.
+The [A* improvement notebook](notebooks/astar_improvement_research.ipynb) tracks matched-deal scoring and search-budget experiments toward a 40% win-rate target.
 Use [LLM_EVALUATION.md](LLM_EVALUATION.md) for the 10-game LLM screening rubric, review checklist,
 and episode-analysis workflow.
 

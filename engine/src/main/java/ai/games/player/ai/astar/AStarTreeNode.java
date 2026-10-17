@@ -10,7 +10,7 @@ import java.util.List;
  *
  * <p>Each node stores:
  * <ul>
- *   <li><b>g</b>: Path cost from the search root (number of moves taken)</li>
+ *   <li><b>g</b>: Accumulated action cost from the search root (one per move by default)</li>
  *   <li><b>h</b>: Heuristic estimate of remaining cost to win (lower = closer to goal)</li>
  *   <li><b>f</b>: Ranking score {@code g + h} (used for queue ordering)</li>
  *   <li><b>probability</b>: Cumulative probability of speculative reveal outcomes</li>
@@ -20,7 +20,17 @@ import java.util.List;
  */
 public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode> {
 
-    /** Path cost from search root (number of moves). */
+    /** Separates transposition tables belonging to independent chance outcomes. */
+    private int outcomeContext;
+
+    private AStarTreeNode equivalent;
+    public AStarTreeNode getEquivalent() { return equivalent; }
+    public void setEquivalent(AStarTreeNode value) { equivalent = value; }
+
+    public int getOutcomeContext() { return outcomeContext; }
+    public void setOutcomeContext(int value) { outcomeContext = value; }
+
+    /** Accumulated action cost from the search root (one per move by default). */
     private double g;
 
     /** Heuristic estimate of remaining cost to win. */
@@ -141,6 +151,12 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
      * @return the heuristic value (lower = closer to goal)
      */
     public static double computeHeuristic(Solitaire state) {
+        return computeHeuristic(state, 1.0, 0.5, 2.0, 3.0, 0.0);
+    }
+
+    /** Experimental weights for matched-deal scoring studies. */
+    public static double computeHeuristic(Solitaire state, double foundationWeight, double stockWeight,
+                                          double hiddenWeight, double emptyWeight, double talonWeight) {
         if (state == null) {
             return Double.MAX_VALUE;
         }
@@ -170,10 +186,11 @@ public class AStarTreeNode extends TreeNode implements Comparable<AStarTreeNode>
         }
 
         // Compute heuristic: base + penalties - bonuses
-        double h = (52 - foundationCards)       // Base: minimum moves to win
-                 + (2.0 * faceDownCards)        // Penalty: face-down cards
-                 + (0.5 * stockCards)           // Penalty: stock cards
-                 - (3.0 * emptyColumns);        // Bonus: empty columns
+        double h = foundationWeight * (52 - foundationCards)       // Base: minimum moves to win
+                 + (hiddenWeight * faceDownCards)        // Penalty: face-down cards
+                 + (stockWeight * stockCards)           // Penalty: stock cards
+                 + (talonWeight * state.getTalon().size())
+                 - (emptyWeight * emptyColumns);        // Bonus: empty columns
 
         return Math.max(0.0, h);
     }
