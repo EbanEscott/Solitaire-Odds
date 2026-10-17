@@ -263,6 +263,7 @@ public class TypeSafePlayer extends AIPlayer
         rules.put("drawCount", solitaire.getRules().drawCount());
         rules.put("stockVisibility", solitaire.getRules().stockVisibility().name());
         rules.put("maxStockPasses", solitaire.getRules().maxStockPasses());
+        rules.put("thoughtful", solitaire.getRules().thoughtful());
         board.put("game_rules", rules);
         board.put("stock_pass", solitaire.getStockPass());
         board.put("known_stock_next_draw_first", cardNames(solitaire.getStockpile().reversed()));

@@ -13,8 +13,20 @@ import java.util.Properties;
  * @param drawCount the number of cards drawn per stock turn, either 1 or 3
  * @param stockVisibility the observation policy for drawn cards; must not be null
  * @param maxStockPasses the total permitted traversals, either 1, 3, or null for unlimited
+ * @param thoughtful whether all card identities and positions are known from the start
  */
-public record GameRules(int drawCount, StockVisibility stockVisibility, Integer maxStockPasses) {
+public record GameRules(int drawCount, StockVisibility stockVisibility, Integer maxStockPasses, boolean thoughtful) {
+    /**
+     * Constructs standard Klondike rules with discovery through play.
+     *
+     * @param drawCount the number of cards drawn per turn, either 1 or 3
+     * @param stockVisibility the observation policy for drawn cards
+     * @param maxStockPasses the total permitted traversals, or null for unlimited
+     */
+    public GameRules(int drawCount, StockVisibility stockVisibility, Integer maxStockPasses) {
+        this(drawCount, stockVisibility, maxStockPasses, false);
+    }
+
     /** Defines which drawn card identities the configured observation policy exposes. */
     public enum StockVisibility {
         /** Only the final drawn card is newly observed; previously observed cards stay known. */
@@ -32,6 +44,7 @@ public record GameRules(int drawCount, StockVisibility stockVisibility, Integer 
      * @param drawCount the number of cards drawn per turn, either 1 or 3
      * @param stockVisibility the configured observation policy
      * @param maxStockPasses the total permitted traversals, or null for unlimited
+     * @param thoughtful whether every identity and position is initially known
      * @throws IllegalArgumentException if draw count or pass allowance is unsupported
      * @throws NullPointerException if stockVisibility is null
      */
@@ -58,7 +71,7 @@ public record GameRules(int drawCount, StockVisibility stockVisibility, Integer 
     }
 
     /**
-     * Reads game.drawCount, game.stockVisibility, and game.maxStockPasses.
+     * Reads game.drawCount, game.stockVisibility, game.maxStockPasses, and game.thoughtful.
      * <p>
      * Missing properties use the default contract. The literal pass value {@code null}
      * means unlimited; unsupported or malformed values are rejected.
@@ -69,10 +82,15 @@ public record GameRules(int drawCount, StockVisibility stockVisibility, Integer 
      * @throws NullPointerException if properties is null
      */
     public static GameRules fromProperties(Properties properties) {
+        String thoughtful = properties.getProperty("game.thoughtful", "false");
+        if (!thoughtful.equals("true") && !thoughtful.equals("false")) {
+            throw new IllegalArgumentException("game.thoughtful must be true or false");
+        }
         String passes = properties.getProperty("game.maxStockPasses", "null");
         return new GameRules(
                 Integer.parseInt(properties.getProperty("game.drawCount", "3")),
                 StockVisibility.valueOf(properties.getProperty("game.stockVisibility", "topOnly")),
-                passes.equals("null") ? null : Integer.valueOf(passes));
+                passes.equals("null") ? null : Integer.valueOf(passes),
+                Boolean.parseBoolean(thoughtful));
     }
 }

@@ -151,6 +151,11 @@ public class Solitaire {
         initializeFoundation();
         dealTableau(deck);
         moveRemainingToStockpile(deck);
+        // Thoughtful knowledge changes identities available to planning, not face-up status.
+        if (rules.thoughtful()) {
+            tableau.forEach(pile -> pile.forEach(unknownCardTracker::addRevealedCard));
+            stockpile.forEach(unknownCardTracker::addRevealedCard);
+        }
     }
 
     /**
@@ -168,7 +173,7 @@ public class Solitaire {
     }
 
     /**
-     * Creates a PLAN copy containing only visible or previously observed card identities.
+     * Creates a PLAN copy containing known card identities, including initial thoughtful knowledge.
      * <p>
      * Unseen tableau, stock, and covered waste cards become UNKNOWN placeholders; the source is unchanged.
      * On an existing PLAN state, this is equivalent to {@link #copy()} and preserves committed
@@ -724,6 +729,10 @@ public class Solitaire {
 
         char fromType = fromNormalized.charAt(0);
         char toType = toNormalized.charAt(0);
+        // Stock cards enter play only through a configured draw, even when their identities are known.
+        if (fromType == 'S') {
+            return MoveResult.failure("Stock cards must be drawn with turn before they can be moved.");
+        }
         int fromIndex = parseIndex(fromNormalized);
         int toIndex = parseIndex(toNormalized);
 
@@ -903,6 +912,7 @@ public class Solitaire {
         long ruleCode = (rules.drawCount() == 1 ? 1L : 0L)
                 | (rules.stockVisibility() == GameRules.StockVisibility.allDrawn ? 2L : 0L)
                 | (rules.maxStockPasses() == null ? 0L : (long) rules.maxStockPasses() << 2)
+                | (rules.thoughtful() ? 16L : 0L)
                 | (rules.maxStockPasses() == null ? 0L : stockPass << 5);
         long h = ruleCode * 0x9E3779B97F4A7C15L;
         int idx = 0;

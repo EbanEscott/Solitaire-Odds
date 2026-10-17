@@ -1,24 +1,26 @@
 # Klondike rules
 
-This is the agreed contract for configurable rules. Configuration, draw count, pass limits, knowledge filtering, and separate training-undo/search-rollback behavior are implemented. Track implementation in the [checklist](../experiments/klondike_rules_checklist.md).
+This is the agreed contract for configurable rules. Configuration, draw count, pass limits, thoughtful knowledge, observation filtering, and separate training-undo/search-rollback behavior are implemented. Track implementation in the [checklist](../experiments/klondike_rules_checklist.md).
 
 ## Configuration
 
-Each game has an immutable configuration. Copies and planning boards inherit it. The settings are independent; all 12 combinations are supported by this contract. Reject unsupported values rather than silently substituting defaults.
+Each game has an immutable configuration. Copies and planning boards inherit it. The settings are independent; all 24 combinations are supported by this contract. Reject unsupported values rather than silently substituting defaults.
 
 | Setting | Accepted values | Default |
 | --- | --- | --- |
 | `drawCount` | Integer `1` or `3` | `3` |
 | `stockVisibility` | `topOnly` or `allDrawn` | `topOnly` |
 | `maxStockPasses` | Integer `1`, integer `3`, or `null` (unlimited) | `null` |
+| `thoughtful` | Boolean `false` or `true` | `false` |
 
-An omitted setting uses its default. Explicit `null` is valid only for `maxStockPasses`. JVM properties use the `game.` prefix, for example `-Dgame.drawCount=1 -Dgame.maxStockPasses=3`. Omission uses the defaults above; the literal property value `null` means unlimited passes. Explicit Java configuration uses the immutable `GameRules` record.
+An omitted setting uses its default. Explicit `null` is valid only for `maxStockPasses`. JVM properties use the `game.` prefix, for example `-Dgame.drawCount=1 -Dgame.maxStockPasses=3`. Omission uses the defaults above; the literal property value `null` means unlimited passes. Use `-Dgame.thoughtful=true` to enable full initial knowledge; only the literal Boolean property values `true` and `false` are accepted. Explicit Java configuration uses the immutable `GameRules` record. Its three-argument constructor retains `thoughtful=false` for existing callers.
 
 ```json
 {
   "drawCount": 3,
   "stockVisibility": "topOnly",
-  "maxStockPasses": null
+  "maxStockPasses": null,
+  "thoughtful": false
 }
 ```
 
@@ -33,15 +35,23 @@ An omitted setting uses its default. Explicit `null` is valid only for `maxStock
 - Stock cards enter play through a stock turn, never a direct card move.
 - Win when all 52 cards are on the foundations. Stock exhaustion alone does not end the game. Move caps and player decisions to quit are separate from the rules configuration.
 
+## Thoughtful Klondike
+
+With `thoughtful=false`, the player starts with only visible-card knowledge and discovers other identities through play. With `thoughtful=true`, all 52 identities and exact positions are known from the beginning, including the stock and face-down tableau. The physical deal and movement rules are identical: face-down tableau cards remain unplayable until uncovered, stock cards must be drawn, and only the waste top is playable.
+
+Full knowledge survives moving, covering, recycling, copying, and undo. `stockVisibility` stays independently configured and recorded, but both values have the same informational effect in thoughtful mode because every card is already known. `allDrawn` alone does not provide full initial knowledge.
+
+Thoughtful mode enables full-information investigation under the selected draw and pass rules. A validated winning sequence proves winnability; a bounded search failure, timeout, or move cap does not prove unwinnability. The current players are bounded heuristics, not certifying solvers. A complete and sound solver would be separate work and must distinguish proven winnable, proven unwinnable, and unresolved deals.
+
 ## Drawing and observation
 
 A stock turn moves `min(drawCount, remaining stock size)` cards onto the waste, one at a time in stock order. The last card moved is the new waste top.
 
-With `topOnly`, only that final card becomes newly observed. Intermediate cards are not exposed to the player during the action. With `allDrawn`, every card moved becomes observed immediately. Only the final card is playable in either case. With draw-one, both visibility settings have the same effect.
+In standard mode, with `topOnly`, only that final card becomes newly observed. Intermediate cards are not exposed to the player during the action. With `allDrawn`, every card moved becomes observed immediately. Only the final card is playable in either case. With draw-one, both visibility settings have the same effect.
 
 Playing the waste top exposes and records the next waste card, if any. Covering a card with another draw never erases earlier knowledge. A previously observed card stays known even when it is covered or recycled into the stock.
 
-For example, suppose the next stock cards in draw order are A♣, 7♥, K♠:
+For example, in standard mode suppose the next stock cards in draw order are A♣, 7♥, K♠:
 
 | Action | `topOnly` newly observed | `allDrawn` newly observed | Playable waste card |
 | --- | --- | --- | --- |
@@ -49,7 +59,7 @@ For example, suppose the next stock cards in draw order are A♣, 7♥, K♠:
 | Play K♠ to a legal destination | 7♥ | None | 7♥ |
 | Play 7♥ to a legal destination | A♣ | None | A♣ |
 
-If only A♣ and 7♥ remain in stock, a draw-three action moves both; `topOnly` reveals 7♥, while `allDrawn` reveals both. A complete stock traversal with `allDrawn` reveals every card traversed. With `topOnly`, it need not do so.
+If only A♣ and 7♥ remain in stock, a draw-three action moves both; `topOnly` reveals 7♥, while `allDrawn` reveals both. A complete stock traversal with `allDrawn` reveals every card traversed. With `topOnly` in standard mode, it need not do so. In thoughtful mode every identity is already known.
 
 ## Stock passes and recycling
 
@@ -65,7 +75,7 @@ Recycling turns the waste over without shuffling. Waste listed bottom-to-top as 
 
 ## True state and player knowledge
 
-The true game state retains every card identity and location. Player knowledge contains only observed identities and the positions/order available from public actions and observation history. Initial face-up tableau cards are observed; initial face-down tableau and stock cards are not.
+The true game state retains every card identity and location. Player knowledge contains observed identities and positions/order available from public actions and observation history, plus all initial identities and positions in thoughtful mode. In standard mode, initial face-up tableau cards are observed; initial face-down tableau and stock cards are not.
 
 All player-facing views must preserve known identities and mask unobserved identities, including covered waste cards. Pile sizes, pass allowance, and rules are public. Knowledge of a covered card does not make it playable. Remembered identities do not authorize inspection of other hidden cards.
 
@@ -73,10 +83,10 @@ Planning must use that knowledge boundary. Hypothetical assignments and sampled 
 
 ## Undo and rollback
 
-Player-facing training undo restores card positions, face-up status, and pass allowance, but retains all identities actually observed during the game. This includes cards revealed by an undone draw or tableau move. A new game resets knowledge. Training undo is an assistance feature, separate from the three rules settings.
+Player-facing training undo restores card positions, face-up status, and pass allowance, but retains all identities actually observed during the game. This includes cards revealed by an undone draw or tableau move. A new game resets knowledge. Training undo is an assistance feature, separate from the four rules settings.
 
 Search rollback restores the exact earlier simulated state, including its knowledge, assumptions, and pass allowance. Information revealed only in a discarded hypothetical branch must not leak into another branch or real play. Implementation must distinguish these two operations even if they share action records internally.
 
 ## Results and reproducibility
 
-Record all three resolved settings with each new episode and benchmark run. Historical results must retain their original conditions; the new defaults do not retroactively establish which information historical players received. See the [historical audit](../experiments/klondike_rules_checklist.md#historical-visibility-audit).
+Record all four resolved settings with each new episode and benchmark run. Historical results must retain their original conditions; the new defaults do not retroactively establish which information historical players received. See the [historical audit](../experiments/klondike_rules_checklist.md#historical-visibility-audit).

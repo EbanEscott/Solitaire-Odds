@@ -72,6 +72,18 @@ class GamePromptsTest {
     }
 
     @Test
+    void bothInterfacesDistinguishThoughtfulKnowledgeFromLegalAccess() {
+        for (String profile : List.of("p0", "detailed")) {
+            String prompt = GamePrompts.promptSet(profile).gameInterface();
+            assertTrue(prompt.contains("thoughtful"));
+            assertTrue(prompt.contains("stock cards must be drawn"));
+            assertTrue(prompt.contains("only the waste top is playable"));
+        }
+        assertTrue(GamePrompts.promptSet("detailed").rules().get("knowledge").toString()
+                .contains("Face-down tableau cards remain unplayable"));
+    }
+
+    @Test
     void rejectsUnknownPromptProfiles() {
         assertThrows(
                 IllegalArgumentException.class,

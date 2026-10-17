@@ -27,7 +27,9 @@ class RulesBoundaryMatrixTest {
         for (int draw : new int[]{1, 3}) {
             for (var visibility : GameRules.StockVisibility.values()) {
                 for (Integer passes : new Integer[]{1, 3, null}) {
-                    rules.add(new GameRules(draw, visibility, passes));
+                    for (boolean thoughtful : new boolean[]{false, true}) {
+                        rules.add(new GameRules(draw, visibility, passes, thoughtful));
+                    }
                 }
             }
         }
@@ -57,7 +59,7 @@ class RulesBoundaryMatrixTest {
         }
         Solitaire plan = game.planningCopy();
         long unknownWaste = plan.getTalon().stream().filter(c -> c.getRank() == Rank.UNKNOWN).count();
-        assertEquals(rules.drawCount() == 3 && rules.stockVisibility() == GameRules.StockVisibility.topOnly
+        assertEquals(!rules.thoughtful() && rules.drawCount() == 3 && rules.stockVisibility() == GameRules.StockVisibility.topOnly
                 ? 3 : 0, unknownWaste);
         for (Solitaire copy : List.of(game.copy(), plan.copy())) {
             long before = copy.getStateKey();

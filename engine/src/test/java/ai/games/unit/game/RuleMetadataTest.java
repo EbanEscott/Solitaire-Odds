@@ -28,12 +28,13 @@ class RuleMetadataTest {
     /**
      * Supplies every independent rules combination.
      *
-     * @return all twelve supported configurations
+     * @return all twenty-four supported configurations
      */
     static Stream<GameRules> rules() {
         return Stream.of(1, 3).flatMap(draw -> Stream.of(GameRules.StockVisibility.values())
                 .flatMap(visibility -> Stream.of(1, 3, null)
-                        .map(passes -> new GameRules(draw, visibility, passes))));
+                        .flatMap(passes -> Stream.of(false, true)
+                                .map(thoughtful -> new GameRules(draw, visibility, passes, thoughtful)))));
     }
 
     /**
@@ -61,6 +62,7 @@ class RuleMetadataTest {
             game.play(state);
             String startup = events.list.stream().map(ILoggingEvent::getFormattedMessage)
                     .filter(line -> line.startsWith("GAME_RULES ")).findFirst().orElseThrow();
+            assertTrue(startup.contains("thoughtful=" + rules.thoughtful()));
             assertTrue(startup.contains("drawCount=" + rules.drawCount()));
             assertTrue(startup.contains("stockVisibility=" + rules.stockVisibility()));
             assertTrue(startup.contains("maxStockPasses=" + rules.maxStockPasses()));
@@ -92,6 +94,14 @@ class RuleMetadataTest {
                 String line = event.getFormattedMessage();
                 JsonNode record = json.readTree(line.substring(line.indexOf(' ') + 1));
                 assertEquals(state.getStockPass(), record.get("stock_pass").asInt());
+                if (record.get("type").asText().equals("step")) {
+                    Solitaire observation = state.planningCopy();
+                    assertEquals(json.valueToTree(observation.getStockpile().reversed().stream()
+                            .map(ai.games.game.Card::shortName).toList()), record.get("known_stock_next_draw_first"));
+                    assertEquals(json.valueToTree(observation.getTableau().stream()
+                            .map(pile -> pile.stream().map(ai.games.game.Card::shortName).toList()).toList()),
+                            record.get("known_tableau_bottom_to_top"));
+                }
             }
         } finally {
             gameLogger.detachAppender(events);

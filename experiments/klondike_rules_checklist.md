@@ -2,7 +2,7 @@
 
 Work branch: `configurable-klondike-rules`.
 
-Implement three independent settings: `drawCount` (`1` or `3`), `stockVisibility` (`topOnly` or `allDrawn`), and `maxStockPasses` (`1`, `3`, or `null` for unlimited). Intended defaults are `3`, `topOnly`, and `null`. Keep foundation-to-tableau moves (worry-back) enabled.
+Implement three independent settings: `drawCount` (`1` or `3`), `stockVisibility` (`topOnly` or `allDrawn`), and `maxStockPasses` (`1`, `3`, or `null` for unlimited). Intended defaults are `3`, `topOnly`, and `null`. Phase 6 adds independent `thoughtful` (`false` by default) for full initial knowledge. Keep foundation-to-tableau moves (worry-back) enabled.
 
 ## 1. Establish the rules contract
 
@@ -37,7 +37,7 @@ Preserve existing model-backed results as historical measurements. Do not label 
 
 - Do not rerun LLM/model-backed result suites: the user has ruled out their cost.
 - Non-LLM player reruns are acceptable when implementation is ready; stage 1 performs no game runs. Check service requirements before selecting neural tests.
-- Keep development reruns in logs. The user has requested the search-player results refresh in stage 6 after implementation and validation are complete.
+- Keep development reruns in logs. The user has requested the search-player results refresh in stage 7 after implementation and validation are complete.
 
 ## 2. Implement core rules
 
@@ -109,15 +109,63 @@ Local verification output: `engine/logs/profiles/klondike-stage4/verification.lo
 - [x] Move development commentary into existing experiment notes.
 - [x] Record rules in episode and benchmark metadata.
 - [x] Clarify root README defaults and verified historical result conditions.
-- [x] Leave published result values and test dates unchanged until stage 6.
+- [x] Leave published result values and test dates unchanged until the search-results refresh (now stage 7).
 
 Keep `engine/RULES.md` as the lasting rules specification. Keep interim results in experiment notes or run logs.
 
 Validation: the Java unit suite passed 310 tests with no failures or skips, including 12 rules-metadata cases. Startup logs record actual rules even when episode logging is off; episode game, step, and summary payloads retain rules and pass counts. Documentation links were checked, and published table values and run dates were compared against the committed README and remain unchanged. No benchmark suites or model games were run. Local output: `engine/logs/profiles/klondike-stage5/verification.log`.
 
-## 6. Refresh search-player results
+## 6. Add Thoughtful Klondike
 
-After stages 2–5 are complete, rerun the six search players with `drawCount=3`, `stockVisibility=topOnly`, and `maxStockPasses=null` (unlimited), with worry-back enabled and training undo disabled. This aligns stock visibility with the historical model-facing observations for comparison. Preserve the existing LLM/model-backed results and their original dates; do not rerun those suites.
+Implemented on 2026-10-17. Added independent Boolean `thoughtful`, default `false`, configured through `-Dgame.thoughtful=true|false`. Existing three-setting behavior stays the default. This expands the configuration matrix from 12 to 24 combinations; it does not change the physical deal, legal moves, draw count, recycling order, pass allowance, or worry-back.
+
+### Contract and justification
+
+With `thoughtful=false`, initial knowledge includes only visible cards, and later observations follow `stockVisibility`. With `thoughtful=true`, all 52 identities and their exact positions are known from the start. Face-down tableau cards remain face-down and unplayable until uncovered; stock cards still require drawing; only the waste top is playable. Full knowledge persists across moves, recycling, copies, and undo.
+
+Keep `stockVisibility` independent and recorded in thoughtful mode. Both values have the same informational effect there because all cards are already known; do not silently rewrite the selected value. `allDrawn` alone is not thoughtful mode: it does not expose the initial stock or face-down tableau.
+
+Thoughtful mode enables full-information investigation of a deal under its exact movement rules. A validated winning sequence proves winnability. Proving unwinnability requires a complete, sound search of legal continuations; a timeout, move cap, heuristic prune, or exhausted bounded player budget means unresolved. The existing A*, Monte Carlo, beam, hill-climbing, greedy, and rule-based players are not certified decision procedures. Enabling this setting does not make their losses proofs. Relevant research: [Blake and Gent, The Winnability of Klondike Solitaire and Many Other Patience Games](https://arxiv.org/abs/1906.12314).
+
+A matched-deal standard/thoughtful comparison can measure an agent's response to extra information. It cannot by itself identify the cause of each loss or classify deals as unwinnable. A future winnability benchmark should distinguish proven winnable, proven unwinnable, and unresolved, retain winning traces/proof evidence, and use matching draw/pass rules. Building that certifying solver is a separate project, outside this phase.
+
+### Implementation checklist
+
+- [x] Extend the rules contract and runtime documentation with `thoughtful=false` by default, strict Boolean validation, its interaction with visibility, and the distinction between knowledge and legal access. Preserve source compatibility for existing three-argument `GameRules` construction by delegating to `thoughtful=false`.
+- [x] Initialize thoughtful knowledge from the actual dealt board after dealing, without changing face-up counts or exposing hidden identities in standard games. Keep true state and player knowledge separate; use the ordinary PLAN path for both modes. A complete thoughtful deal must have no unknown identities or unresolved reveal slots.
+- [x] Preserve the setting and complete knowledge through GAME/PLAN copies, stock turns, recycling, search rollback, and training undo. Include the setting in state keys and comparisons without colliding with the existing finite-pass encoding; retain unlimited-pass cycle detection.
+- [x] Audit legal move generation and all six search players. Same physical position must have the same legal actions in either mode. Full-information planning must need no hypothetical assignments; Monte Carlo must not replace known cards. Existing heuristic budgets/pruning remain bounded and must not be presented as exhaustive solving.
+- [x] Extend CLI rule display, model prompts, TypeSafe rule maps, and model/neural observations with the setting. Expose ordered known stock and full tableau positions while explicitly retaining face-down status and waste playability. Verify actual payloads using local/mocked tests, with no model-backed games.
+- [x] Extend `GAME_RULES` and episode metadata with `thoughtful`. Add ordered known stock/tableau positions to episode observations so thoughtful information survives logging; use the same masked planning view for standard mode. Preserve explicit ordering and face-down counts. Old logs lacking the setting have unknown historical conditions, not automatically certified standard or thoughtful behavior.
+- [x] Audit AlphaSolitaire request/service ingestion and document the feature limitation: complete known positions can be transported, but current features do not fully encode remembered stock/tableau order or rule settings. Do not claim full-information neural evaluation from metadata alone. Feature redesign and checkpoint retraining remain separate unless explicitly authorized.
+- [x] Extend rule-boundary coverage to all 24 configurations and search smoke coverage to six players × 24 configurations. Test complete initial knowledge, retained positions, unchanged legality, no standard-mode leaks, copy/undo/key behavior, metadata, and model/neural payloads. Verify both visibility values behave identically informationally under thoughtful mode.
+- [x] Run the Java unit and targeted local smoke/interface tests, plus relevant local Python ingestion tests if changed. Record results in development logs; do not run result suites or paid/live model games in this phase.
+- [x] Update implementation docs and the checklist once complete. Keep published values/dates unchanged. Make `thoughtful=false` explicit in the stage 7 search refresh; keep thoughtful experiments separate and do not relabel historical search access as a verified thoughtful benchmark.
+
+### Implementation and validation
+
+Implemented `game.thoughtful` with strict Boolean parsing, a backward-compatible three-argument rules constructor, and full initial knowledge recorded through the existing knowledge tracker. Planning retains all positions without changing face-up counts. The flag participates in rule comparisons, state keys, CLI/model/neural observations, and startup/episode metadata. Episode steps now preserve ordered known stock and tableau positions with face-down counts.
+
+New legality checks exposed an existing direct-command bug: `move S …` could bypass drawing and move the stock top. The engine now rejects stock-source moves in both modes; stock cards enter play only through `turn`. Search generators already excluded these commands.
+
+Validation: 541 Java tests passed with no failures or skips, including 24 rule-boundary configurations, 144 search-player smoke cases, full knowledge/rollback and payload tests, and 24 metadata configurations. Two local Python tests passed using a stub model, verifying unseen-inventory ingestion and the current feature limitation for thoughtful input. No result suites, live services, model-backed games, or checkpoint training ran. Published result rows and dates remain unchanged. Java output: `engine/logs/profiles/klondike-stage6/verification.log`.
+
+### Code impact map
+
+| Area | Expected impact |
+| --- | --- |
+| `GameRules` | Fourth record component, default, validated JVM property, compatibility constructor. |
+| `Solitaire`, `UnknownCardTracker` | Initial complete knowledge, existing masked planning path, knowledge retention, rule hashing/comparison. Prefer populating the knowledge boundary over bypassing it with raw GAME boards. |
+| `LegalMovesHelper`, search players | Verify face-up/movement constraints remain independent of known identity; no unknown sampling needed for thoughtful boards. Heuristic behavior may still change with additional information. |
+| `BoardFormatter`, `GamePrompts`, `TypeSafePlayer` | Add flag to explicitly constructed rule displays/maps and clarify known-but-face-down cards; existing ordered knowledge fields can carry full positions. |
+| `AlphaSolitaireRequest`, Python service/features | Record and transport the flag/knowledge; distinguish payload support from feature/model support. |
+| `Game`, `EpisodeLogger` | Startup flag plus structured metadata and complete ordered observations; serializing `GameRules` adds the field automatically, but manually assembled records require changes. |
+| Rules, smoke, interface, metadata tests | Expand the matrix, verify exact positions and invariant move legality, retain standard-mode leak checks. |
+| READMEs and result harness | Document the fourth switch, record exact rules, keep standard and thoughtful results separate. No historical relabelling or model reruns. |
+
+## 7. Refresh search-player results
+
+After stages 2–6 are complete, rerun the six search players with `drawCount=3`, `stockVisibility=topOnly`, and `maxStockPasses=null` (unlimited), with `thoughtful=false`, worry-back enabled, and training undo disabled. This aligns stock visibility with the historical model-facing observations for comparison. Preserve the existing LLM/model-backed results and their original dates; do not rerun those suites.
 
 Use the corresponding tests in `engine/src/test/java/ai/games/results`, gather their logged results, and refresh each player's row in the root README.
 

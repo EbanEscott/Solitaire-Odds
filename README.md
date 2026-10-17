@@ -17,7 +17,7 @@ The highest historical search result is *A\* search* with a win rate of 36.87% Â
 
 ## Game rules
 
-The engine defaults to **draw three, `topOnly` stock visibility, and unlimited stock passes** (`drawCount=3`, `stockVisibility=topOnly`, `maxStockPasses=null`). Foundation-to-tableau moves remain enabled. These settings are independent; see [the rules contract](engine/RULES.md) and [runtime switches](engine/README.md#configuration).
+The engine defaults to **draw three, `topOnly` stock visibility, and unlimited stock passes** (`drawCount=3`, `stockVisibility=topOnly`, `maxStockPasses=null`, `thoughtful=false`). Optional thoughtful mode makes all identities and positions known without changing legal moves. Foundation-to-tableau moves remain enabled. These settings are independent; see [the rules contract](engine/RULES.md) and [runtime switches](engine/README.md#configuration).
 
 The results below predate enforcement of this knowledge boundary. Historical code drew three with unlimited passes, recorded every drawn card as known, and allowed search copies to retain hidden identities. The inspected model-facing boards showed only the waste top, with prior observations retained in conversation/history. That interface finding does not certify every historical run as fully knowledge-isolated `topOnly`. See [the source audit](experiments/klondike_rules_checklist.md#historical-visibility-audit).
 

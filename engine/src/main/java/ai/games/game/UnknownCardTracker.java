@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Tracks identities observed through stock draws and newly exposed waste or tableau cards.
+ * Tracks known identities, including initial thoughtful knowledge and observations during play.
  * <p>
  * Observations survive covering and recycling. Search rollback removes observations introduced
  * by the discarded action; training undo explicitly retains real observations. Unknown

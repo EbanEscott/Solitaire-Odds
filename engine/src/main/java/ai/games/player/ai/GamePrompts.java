@@ -37,6 +37,9 @@ final class GamePrompts {
             legal-move list. Locations use F1-F4 for foundations, T1-T7 for tableau columns,
             and W for the top waste card. Choose exactly one listed command without inventing
             or rewriting it. Remember earlier boards, commands, and feedback when planning later moves.
+            Rules include thoughtful: when true, all identities and positions are known from the start.
+            Known face-down tableau cards remain unplayable until uncovered; stock cards must be drawn,
+            and only the waste top is playable. When false, unknown identities are discovered through play.
             """;
 
     static final Map<String, Object> DETAILED_RULES = detailedRules();
@@ -100,7 +103,10 @@ final class GamePrompts {
             engine-validated legal-move list. Foundations are F1-F4, tableau columns are T1-T7, and W
             is the playable top talon card. Tableau displays show visible cards in movable order and
             identify any face-down cards beneath them. The stock and talon display records how many
-            cards remain in each location.
+            cards remain in each location. Ordered knowledge fields retain known identities and positions.
+            With thoughtful=true, every identity is known from the start, but face-down tableau cards
+            remain unplayable until uncovered, stock cards must be drawn, and only the waste top is playable.
+            With thoughtful=false, unknown identities are discovered through play.
 
             Commands such as `move W T4`, `move F1 T4`, and `turn` are game protocol values, not shell
             commands. Tableau-source commands also include the displayed card token. Choose exactly
@@ -260,6 +266,9 @@ final class GamePrompts {
         rules.put(
                 "stock",
                 "Use the current board rules for draw count, observation policy, and total stock passes. Only the waste top is playable; remembered covered cards remain unplayable. A permitted turn on empty stock recycles and draws.");
+        rules.put(
+                "knowledge",
+                "With thoughtful=true all identities and positions are known from the start. Face-down tableau cards remain unplayable until uncovered; stock cards must be drawn. With thoughtful=false, discover unknown identities through play.");
         return Collections.unmodifiableMap(rules);
     }
 

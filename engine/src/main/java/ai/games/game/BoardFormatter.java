@@ -67,6 +67,7 @@ public class BoardFormatter {
         sb.append("\nRules: drawCount=").append(solitaire.getRules().drawCount())
                 .append(", stockVisibility=").append(solitaire.getRules().stockVisibility())
                 .append(", maxStockPasses=").append(solitaire.getRules().maxStockPasses())
+                .append(", thoughtful=").append(solitaire.getRules().thoughtful())
                 .append("; currentPass=").append(solitaire.getStockPass()).append('\n');
         sb.append("Known waste (bottom to top; only top playable): ")
                 .append(solitaire.getTalon().stream().map(Card::shortName).toList()).append('\n');

@@ -52,7 +52,7 @@ public class AlphaSolitaireRequest {
 
     /**
      * Number of face-down cards remaining in the stockpile.
-     * Hidden card order is not exposed to the model.
+     * Unobserved card order is masked; known order is carried separately in knownStock.
      */
     private final int stockSize;
 
@@ -83,7 +83,7 @@ public class AlphaSolitaireRequest {
     /** Remembered stock identities in next-draw order, with unknown slots masked. */
     private List<String> knownStock;
 
-    /** Remembered tableau identities, including observed cards covered by training undo. */
+    /** Known tableau identities, including thoughtful knowledge and cards covered by training undo. */
     private List<List<String>> knownTableau;
 
     /**

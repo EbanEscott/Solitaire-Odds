@@ -46,5 +46,37 @@ class ObservationIngestionTest(unittest.TestCase):
                 self.assertTrue(torch.isfinite(captured[0]).all())
 
 
+    def test_thoughtful_inventory_is_empty_without_changing_feature_layout(self):
+        captured = []
+
+        def model(state):
+            captured.append(state)
+            return {"policy": torch.zeros((1, 2)), "value": torch.zeros((1, 1))}
+
+        bundle = SimpleNamespace(
+            model=model,
+            model_family="mlp",
+            device="cpu",
+            action_space=ActionSpace(["turn", "quit"], {"turn": 0, "quit": 1}),
+        )
+        for key in ("unknownCards", "unknown_cards"):
+            payload = {
+                "stockSize": 24,
+                "legalMoves": ["turn", "quit"],
+                key: [],
+                "rules": {"thoughtful": True},
+                "knownStock": ["A♣", "2♣"],
+                "knownTableau": [["3♥"]],
+            }
+            command, _, _ = _pick_action_and_scores(bundle, payload)
+            self.assertEqual("turn", command)
+            self.assertEqual(0, captured[-1][0, -236:-184].sum().item())
+            self.assertTrue(torch.isfinite(captured[-1]).all())
+            # Current features do not encode known hidden order or the rule flag.
+            payload["knownStock"] = ["2♣", "A♣"]
+            _pick_action_and_scores(bundle, payload)
+            self.assertTrue(torch.equal(captured[-1], captured[-2]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -179,7 +179,14 @@ public class EpisodeLogger {
             }
             sb.append(']');
 
-            // Stockpile size (we do not expose hidden order by default to the model).
+            // Preserve ordered knowledge without exposing unobserved identities in standard mode.
+            sb.append(",\"known_stock_next_draw_first\":").append(JSON.writeValueAsString(
+                    stockpile.reversed().stream().map(Card::shortName).toList()));
+            sb.append(",\"known_tableau_bottom_to_top\":").append(JSON.writeValueAsString(
+                    stateBefore.getTableau().stream()
+                            .map(pile -> pile.stream().map(Card::shortName).toList()).toList()));
+
+            // Stock size remains available to consumers of the original episode format.
             sb.append(",\"stock_size\":").append(stockpile.size());
 
             // Unknown cards: list of cards not yet revealed to the player

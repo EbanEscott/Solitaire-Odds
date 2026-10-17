@@ -25,7 +25,7 @@ class ConfiguredRulesSmokeTest {
     private static final int DECISIONS = 12;
 
     /**
-     * Enumerates the six local players against all twelve independent rules combinations.
+     * Enumerates the six local players against all twenty-four independent rules combinations.
      *
      * @return named player/configuration pairs for independently reported smoke tests
      */
@@ -35,7 +35,9 @@ class ConfiguredRulesSmokeTest {
             for (int draw : new int[]{1, 3}) {
                 for (var visibility : GameRules.StockVisibility.values()) {
                     for (Integer passes : new Integer[]{1, 3, null}) {
-                        cases.add(Arguments.of(player, new GameRules(draw, visibility, passes)));
+                        for (boolean thoughtful : new boolean[]{false, true}) {
+                            cases.add(Arguments.of(player, new GameRules(draw, visibility, passes, thoughtful)));
+                        }
                     }
                 }
             }

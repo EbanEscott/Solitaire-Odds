@@ -144,10 +144,10 @@ public class Game implements CommandLineRunner {
         final int maxIterations = Integer.getInteger("max.moves.per.game", 10_000);
 
         // Record actual game settings even when per-move episode logging is disabled.
-        log.info("GAME_RULES run_id={} game_index={} solver={} drawCount={} stockVisibility={} maxStockPasses={} stock_pass={} training_mode={} guidance={} max_iterations={}",
+        log.info("GAME_RULES run_id={} game_index={} solver={} drawCount={} stockVisibility={} maxStockPasses={} thoughtful={} stock_pass={} training_mode={} guidance={} max_iterations={}",
                 EpisodeLogger.getRunId(), System.getProperty("game.index"), solverId,
                 solitaire.getRules().drawCount(), solitaire.getRules().stockVisibility(),
-                solitaire.getRules().maxStockPasses(), solitaire.getStockPass(),
+                solitaire.getRules().maxStockPasses(), solitaire.getRules().thoughtful(), solitaire.getStockPass(),
                 trainingMode.isMode(), guidanceMode.isMode(), maxIterations);
 
         while (true) {

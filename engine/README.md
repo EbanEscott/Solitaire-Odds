@@ -27,6 +27,7 @@ The wrapper forwards JVM properties to the application and tests. Switch rules w
 | `game.drawCount` | `1`, `3` | `3` |
 | `game.stockVisibility` | `topOnly`, `allDrawn` | `topOnly` |
 | `game.maxStockPasses` | `1`, `3`, `null` (unlimited) | `null` |
+| `game.thoughtful` | `true`, `false`; full initial knowledge without changing legal moves | `false` |
 | `training.mode` | `true`, `false`; enables player undo | `false` |
 | `guidance.mode` | `true`, `false`; recommendations and feedback | `true` |
 | `log.episodes` | `true`, `false`; structured episode records | `false` |
@@ -34,6 +35,8 @@ The wrapper forwards JVM properties to the application and tests. Switch rules w
 | `suit.ascii` | `true`, `false`; ASCII suit rendering | `false` |
 
 Rules are independent and captured once at game construction directly from JVM system properties. They are not read from Spring configuration files. Invalid values fail at construction. Java callers can supply an explicit immutable `GameRules` through `new Solitaire(deck, rules)`; copies retain the source rules.
+
+Enable `-Dgame.thoughtful=true` to make every card identity and position known from the start. Face-down tableau cards remain unplayable until uncovered, and stock cards still require drawing. `stockVisibility` remains recorded but reveals nothing new in thoughtful mode.
 
 Only the waste top is playable under either visibility policy. Observed identities stay known through covering and recycling. Pass 1 is the initial traversal; a permitted `turn` on empty stock recycles and draws in one action. Reaching the pass limit leaves other legal moves available. Foundation-to-tableau moves remain enabled.
 
@@ -82,13 +85,13 @@ Routine local verification:
 ./gradlew test --tests ai.games.player.ai.ConfiguredRulesSmokeTest --console=plain
 ```
 
-The smoke suite covers six search players across all 12 rule combinations. It checks bounded decisions and board integrity, not win rates. Select functional tests individually: some require external model or neural services. An unrestricted `test` or `build` also selects result suites.
+The smoke suite covers six search players across all 24 rule combinations. It checks bounded decisions and board integrity, not win rates. Select functional tests individually: some require external model or neural services. An unrestricted `test` or `build` also selects result suites.
 
 See [result-suite instructions](src/test/java/ai/games/results/README.md) for explicit benchmark selection and game/move limits. Development measurements belong in logs or [experiment notes](../experiments/README.md). The [root results table](../README.md) contains historical measurements; updating defaults does not retroactively change their conditions.
 
 ## Logs and metadata
 
-`logs/game.log` contains a `GAME_RULES` startup record for every game, including benchmarks with episode logging disabled. It records the actual draw count, visibility, pass limit, starting pass, solver, run ID, optional game index, training/guidance settings, and iteration cap.
+`logs/game.log` contains a `GAME_RULES` startup record for every game, including benchmarks with episode logging disabled. It records the actual draw count, visibility, pass limit, thoughtful mode, starting pass, solver, run ID, optional game index, training/guidance settings, and iteration cap.
 
 Enable `-Dlog.episodes=true` for structured JSON records in `logs/episode.log`:
 
@@ -96,6 +99,6 @@ Enable `-Dlog.episodes=true` for structured JSON records in `logs/episode.log`:
 - `EPISODE_STEP` records the masked observation before a command, legal moves, chosen action, `game_rules`, and `stock_pass`.
 - `EPISODE_SUMMARY` records termination, progress, duration, `game_rules`, and the final `stock_pass`.
 
-The `game_rules` object uses `drawCount`, `stockVisibility`, and `maxStockPasses`; unlimited passes serialize as JSON `null`. A game that exits before its first response still has a startup rules record and, when enabled, a summary. Episode observations mask unknown identities and include the unseen-card inventory; they do not expose the true hidden arrangement.
+The `game_rules` object uses `drawCount`, `stockVisibility`, `maxStockPasses`, and `thoughtful`; unlimited passes serialize as JSON `null`. A game that exits before its first response still has a startup rules record and, when enabled, a summary. Episode steps include `known_stock_next_draw_first` and `known_tableau_bottom_to_top`, with `tableau_face_down` preserving physical face-down counts. These fields carry full positions in thoughtful mode. Episode observations mask unknown identities and include the unseen-card inventory; standard-mode observations do not expose the true hidden arrangement.
 
 Set `-Dexperiment.run.id=<id>` to identify a run; otherwise the JVM generates an `auto-...` identifier. Set `SOLITAIRE_LOG_DIR` to a separate directory for concurrent runs. Preserve logs together with the code revision, game counts, deals/seeds, and player search budgets when reporting results.
