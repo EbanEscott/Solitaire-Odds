@@ -104,14 +104,16 @@ Local verification output: `engine/logs/profiles/klondike-stage4/verification.lo
 
 ## 5. Clean up documentation and reporting
 
-- [ ] Condense `engine/README.md` into setup, configuration, commands, and testing.
-- [ ] Move durable implementation details into player documentation.
-- [ ] Move development commentary into existing experiment notes.
-- [ ] Record rules in episode and benchmark metadata.
-- [ ] Clarify root README defaults and verified historical result conditions.
-- [ ] Leave published result values and test dates unchanged until stage 6.
+- [x] Condense `engine/README.md` into setup, configuration, commands, and testing.
+- [x] Move durable implementation details into player documentation.
+- [x] Move development commentary into existing experiment notes.
+- [x] Record rules in episode and benchmark metadata.
+- [x] Clarify root README defaults and verified historical result conditions.
+- [x] Leave published result values and test dates unchanged until stage 6.
 
 Keep `engine/RULES.md` as the lasting rules specification. Keep interim results in experiment notes or run logs.
+
+Validation: the Java unit suite passed 310 tests with no failures or skips, including 12 rules-metadata cases. Startup logs record actual rules even when episode logging is off; episode game, step, and summary payloads retain rules and pass counts. Documentation links were checked, and published table values and run dates were compared against the committed README and remain unchanged. No benchmark suites or model games were run. Local output: `engine/logs/profiles/klondike-stage5/verification.log`.
 
 ## 6. Refresh search-player results
 

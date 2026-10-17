@@ -2,12 +2,15 @@
 
 Run player benchmarks with copy-paste commands.
 
+## Rules and reproducibility
+
+Run commands from `engine/` and select an individual suite. The current rules default to draw three, `topOnly`, and unlimited passes. For recorded comparisons, pass `-Dgame.drawCount=3 -Dgame.stockVisibility=topOnly -Dgame.maxStockPasses=null` explicitly. Record the revision, game count, move cap, guidance/training settings, search budgets, and log directory alongside results. `GAME_RULES` records the actual settings at each game start even with episode logging disabled; `-Dexperiment.run.id=<id>` joins these to optional episode records.
+
+The configurable-rules refresh covers only the six search players below. Do not rerun model-backed suites for that refresh; preserve their historical results and dates. AlphaSolitaire is also outside that refresh. Benchmark execution alone does not authorize updating the root results table.
+
 ## Quick Commands
 
 ```bash
-# All tests
-./gradlew test --tests "ai.games.results.**"
-
 # A* Search
 ./gradlew test --tests "ai.games.results.AStarPlayerResultsTest" --rerun-tasks "-Dtest.max.moves.per.game=1000" "-Dtest.progress.log.interval=1" "-Dtest.games=100"
 

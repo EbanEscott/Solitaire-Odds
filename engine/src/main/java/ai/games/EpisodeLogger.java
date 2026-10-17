@@ -29,6 +29,15 @@ public class EpisodeLogger {
         return ENABLED;
     }
 
+    /**
+     * Returns the run identifier shared by benchmark and episode records.
+     *
+     * @return the configured run identifier, or the identifier generated for this JVM
+     */
+    public static String getRunId() {
+        return RUN_ID;
+    }
+
     /** Emits one game-scoped metadata record before the first move record. */
     public static void logGameMetadata(String solverId, Map<String, Object> metadata) {
         try {
@@ -107,6 +116,8 @@ public class EpisodeLogger {
             sb.append("{\"type\":\"step\"");
             appendRunContext(sb, gameIndex, gameTotal);
             sb.append(",\"solver\":\"").append(solverId).append("\"");
+            sb.append(",\"game_rules\":").append(JSON.writeValueAsString(stateBefore.getRules()));
+            sb.append(",\"stock_pass\":").append(stateBefore.getStockPass());
             sb.append(",\"step_index\":").append(stepIndex);
             sb.append(",\"state_key\":").append(stateKey);
             
@@ -299,6 +310,8 @@ public class EpisodeLogger {
             sb.append("{\"type\":\"summary\"");
             appendRunContext(sb, gameIndex, gameTotal);
             sb.append(",\"solver\":\"").append(solverId).append("\"");
+            sb.append(",\"game_rules\":").append(JSON.writeValueAsString(solitaire.getRules()));
+            sb.append(",\"stock_pass\":").append(solitaire.getStockPass());
             sb.append(",\"iterations\":").append(iterations);
             sb.append(",\"successful_moves\":").append(successfulMoves);
             sb.append(",\"won\":").append(won);

@@ -213,3 +213,10 @@ Current non-responsibilities for this folder:
 
 - Core Solitaire gameplay logic. That stays in `engine/`.
 - Model implementations and training primitives. Those stay in `neural-network/`.
+
+
+## Search-player development
+
+A* working notes live in [the A* notebook](notebooks/astar_improvement_research.ipynb); Monte Carlo comparisons live in [the Monte Carlo notebook](notebooks/monte_carlo_improvement_research.ipynb). Keep interim measurements in these notes and `engine/logs/profiles/`, with recorded deals, budgets, rules, and revision. Publish settled results only when requested.
+
+The opt-in `ai.games.experiments.AStarScreenTest` compares variants on identical seeded deals and writes deck orders and per-game CSV results. From `engine/`, select that test explicitly with `-Dastar.screen=true -Dastar.output=/absolute/fresh/run/directory`; optional `astar.games` defaults to 20 and `astar.seedStart` to 0. See [A* configuration](../engine/src/main/java/ai/games/player/ai/astar/README.md) for policy controls.

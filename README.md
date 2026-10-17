@@ -6,7 +6,7 @@ A well-shuffled 52-card deck has *52! permutations (about 8.1 × 10^67)*, so man
 
 This means testing every deck permutation is impossible. Instead, we lean on AI and solid engineering to run repeatable regression test suites over large batches of randomly shuffled games, so we can measure performance statistically rather than brute-forcing every possible deal. The goal is not to “solve” all of Solitaire, but to apply a range of AI algorithms that reliably solve as many deals as possible and, in doing so, reveal the true probability of winning under real rules.
 
-The current best player is *A\* search* with a win rate of 36.87% ± 0.95% across 10,000 games, with a performance at 4.009s per game and an 8-game win streak.
+The highest historical search result is *A\* search* with a win rate of 36.87% ± 0.95% across 10,000 games, with a performance at 4.009s per game and an 8-game win streak.
 
 ## Repository Layout
 
@@ -14,6 +14,14 @@ The current best player is *A\* search* with a win rate of 36.87% ± 0.95% acros
 - [neural-network/](neural-network/README.md) — AlphaSolitaire models, training, and service.
 - [experiments/](experiments/README.md) — long-running experiments, orchestration, notebooks, and working notes.
 - [research/](research/README.md) — research questions, literature reviews, curated experiment write-ups, and paper drafts.
+
+## Game rules
+
+The engine defaults to **draw three, `topOnly` stock visibility, and unlimited stock passes** (`drawCount=3`, `stockVisibility=topOnly`, `maxStockPasses=null`). Foundation-to-tableau moves remain enabled. These settings are independent; see [the rules contract](engine/RULES.md) and [runtime switches](engine/README.md#configuration).
+
+The results below predate enforcement of this knowledge boundary. Historical code drew three with unlimited passes, recorded every drawn card as known, and allowed search copies to retain hidden identities. The inspected model-facing boards showed only the waste top, with prior observations retained in conversation/history. That interface finding does not certify every historical run as fully knowledge-isolated `topOnly`. See [the source audit](experiments/klondike_rules_checklist.md#historical-visibility-audit).
+
+The planned search-only refresh will use the current defaults. Existing model results and dates will be retained without rerunning model games. Visibility alignment alone does not equalize search budgets, move caps, prompts, or other benchmark conditions.
 
 ## Test Results
 
@@ -43,7 +51,7 @@ These search results were last run on Jan 26, 2026 at 9:44 PM AEST.
 | Hill-climbing Search         | Search | 10000 | 1301 | 13.01% ± 0.66% | 2ms | 17.181s | 96.20 | 5 | Local hill-climbing with restarts over hashed game states; see [code](engine/src/main/java/ai/games/player/ai/HillClimberPlayer.java). |
 | Beam Search                  | Search | 10000 | 1022 | 10.22% ± 0.59% | 37ms | 6m 13s | 915.89 | 4 | Fixed-width beam search over move sequences; see [code](engine/src/main/java/ai/games/player/ai/BeamSearchPlayer.java). |
 | Monte Carlo Search           | Search | 10000 | 1742 | 17.42% ± 0.74% | 1.782s | 4h 57m | 846.24 | 4 | Historical result before rollout inverse/symmetry pruning; current win rate not remeasured. See [code](engine/src/main/java/ai/games/player/ai/mcts/MonteCarloPlayer.java). |
-| A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 11h 8m | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/AStarPlayer.java). |
+| A* Search                    | Search | 10000 | 3687 | 36.87% ± 0.95% | 4.009s | 11h 8m | 92.53 | 8 | A* search guided by a heuristic evaluation; see [code](engine/src/main/java/ai/games/player/ai/astar/AStarPlayer.java). |
 
 ### Model-backed players
 
@@ -60,9 +68,7 @@ The main evaluations target 100 independent random deals per configuration. Jev'
 | TypeSafe AI (Jev control)     | Decision | P0 unguided      | 10 | 0 | 0.00% (95% CI 0.0%-27.8%) | 1m 9s | 11m 30s | 200.00 | 0 | Diagnostic control: all ten games reached the move cap and 1,971 of 2,000 choices were stock turns; see [notebook](experiments/notebooks/llm_player_research.ipynb). |
 | TypeSafe AI (Jev detailed)    | Decision | P1.5 supplied    | 100 | 10 | 10.00% ± 5.88% | 1m 6s | 1h 49m | 193.52 | 1 | TypeSafe AI `jev-1.13.0` via System One Choice API with compact observed-board history, engine guidance disabled, and a 200-move cap; see [code](engine/src/main/java/ai/games/player/ai/TypeSafePlayer.java) and [notebook](experiments/notebooks/llm_player_research.ipynb). |
 
-> Why does A* search still outperform model-backed play at Solitaire? Search can explore and compare complete game states directly. Persistent-session LLMs and stateful decision models can retain enough context to win games, but they do not perform the same efficient tree search.
->
-> Persistent context let Astra, Sol, Luna, Haiku, Sonnet, and Opus turn their own strategic descriptions into wins. Astra produced the strongest completed P0 model-backed result at 22%, although its confidence interval overlaps Sol's 18%. The credit-limited Sonnet and Opus estimates are recorded as partial samples rather than direct rankings. Jev reached 10% with the supplied P1.5 policy, after winning 0 of 10 games under the unguided P0 control. Deliberate search remains stronger.
+> The historical search and model results used different information access, so their gap cannot be attributed to search strategy alone. Astra had the strongest completed P0 model-backed result at 22%, with a confidence interval overlapping Sol’s 18%. Sonnet and Opus remain partial samples; Jev’s supplied-policy and unguided rows represent different experimental conditions.
 
 ## Players
 

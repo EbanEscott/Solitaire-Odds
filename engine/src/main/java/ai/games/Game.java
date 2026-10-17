@@ -143,6 +143,13 @@ public class Game implements CommandLineRunner {
         // align with ResultsConfig.MAX_MOVES_PER_GAME without introducing a direct dependency on test code.
         final int maxIterations = Integer.getInteger("max.moves.per.game", 10_000);
 
+        // Record actual game settings even when per-move episode logging is disabled.
+        log.info("GAME_RULES run_id={} game_index={} solver={} drawCount={} stockVisibility={} maxStockPasses={} stock_pass={} training_mode={} guidance={} max_iterations={}",
+                EpisodeLogger.getRunId(), System.getProperty("game.index"), solverId,
+                solitaire.getRules().drawCount(), solitaire.getRules().stockVisibility(),
+                solitaire.getRules().maxStockPasses(), solitaire.getStockPass(),
+                trainingMode.isMode(), guidanceMode.isMode(), maxIterations);
+
         while (true) {
             // Build the "view" of this turn (guidance + recommended moves + feedback).
             TurnView view = null;
@@ -206,6 +213,8 @@ public class Game implements CommandLineRunner {
                 if (player instanceof ExperimentMetadataProvider provider) {
                     metadata.putAll(provider.getExperimentMetadata());
                 }
+                metadata.put("game_rules", solitaire.getRules());
+                metadata.put("stock_pass", solitaire.getStockPass());
                 metadata.put("guidance", guidanceMode.isMode());
                 metadata.put("training_mode", trainingMode.isMode());
                 metadata.put("max_iterations", maxIterations);

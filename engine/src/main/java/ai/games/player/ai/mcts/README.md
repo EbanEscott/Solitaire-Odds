@@ -1,4 +1,4 @@
-# Monte Carlo Tree Search Player Design
+# Monte Carlo Search Player
 
 ## Overview
 
